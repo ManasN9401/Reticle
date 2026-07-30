@@ -1,5 +1,6 @@
 import sys
 import json
+import time
 
 def main():
     line = sys.stdin.readline()
@@ -10,18 +11,24 @@ def main():
         req = json.loads(line)
         req_id = req.get("id", "unknown")
         
-        result = "# Project Title\n\n## Introduction\n\n## Getting Started\n\n## Contributing"
+        # Build the DAG Artifact
+        artifact = {
+            "id": "readme_outline",
+            "name": "README Outline",
+            "type": "document/markdown",
+            "producer": "outline-gen",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "version": 1,
+            "data": "# Project Title\n\n## Introduction\n\n## Getting Started\n\n## Contributing"
+        }
         
         resp = {
             "id": req_id,
-            "result": result
+            "artifact": artifact
         }
-        
         print(json.dumps(resp))
-        sys.stdout.flush()
     except Exception as e:
         print(json.dumps({"id": "unknown", "error": str(e)}))
-        sys.stdout.flush()
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,6 @@
 import sys
 import json
+import time
 
 def main():
     line = sys.stdin.readline()
@@ -10,20 +11,29 @@ def main():
         req = json.loads(line)
         req_id = req.get("id", "unknown")
         payload = req.get("payload", "")
-        
+
         improved = payload.replace("Project Title", "HyperParallel Framework")
         improved = improved.replace("Getting Started", "Quick Start Guide")
         
-        resp = {
-            "id": req_id,
-            "result": improved
+        # Build the DAG Artifact with a Parent!
+        artifact = {
+            "id": "readme_final",
+            "name": "Final README",
+            "type": "document/markdown",
+            "producer": "wording-imp",
+            "parents": ["readme_outline"], # DAG Link!
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "version": 1,
+            "data": improved
         }
         
+        resp = {
+            "id": req_id,
+            "artifact": artifact
+        }
         print(json.dumps(resp))
-        sys.stdout.flush()
     except Exception as e:
         print(json.dumps({"id": "unknown", "error": str(e)}))
-        sys.stdout.flush()
 
 if __name__ == "__main__":
     main()
