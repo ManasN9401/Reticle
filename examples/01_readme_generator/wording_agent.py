@@ -15,12 +15,15 @@ def main():
         improved = payload.replace("Project Title", "HyperParallel Framework")
         improved = improved.replace("Getting Started", "Quick Start Guide")
         
-        # Build the DAG Artifact with a Parent!
+        # Build the DAG Artifact with extended metadata
         artifact = {
             "id": "readme_final",
             "name": "Final README",
             "type": "document/markdown",
             "producer": "wording-imp",
+            "workflow": req.get("workflow", ""),
+            "session": req.get("session_id", ""),
+            "task": req_id,
             "parents": ["readme_outline"], # DAG Link!
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "version": 1,

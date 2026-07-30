@@ -18,9 +18,11 @@ func main() {
 	wordingWorker := agent.NewWorker(agent.WorkerID("wording-imp"), "python", []string{"wording_agent.py"}, orch.Logger, orch.Bus)
 
 	err := sup.AssignTask(outlineWorker, agent.TaskRequest{
-		ID:      agent.TaskID("task-1"),
-		Type:    "generate_outline",
-		Payload: "create an outline for a software project",
+		ID:        agent.TaskID("task-1"),
+		SessionID: orch.SessionState.SessionID,
+		Workflow:  "readme-generator",
+		Type:      "generate_outline",
+		Payload:   "create an outline for a software project",
 	}, memory.MemoryKey("readme_outline"))
 	
 	if err != nil {
@@ -39,9 +41,11 @@ func main() {
 	outlineStr := rawOutline.Data.(string)
 
 	err = sup.AssignTask(wordingWorker, agent.TaskRequest{
-		ID:      agent.TaskID("task-2"),
-		Type:    "improve_wording",
-		Payload: outlineStr,
+		ID:        agent.TaskID("task-2"),
+		SessionID: orch.SessionState.SessionID,
+		Workflow:  "readme-generator",
+		Type:      "improve_wording",
+		Payload:   outlineStr,
 	}, memory.MemoryKey("readme_final"))
 
 	if err != nil {

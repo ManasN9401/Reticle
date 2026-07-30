@@ -11,12 +11,15 @@ def main():
         req = json.loads(line)
         req_id = req.get("id", "unknown")
         
-        # Build the DAG Artifact
+        # Build the DAG Artifact with extended metadata
         artifact = {
             "id": "readme_outline",
             "name": "README Outline",
             "type": "document/markdown",
             "producer": "outline-gen",
+            "workflow": req.get("workflow", ""),
+            "session": req.get("session_id", ""),
+            "task": req_id,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "version": 1,
             "data": "# Project Title\n\n## Introduction\n\n## Getting Started\n\n## Contributing"

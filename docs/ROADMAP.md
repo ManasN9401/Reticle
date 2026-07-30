@@ -480,3 +480,33 @@ No RFC should duplicate concepts already defined elsewhere.
 Each RFC should instead extend the architectural specification while remaining consistent with all previously accepted RFCs.
 
 This roadmap is expected to evolve as the framework matures. New RFCs may be introduced, revised, superseded, or deprecated through the project's governance process.
+
+Foundation Phase
+
+✔ Repository Structure
+✔ Roadmap
+✔ Project State
+✔ Metadata Standard (Draft)
+
+↓
+Document Standards
+
+→ 001 DOCUMENT_WRITING_STANDARD
+→ Template Suite
+→ RFC Process
+
+↓
+
+Philosophy
+
+→ RFC-000 Planning
+→ RFC-000 Writing
+
+↓
+
+Architecture
+
+RFC-001 Runtime
+RFC-002 Events
+RFC-003 Scheduler
+...
