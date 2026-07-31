@@ -18,7 +18,7 @@ def main():
             "type": "document/markdown",
             "producer": "outline-gen",
             "workflow": req.get("workflow", ""),
-            "session": req.get("session_id", ""),
+            "execution": req.get("execution", ""),
             "task": req_id,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "version": 1,

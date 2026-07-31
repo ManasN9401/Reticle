@@ -10,7 +10,8 @@ def main():
     try:
         req = json.loads(line)
         req_id = req.get("id", "unknown")
-        payload = req.get("payload", "")
+        inputs = req.get("inputs", [])
+        payload = inputs[0].get("data", "") if inputs else ""
 
         improved = payload.replace("Project Title", "HyperParallel Framework")
         improved = improved.replace("Getting Started", "Quick Start Guide")
@@ -22,7 +23,7 @@ def main():
             "type": "document/markdown",
             "producer": "wording-imp",
             "workflow": req.get("workflow", ""),
-            "session": req.get("session_id", ""),
+            "execution": req.get("execution", ""),
             "task": req_id,
             "parents": ["readme_outline"], # DAG Link!
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
