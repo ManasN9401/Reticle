@@ -13,7 +13,7 @@ import (
 type Orchestrator struct {
 	Logger       *logger.Logger
 	Bus          *events.Bus
-	Artifacts    *memory.ArtifactManager
+	Artifacts    *memory.ArtifactStore
 	RuntimeState *memory.RuntimeState
 	SessionState *memory.SessionState
 }
@@ -30,7 +30,7 @@ func New() *Orchestrator {
 	l := logger.New()
 	sessionID := generateSessionID()
 	b := events.NewBus(sessionID)
-	artifacts := memory.NewArtifactManager()
+	artifacts := memory.NewArtifactStore()
 	runtimeState := memory.NewRuntimeState()
 	sessionState := memory.NewSessionState(sessionID)
 	
@@ -38,14 +38,21 @@ func New() *Orchestrator {
 
 	// The central Event Logger (Source of Truth)
 	b.SubscribeAll(func(e events.RuntimeEvent) {
-		l.Info(
-			"Runtime Event",
-			"event", e.Type,
-			"id", e.ID, 
-			"session", e.SessionID,
-			"component", e.Source, 
-			"payload", e.Payload,
-		)
+		payload := e.Payload
+
+		// If it's an Artifact, strip the large Data payload unless DebugMode is explicitly on.
+		if art, ok := payload.(*memory.Artifact); ok && !l.DebugMode {
+			payload = map[string]any{
+				"id":         art.ID,
+				"version":    art.Version,
+				"producer":   art.Producer,
+				"workflow":   art.Workflow,
+				"created_at": art.CreatedAt,
+			}
+		}
+
+		// Log structured event to the console and file
+		l.Info("Runtime Event", "component", string(e.Source), "event", string(e.Type), "payload", payload)
 	})
 
 	return &Orchestrator{

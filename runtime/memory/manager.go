@@ -7,13 +7,13 @@ import (
 // Manager is the umbrella structure that holds all state managers.
 // It subscribes to the Event Bus and translates update requests into physical state mutations.
 type Manager struct {
-	Artifacts *ArtifactManager
+	Artifacts *ArtifactStore
 	Runtime   *RuntimeState
 	Session   *SessionState
 	bus       *events.Bus
 }
 
-func NewManager(am *ArtifactManager, rs *RuntimeState, ss *SessionState, b *events.Bus) *Manager {
+func NewManager(am *ArtifactStore, rs *RuntimeState, ss *SessionState, b *events.Bus) *Manager {
 	m := &Manager{
 		Artifacts: am,
 		Runtime:   rs,
@@ -38,7 +38,7 @@ func (m *Manager) subscribe() {
 			m.Runtime.set(key, val)
 			
 			// Acknowledge the mutation to the rest of the system
-			m.bus.Publish(events.EventType("MemoryUpdated"), events.Component("memory_manager"), map[string]any{
+			m.bus.Publish(events.EventType("MemoryUpdated"), events.Component("memory"), map[string]any{
 				"key": key,
 			})
 		}
@@ -49,9 +49,14 @@ func (m *Manager) subscribe() {
 		artifact, ok := e.Payload.(*Artifact)
 		if ok {
 			m.Artifacts.save(artifact)
-			m.bus.Publish(events.EventType("ArtifactStored"), events.Component("memory_manager"), map[string]any{
-				"id": artifact.ID,
-			})
+			
+			// If it's version 1, it's newly stored. Otherwise it's a new revision!
+			eventType := "ArtifactStored"
+			if artifact.Version > 1 {
+				eventType = "ArtifactVersionCreated"
+			}
+			
+			m.bus.Publish(events.EventType(eventType), events.Component("memory"), artifact)
 		}
 	})
 }

@@ -18,11 +18,11 @@ type Artifact struct {
 	Type      ArtifactType `json:"type"`
 	Producer  string       `json:"producer"` // Using string to avoid import cycles with agent.WorkerID
 	Workflow  string       `json:"workflow,omitempty"`
-	Session   string       `json:"session,omitempty"`
+	Execution string       `json:"execution,omitempty"`
 	Task      string       `json:"task,omitempty"`
 	Parents   []ArtifactID `json:"parents,omitempty"`
 	CreatedAt time.Time    `json:"created_at"`
-	StoredAt  time.Time    `json:"stored_at,omitempty"`
+	StoredAt  *time.Time   `json:"stored_at,omitempty"`
 	Version   uint32       `json:"version"`
-	Data      any          `json:"data"`
+	Data      any          `json:"data,omitempty"`
 }

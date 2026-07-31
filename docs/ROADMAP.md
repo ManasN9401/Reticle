@@ -510,3 +510,21 @@ RFC-001 Runtime
 RFC-002 Events
 RFC-003 Scheduler
 ...
+
+1. Finish the event-driven runtime skeleton
+   ✓ Event Bus
+   ✓ Dispatcher
+   ✓ Subscription Manager
+   ✓ Artifact Store
+
+2. Define the Worker Runtime Contract
+   (this becomes one of the first RFCs)
+
+3. Build a true Task Graph executor
+   (replace hardcoded orchestration)
+
+4. Introduce Shared Runtime Memory
+   (distinct from artifacts)
+
+5. Write the first architectural RFCs
+   documenting what has now proven itself.

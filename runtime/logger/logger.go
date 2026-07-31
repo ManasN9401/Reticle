@@ -12,6 +12,7 @@ import (
 // Logger defines the structured logging interface for the Skeleton Runtime.
 type Logger struct {
 	jsonLogger *slog.Logger
+	DebugMode  bool
 }
 
 func New() *Logger {
@@ -31,6 +32,7 @@ func New() *Logger {
 
 	return &Logger{
 		jsonLogger: jsonLogger,
+		DebugMode:  false, // Default to normal mode
 	}
 }
 

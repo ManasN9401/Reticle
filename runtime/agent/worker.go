@@ -14,13 +14,23 @@ import (
 type WorkerID string
 type TaskID string
 
-// TaskRequest represents what a worker is asked to do.
-type TaskRequest struct {
-	ID        TaskID `json:"id"`
-	SessionID string `json:"session_id,omitempty"`
-	Workflow  string `json:"workflow,omitempty"`
-	Type      string `json:"type"`
-	Payload   string `json:"payload"`
+// TaskInput represents structured data given to a worker.
+type TaskInput struct {
+	ArtifactID string `json:"artifact_id,omitempty"`
+	Version    int    `json:"version,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Data       any    `json:"data,omitempty"`
+}
+
+// Task represents what a worker is asked to do.
+type Task struct {
+	ID          TaskID         `json:"id"`
+	AgentID     string         `json:"agent_id,omitempty"`
+	ExecutionID string         `json:"execution,omitempty"`
+	Workflow    string         `json:"workflow,omitempty"`
+	Type        string         `json:"type"`
+	Inputs     []TaskInput    `json:"inputs,omitempty"`
+	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
 // TaskResponse represents what a worker returns.
@@ -49,7 +59,7 @@ func NewWorker(id WorkerID, executable string, args []string, l *logger.Logger, 
 	}
 }
 
-func (w *Worker) Execute(req TaskRequest) (*TaskResponse, error) {
+func (w *Worker) Execute(req Task) (*TaskResponse, error) {
 	w.Bus.Publish(events.EventType("WorkerStarted"), events.Component("worker"), map[string]any{
 		"task_id":   req.ID,
 		"worker_id": w.ID,
