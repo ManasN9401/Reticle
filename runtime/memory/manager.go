@@ -45,7 +45,7 @@ func (m *Manager) subscribe() {
 	})
 
 	// Subscribe to Artifact storage requests
-	m.bus.Subscribe(events.EventType("ArtifactStoreRequested"), func(e events.RuntimeEvent) {
+	m.bus.Subscribe(events.EventType("ArtifactsProduced"), func(e events.RuntimeEvent) {
 		artifact, ok := e.Payload.(*Artifact)
 		if ok {
 			m.Artifacts.save(artifact)

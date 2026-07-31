@@ -158,5 +158,15 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 		"task_id":   req.ID,
 		"worker_id": w.ID,
 	})
+
+	if resp.Artifact != nil {
+		w.Bus.Publish(events.EventType("ArtifactsProduced"), events.Component("worker"), resp.Artifact)
+	} else if resp.Result != "" {
+		w.Bus.Publish(events.EventType("MemoryUpdateRequested"), events.Component("worker"), map[string]any{
+			"key":   req.ID,
+			"value": resp.Result,
+		})
+	}
+
 	return &resp, nil
 }

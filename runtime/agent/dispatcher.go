@@ -25,10 +25,10 @@ func (d *Dispatcher) RegisterWorker(w *Worker) {
 }
 
 func (d *Dispatcher) Start() {
-	d.Bus.Subscribe(events.EventType("TaskReady"), func(e events.RuntimeEvent) {
+	d.Bus.Subscribe(events.EventType("TaskCreated"), func(e events.RuntimeEvent) {
 		task, ok := e.Payload.(Task)
 		if !ok {
-			d.Logger.Error("Dispatcher received invalid TaskReady payload")
+			d.Logger.Error("Dispatcher received invalid TaskCreated payload")
 			return
 		}
 
@@ -46,7 +46,7 @@ func (d *Dispatcher) Start() {
 				"worker_id": w.ID,
 			})
 			
-			resp, failure := w.Execute(t)
+			_, failure := w.Execute(t)
 			if failure != nil {
 				d.Logger.Error("Worker execution failed", "worker_id", w.ID, "reason", failure.Reason, "stderr", failure.Stderr)
 				
@@ -60,14 +60,6 @@ func (d *Dispatcher) Start() {
 				return
 			}
 
-			if resp.Artifact != nil {
-				d.Bus.Publish(events.EventType("ArtifactStoreRequested"), events.Component("dispatcher"), resp.Artifact)
-			} else if resp.Result != "" {
-				d.Bus.Publish(events.EventType("MemoryUpdateRequested"), events.Component("dispatcher"), map[string]any{
-					"key":   t.ID,
-					"value": resp.Result,
-				})
-			}
 		}(worker, task)
 	})
 }

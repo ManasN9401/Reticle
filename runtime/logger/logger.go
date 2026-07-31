@@ -36,7 +36,7 @@ func New() *Logger {
 	}
 }
 
-func formatArgsForConsole(msg string, args []any) string {
+func formatArgsForConsole(msg string, args []any) (string, bool) {
 	fields := make(map[string]any)
 	for i := 0; i < len(args); i += 2 {
 		if i+1 < len(args) {
@@ -60,7 +60,7 @@ func formatArgsForConsole(msg string, args []any) string {
 			}
 		}
 		
-		return fmt.Sprintf("[%s] %v%s", comp, event, payloadStr)
+		return fmt.Sprintf("[%s] %v%s", comp, event, payloadStr), true
 	}
 
 	// Fallback for infrastructure logs (e.g. startup/shutdown)
@@ -81,12 +81,18 @@ func formatArgsForConsole(msg string, args []any) string {
 		}
 		out += ")"
 	}
-	return out
+	return out, false
 }
 
 func (l *Logger) Info(msg string, args ...any) {
-	// Extremely clean, human-readable console output
-	fmt.Printf("[%s] INFO: %s\n", time.Now().Format("15:04:05"), formatArgsForConsole(msg, args))
+	out, isEvent := formatArgsForConsole(msg, args)
+	
+	if isEvent {
+		fmt.Printf("[%s] EVENT: %s\n", time.Now().Format("15:04:05"), out)
+	} else {
+		// Extremely clean, human-readable console output
+		fmt.Printf("[%s] INFO: %s\n", time.Now().Format("15:04:05"), out)
+	}
 	
 	// Structured JSON logging for the file
 	if l.jsonLogger != nil {
@@ -95,7 +101,14 @@ func (l *Logger) Info(msg string, args ...any) {
 }
 
 func (l *Logger) Error(msg string, args ...any) {
-	fmt.Printf("[%s] ERROR: %s\n", time.Now().Format("15:04:05"), formatArgsForConsole(msg, args))
+	out, isEvent := formatArgsForConsole(msg, args)
+	
+	if isEvent {
+		fmt.Printf("[%s] EVENT (ERROR): %s\n", time.Now().Format("15:04:05"), out)
+	} else {
+		fmt.Printf("[%s] ERROR: %s\n", time.Now().Format("15:04:05"), out)
+	}
+
 	if l.jsonLogger != nil {
 		l.jsonLogger.Error(msg, args...)
 	}

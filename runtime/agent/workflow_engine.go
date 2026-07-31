@@ -166,6 +166,12 @@ func (we *WorkflowEngine) dispatchNode(exec *WorkflowExecution, nodeID string, i
 	node := exec.Workflow.Nodes[nodeID]
 	exec.NodeStates[nodeID] = NodeRunning
 
+	we.Bus.Publish(events.EventType("NodeReady"), events.Component("workflow_engine"), map[string]any{
+		"node_id":   nodeID,
+		"exec_id":   exec.ExecutionID,
+		"workflow":  exec.Workflow.ID,
+	})
+
 	task := Task{
 		ID:          TaskID(fmt.Sprintf("%s|%s", exec.ExecutionID, node.ID)),
 		AgentID:     node.WorkerID,
@@ -174,5 +180,5 @@ func (we *WorkflowEngine) dispatchNode(exec *WorkflowExecution, nodeID string, i
 		ExecutionID: exec.ExecutionID,
 	}
 
-	we.Bus.Publish(events.EventType("TaskReady"), events.Component("workflow_engine"), task)
+	we.Bus.Publish(events.EventType("TaskCreated"), events.Component("workflow_engine"), task)
 }
