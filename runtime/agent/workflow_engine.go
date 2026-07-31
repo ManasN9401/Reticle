@@ -50,12 +50,9 @@ func (we *WorkflowEngine) Start() {
 		exec.Artifacts[nodeID] = art
 		we.Logger.Info("WorkflowEngine node completed", "exec_id", execID, "node_id", nodeID)
 
-		// 2. Check all successors
-		for _, edge := range exec.Workflow.Edges {
-			if edge.From == nodeID {
-				successorID := edge.To
-				we.checkAndDispatch(exec, successorID)
-			}
+		// 2. Check all successors using optimized children map
+		for _, successorID := range exec.Workflow.Children[nodeID] {
+			we.checkAndDispatch(exec, successorID)
 		}
 
 		// 3. Check if workflow is complete
@@ -76,18 +73,15 @@ func (we *WorkflowEngine) Start() {
 	})
 }
 
-func (we *WorkflowEngine) SubmitWorkflow(wf *Workflow, executionID string) error {
+func (we *WorkflowEngine) SubmitWorkflow(wf *WorkflowDefinition, executionID string) error {
 	exec := NewWorkflowExecution(executionID, wf)
 	we.Executions[executionID] = exec
 
 	we.Logger.Info("WorkflowEngine started execution", "workflow_id", wf.ID, "exec_id", executionID)
 
-	entryNode, ok := wf.Nodes[wf.Entry]
-	if !ok {
-		return fmt.Errorf("entry node %s not found in workflow", wf.Entry)
+	for _, rootID := range wf.Roots {
+		we.dispatchNode(exec, rootID, nil)
 	}
-
-	we.dispatchNode(exec, entryNode.ID, nil)
 	return nil
 }
 
@@ -97,21 +91,19 @@ func (we *WorkflowEngine) checkAndDispatch(exec *WorkflowExecution, nodeID strin
 	}
 
 	var inputs []TaskInput
-	for _, edge := range exec.Workflow.Edges {
-		if edge.To == nodeID {
-			if exec.NodeStates[edge.From] != NodeDone {
-				return // Still waiting for this incoming dependency
-			}
-			
-			// Plumb the artifact produced by the dependency into the task input
-			if art, exists := exec.Artifacts[edge.From]; exists {
-				inputs = append(inputs, TaskInput{
-					ArtifactID: string(art.ID),
-					Version:    int(art.Version),
-					Name:       art.Name,
-					Data:       art.Data,
-				})
-			}
+	for _, parentID := range exec.Workflow.Parents[nodeID] {
+		if exec.NodeStates[parentID] != NodeDone {
+			return // Still waiting for this incoming dependency
+		}
+		
+		// Plumb the artifact produced by the dependency into the task input
+		if art, exists := exec.Artifacts[parentID]; exists {
+			inputs = append(inputs, TaskInput{
+				ArtifactID: string(art.ID),
+				Version:    int(art.Version),
+				Name:       art.Name,
+				Data:       art.Data,
+			})
 		}
 	}
 
@@ -125,7 +117,6 @@ func (we *WorkflowEngine) dispatchNode(exec *WorkflowExecution, nodeID string, i
 	task := Task{
 		ID:          TaskID(fmt.Sprintf("%s|%s", exec.ExecutionID, node.ID)),
 		AgentID:     node.WorkerID,
-		Type:        node.Type,
 		Inputs:      inputs,
 		Workflow:    exec.Workflow.ID,
 		ExecutionID: exec.ExecutionID,

@@ -23,15 +23,27 @@ func main() {
 	workflowEngine := agent.NewWorkflowEngine(orch.Logger, orch.Bus)
 	workflowEngine.Start()
 
-	outlineWorker := agent.NewWorker(agent.WorkerID("outline-gen"), "python", []string{"outline_agent.py"}, orch.Logger, orch.Bus)
-	wordingWorker := agent.NewWorker(agent.WorkerID("wording-imp"), "python", []string{"wording_agent.py"}, orch.Logger, orch.Bus)
-
+	// Phase 2: Agent Discovery & Registration
+	registry := agent.NewRegistry()
+	if err := registry.LoadAgents("./agents"); err != nil {
+		orch.Logger.Error("Failed to load agents", "error", err)
+		return
+	}
+	
+	if err := registry.LoadWorkflows("./workflows"); err != nil {
+		orch.Logger.Error("Failed to load workflows", "error", err)
+		return
+	}
+	
+	workers := registry.BuildWorkers(orch.Logger, orch.Bus)
+	
 	// Phase 3: Define Subscriptions (JIT Dispatching)
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus)
 	
-	dispatcher.RegisterWorker(outlineWorker)
-	dispatcher.RegisterWorker(wordingWorker)
+	for _, w := range workers {
+		dispatcher.RegisterWorker(w)
+	}
 
 	// The SubscriptionManager can be completely empty for this example!
 	// It is now reserved purely for ad-hoc reactivity outside of workflows.
@@ -39,25 +51,10 @@ func main() {
 	dispatcher.Start()
 
 	// Phase 4: Submit Workflow
-	wf := &agent.Workflow{
-		ID:    "readme-generator",
-		Name:  "README Generator",
-		Entry: "outline",
-		Nodes: map[string]agent.WorkflowNode{
-			"outline": {
-				ID:       "outline",
-				WorkerID: "outline-gen",
-				Type:     "generate_outline",
-			},
-			"wording": {
-				ID:       "wording",
-				WorkerID: "wording-imp",
-				Type:     "improve_wording",
-			},
-		},
-		Edges: []agent.WorkflowEdge{
-			{From: "outline", To: "wording"},
-		},
+	wf, ok := registry.Workflows["readme-generator"]
+	if !ok {
+		orch.Logger.Error("Workflow readme-generator not found")
+		return
 	}
 
 	fmt.Println("\n--- STARTING AUTONOMOUS WORKFLOW ---")

@@ -1,0 +1,14 @@
+id: readme-generator
+name: README Generator
+version: 1.0.0
+
+nodes:
+  - id: outline
+    agent: outline-gen
+
+  - id: wording
+    agent: wording-imp
+
+edges:
+  - from: outline
+    to: wording

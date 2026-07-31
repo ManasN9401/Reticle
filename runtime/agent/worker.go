@@ -22,14 +22,12 @@ type TaskInput struct {
 	Data       any    `json:"data,omitempty"`
 }
 
-// Task represents what a worker is asked to do.
 type Task struct {
 	ID          TaskID         `json:"id"`
 	AgentID     string         `json:"agent_id,omitempty"`
 	ExecutionID string         `json:"execution,omitempty"`
 	Workflow    string         `json:"workflow,omitempty"`
-	Type        string         `json:"type"`
-	Inputs     []TaskInput    `json:"inputs,omitempty"`
+	Inputs      []TaskInput    `json:"inputs,omitempty"`
 	Parameters map[string]any `json:"parameters,omitempty"`
 }
 

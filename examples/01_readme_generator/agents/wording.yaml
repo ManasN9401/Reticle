@@ -1,0 +1,12 @@
+id: wording-imp
+name: Wording Improver
+description: Improves the wording and tone of a generated markdown outline
+version: 1.0.0
+
+runtime: python
+entrypoint: wording_agent.py
+
+inputs:
+  - document/markdown
+outputs:
+  - document/markdown

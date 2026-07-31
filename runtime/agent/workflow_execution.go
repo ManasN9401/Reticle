@@ -13,12 +13,12 @@ const (
 
 type WorkflowExecution struct {
 	ExecutionID string
-	Workflow    *Workflow
+	Workflow    *WorkflowDefinition
 	NodeStates  map[string]NodeState
 	Artifacts   map[string]*memory.Artifact // Caches artifacts produced by each node for passing to successors
 }
 
-func NewWorkflowExecution(id string, wf *Workflow) *WorkflowExecution {
+func NewWorkflowExecution(id string, wf *WorkflowDefinition) *WorkflowExecution {
 	states := make(map[string]NodeState)
 	for nodeID := range wf.Nodes {
 		states[nodeID] = NodePending
