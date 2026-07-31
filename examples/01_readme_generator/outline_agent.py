@@ -1,6 +1,5 @@
 import sys
 import json
-import time
 
 def main():
     line = sys.stdin.readline()
@@ -11,17 +10,11 @@ def main():
         req = json.loads(line)
         req_id = req.get("id", "unknown")
         
-        # Build the DAG Artifact with extended metadata
+        # The agent ONLY emits what it uniquely created
         artifact = {
             "id": "readme_outline",
             "name": "README Outline",
             "type": "document/markdown",
-            "producer": "outline-gen",
-            "workflow": req.get("workflow", ""),
-            "execution": req.get("execution", ""),
-            "task": req_id,
-            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "version": 1,
             "data": "# Project Title\n\n## Introduction\n\n## Getting Started\n\n## Contributing"
         }
         
@@ -31,7 +24,8 @@ def main():
         }
         print(json.dumps(resp))
     except Exception as e:
-        print(json.dumps({"id": "unknown", "error": str(e)}))
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

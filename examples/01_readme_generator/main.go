@@ -59,14 +59,19 @@ func main() {
 
 	fmt.Println("\n--- STARTING AUTONOMOUS WORKFLOW ---")
 	err := workflowEngine.SubmitWorkflow(wf, "exec-001")
-
 	if err != nil {
-		fmt.Printf("Initial task failed: %v\n", err)
-		return
+		orch.Logger.Error("Failed to submit workflow", "error", err)
 	}
 
-	// Give the async dispatcher a moment to finish the chain reaction
 	time.Sleep(1 * time.Second)
+
+	// Phase 5: Submit Failing Workflow
+	failWf, ok := registry.Workflows["fail-workflow"]
+	if ok {
+		fmt.Println("\n--- TESTING FAILURE CASCADE ---")
+		workflowEngine.SubmitWorkflow(failWf, "exec-002")
+		time.Sleep(1 * time.Second)
+	}
 
 	// Phase 5: Result (Query API)
 

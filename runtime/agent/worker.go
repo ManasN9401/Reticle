@@ -2,9 +2,11 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"time"
 
 	"github.com/hyperparallel/runtime/events"
 	"github.com/hyperparallel/runtime/logger"
@@ -22,6 +24,23 @@ type TaskInput struct {
 	Data       any    `json:"data,omitempty"`
 }
 
+type WorkerFailureReason string
+
+const (
+	WorkerExitedNonZero   WorkerFailureReason = "exit_non_zero"
+	WorkerProtocolError   WorkerFailureReason = "protocol_error"
+	WorkerInvalidJSON     WorkerFailureReason = "invalid_json"
+	WorkerTimeout         WorkerFailureReason = "timeout"
+	WorkerPanic           WorkerFailureReason = "panic"
+	WorkerStartFailed     WorkerFailureReason = "start_failed"
+)
+
+type WorkerFailure struct {
+	Reason   WorkerFailureReason `json:"reason"`
+	ExitCode int                 `json:"exit_code"`
+	Stderr   string              `json:"stderr"`
+}
+
 type Task struct {
 	ID          TaskID         `json:"id"`
 	AgentID     string         `json:"agent_id,omitempty"`
@@ -31,12 +50,10 @@ type Task struct {
 	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
-// TaskResponse represents what a worker returns.
 type TaskResponse struct {
 	ID       TaskID           `json:"id"`
 	Result   string           `json:"result,omitempty"`   // Legacy scalar result
 	Artifact *memory.Artifact `json:"artifact,omitempty"` // Structured artifact result
-	Error    string           `json:"error,omitempty"`
 }
 
 type Worker struct {
@@ -57,7 +74,7 @@ func NewWorker(id WorkerID, executable string, args []string, l *logger.Logger, 
 	}
 }
 
-func (w *Worker) Execute(req Task) (*TaskResponse, error) {
+func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 	w.Bus.Publish(events.EventType("WorkerStarted"), events.Component("worker"), map[string]any{
 		"task_id":   req.ID,
 		"worker_id": w.ID,
@@ -67,16 +84,19 @@ func (w *Worker) Execute(req Task) (*TaskResponse, error) {
 	
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, err
+		return nil, &WorkerFailure{Reason: WorkerStartFailed, ExitCode: -1, Stderr: err.Error()}
 	}
 	
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, &WorkerFailure{Reason: WorkerStartFailed, ExitCode: -1, Stderr: err.Error()}
 	}
 
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, &WorkerFailure{Reason: WorkerStartFailed, ExitCode: -1, Stderr: err.Error()}
 	}
 
 	// Send request as JSON
@@ -87,17 +107,51 @@ func (w *Worker) Execute(req Task) (*TaskResponse, error) {
 	// Read response
 	scanner := bufio.NewScanner(stdout)
 	var resp TaskResponse
+	var parseErr error
+
 	if scanner.Scan() {
 		line := scanner.Text()
 		if err := json.Unmarshal([]byte(line), &resp); err != nil {
-			return nil, fmt.Errorf("failed to parse worker output: %v, raw: %s", err, line)
+			parseErr = fmt.Errorf("failed to parse worker output: %v, raw: %s", err, line)
 		}
 	} else {
-		return nil, fmt.Errorf("worker produced no output")
+		parseErr = fmt.Errorf("worker produced no output")
 	}
 
-	if err := cmd.Wait(); err != nil {
-		w.Logger.Error("Worker exited with error", "worker_id", w.ID, "error", err)
+	err = cmd.Wait()
+	
+	if err != nil {
+		exitCode := -1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+		
+		return nil, &WorkerFailure{
+			Reason:   WorkerExitedNonZero,
+			ExitCode: exitCode,
+			Stderr:   stderrBuf.String(),
+		}
+	}
+
+	if parseErr != nil {
+		return nil, &WorkerFailure{
+			Reason:   WorkerInvalidJSON,
+			ExitCode: 0,
+			Stderr:   parseErr.Error(),
+		}
+	}
+
+	// Auto-hydrate the artifact with orchestrator context
+	if resp.Artifact != nil {
+		resp.Artifact.Producer = string(w.ID)
+		resp.Artifact.Task = string(req.ID)
+		resp.Artifact.Workflow = req.Workflow
+		resp.Artifact.Execution = req.ExecutionID
+		resp.Artifact.CreatedAt = time.Now()
+		
+		for _, input := range req.Inputs {
+			resp.Artifact.Parents = append(resp.Artifact.Parents, memory.ArtifactID(input.ArtifactID))
+		}
 	}
 
 	w.Bus.Publish(events.EventType("WorkerCompleted"), events.Component("worker"), map[string]any{

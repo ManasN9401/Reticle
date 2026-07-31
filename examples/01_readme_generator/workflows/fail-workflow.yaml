@@ -1,0 +1,9 @@
+id: fail-workflow
+name: Failing Workflow
+version: 1.0.0
+
+nodes:
+  - id: fail_node
+    agent: fail-agent
+
+edges: []

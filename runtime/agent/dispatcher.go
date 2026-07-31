@@ -46,14 +46,17 @@ func (d *Dispatcher) Start() {
 				"worker_id": w.ID,
 			})
 			
-			resp, err := w.Execute(t)
-			if err != nil {
-				d.Logger.Error("Worker execution failed", "worker_id", w.ID, "error", err)
-				return
-			}
-
-			if resp.Error != "" {
-				d.Logger.Error("Worker reported error", "worker_id", w.ID, "error", resp.Error)
+			resp, failure := w.Execute(t)
+			if failure != nil {
+				d.Logger.Error("Worker execution failed", "worker_id", w.ID, "reason", failure.Reason, "stderr", failure.Stderr)
+				
+				d.Bus.Publish(events.EventType("WorkerFailed"), events.Component("dispatcher"), map[string]any{
+					"task_id":   t.ID,
+					"worker_id": w.ID,
+					"reason":    failure.Reason,
+					"exit_code": failure.ExitCode,
+					"stderr":    failure.Stderr,
+				})
 				return
 			}
 

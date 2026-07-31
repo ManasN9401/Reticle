@@ -47,6 +47,7 @@ func New() *Orchestrator {
 				"version":    art.Version,
 				"producer":   art.Producer,
 				"workflow":   art.Workflow,
+				"execution":  art.Execution,
 				"created_at": art.CreatedAt,
 			}
 		}

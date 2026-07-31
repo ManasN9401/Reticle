@@ -25,29 +25,25 @@ func NewWorkflowEngine(l *logger.Logger, b *events.Bus) *WorkflowEngine {
 
 func (we *WorkflowEngine) Start() {
 	we.Bus.Subscribe(events.EventType("ArtifactStored"), func(e events.RuntimeEvent) {
-		art, ok := e.Payload.(*memory.Artifact)
-		if !ok {
+		artifact, ok := e.Payload.(*memory.Artifact)
+		if !ok || artifact.Task == "" {
 			return
 		}
 
-		// Map the artifact's original task ID back to a Workflow Execution and Node
-		// We format our workflow tasks as "executionID|nodeID"
-		parts := strings.Split(art.Task, "|")
-		if len(parts) != 2 {
-			return // Not a workflow-generated task (likely a standalone subscription)
+		taskID := TaskID(artifact.Task)
+		execID, nodeID := we.parseTaskID(taskID)
+		if execID == "" || nodeID == "" {
+			return
 		}
-		
-		execID := parts[0]
-		nodeID := parts[1]
 
-		exec, ok := we.Executions[execID]
-		if !ok {
+		exec, exists := we.Executions[execID]
+		if !exists {
 			return // Execution not found or already archived
 		}
 
 		// 1. Mark node complete and cache the artifact for downstream nodes
 		exec.NodeStates[nodeID] = NodeDone
-		exec.Artifacts[nodeID] = art
+		exec.Artifacts[nodeID] = artifact
 		we.Logger.Info("WorkflowEngine node completed", "exec_id", execID, "node_id", nodeID)
 
 		// 2. Check all successors using optimized children map
@@ -71,6 +67,62 @@ func (we *WorkflowEngine) Start() {
 			})
 		}
 	})
+
+	we.Bus.Subscribe(events.EventType("WorkerFailed"), func(e events.RuntimeEvent) {
+		payload, ok := e.Payload.(map[string]any)
+		if !ok {
+			return
+		}
+
+		var taskID TaskID
+		switch v := payload["task_id"].(type) {
+		case string:
+			taskID = TaskID(v)
+		case TaskID:
+			taskID = v
+		default:
+			return
+		}
+
+		execID, nodeID := we.parseTaskID(taskID)
+		if execID == "" || nodeID == "" {
+			return
+		}
+
+		exec, exists := we.Executions[execID]
+		if !exists {
+			return
+		}
+
+		// 1. Mark node failed
+		exec.NodeStates[nodeID] = NodeFailed
+		we.Logger.Error("WorkflowEngine node failed", "exec_id", execID, "node_id", nodeID, "reason", payload["reason"])
+		
+		// 2. Emit TaskFailed
+		we.Bus.Publish(events.EventType("TaskFailed"), events.Component("workflow_engine"), map[string]any{
+			"task_id":   taskID,
+			"node_id":   nodeID,
+			"exec_id":   execID,
+			"workflow":  exec.Workflow.ID,
+		})
+
+		// 3. Simple fail-fast workflow policy
+		we.Logger.Error("WorkflowEngine workflow failed", "exec_id", execID, "workflow_id", exec.Workflow.ID)
+		we.Bus.Publish(events.EventType("WorkflowFailed"), events.Component("workflow_engine"), map[string]any{
+			"execution": execID,
+			"workflow":  exec.Workflow.ID,
+			"reason":    "node_failure",
+			"node_id":   nodeID,
+		})
+	})
+}
+
+func (we *WorkflowEngine) parseTaskID(taskID TaskID) (execID string, nodeID string) {
+	parts := strings.SplitN(string(taskID), "|", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return parts[0], parts[1]
 }
 
 func (we *WorkflowEngine) SubmitWorkflow(wf *WorkflowDefinition, executionID string) error {
