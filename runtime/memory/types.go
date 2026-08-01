@@ -26,3 +26,24 @@ type Artifact struct {
 	Version   uint32       `json:"version"`
 	Data      any          `json:"data,omitempty"`
 }
+
+// MemoryScope defines the boundary for how far memory is shared.
+type MemoryScope string
+
+const (
+	ScopeGlobal    MemoryScope = "global"
+	ScopeWorkflow  MemoryScope = "workflow"
+	ScopeExecution MemoryScope = "execution"
+	ScopeAgent     MemoryScope = "agent"
+)
+
+// MemoryEntry represents a rich value stored in the Shared Runtime Memory.
+type MemoryEntry struct {
+	Key       string      `json:"key"`
+	Value     any         `json:"value"`
+	Scope     MemoryScope `json:"scope"`
+	ScopeID   string      `json:"scope_id"` // Matches the scope (e.g., ExecutionID or AgentID)
+	Owner     string      `json:"owner"`    // Who produced this memory
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
+}

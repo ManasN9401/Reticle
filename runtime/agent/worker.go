@@ -47,7 +47,8 @@ type Task struct {
 	ExecutionID string         `json:"execution,omitempty"`
 	Workflow    string         `json:"workflow,omitempty"`
 	Inputs      []TaskInput    `json:"inputs,omitempty"`
-	Parameters map[string]any `json:"parameters,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+	Memory      map[string]any `json:"memory,omitempty"`
 }
 
 type TaskResponse struct {
@@ -162,10 +163,14 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 	if resp.Artifact != nil {
 		w.Bus.Publish(events.EventType("ArtifactsProduced"), events.Component("worker"), resp.Artifact)
 	} else if resp.Result != "" {
-		w.Bus.Publish(events.EventType("MemoryUpdateRequested"), events.Component("worker"), map[string]any{
-			"key":   req.ID,
-			"value": resp.Result,
-		})
+		entry := memory.MemoryEntry{
+			Key:     string(req.ID),
+			Value:   resp.Result,
+			Scope:   memory.ScopeExecution, // Defaulting scalar results to Execution scope
+			ScopeID: req.ExecutionID,
+			Owner:   req.AgentID,
+		}
+		w.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("worker"), entry)
 	}
 
 	return &resp, nil

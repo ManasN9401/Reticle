@@ -25,23 +25,40 @@ func NewManager(am *ArtifactStore, rs *RuntimeState, ss *SessionState, b *events
 }
 
 func (m *Manager) subscribe() {
-	m.bus.Subscribe(events.EventType("MemoryUpdateRequested"), func(e events.RuntimeEvent) {
+	m.bus.Subscribe(events.EventType("MemoryWriteRequested"), func(e events.RuntimeEvent) {
+		entry, ok := e.Payload.(MemoryEntry)
+		if !ok {
+			return
+		}
+
+		m.Runtime.set(entry)
+		
+		m.bus.Publish(events.EventType("MemoryUpdated"), events.Component("memory"), map[string]any{
+			"scope":    entry.Scope,
+			"scope_id": entry.ScopeID,
+			"key":      entry.Key,
+		})
+	})
+
+	m.bus.Subscribe(events.EventType("MemoryReadRequested"), func(e events.RuntimeEvent) {
 		payload, ok := e.Payload.(map[string]any)
 		if !ok {
 			return
 		}
 
-		key, ok1 := payload["key"].(MemoryKey)
-		val, ok2 := payload["value"]
+		scope, _ := payload["scope"].(MemoryScope)
+		scopeID, _ := payload["scope_id"].(string)
+		key, _ := payload["key"].(string)
 
-		if ok1 && ok2 {
-			m.Runtime.set(key, val)
-			
-			// Acknowledge the mutation to the rest of the system
-			m.bus.Publish(events.EventType("MemoryUpdated"), events.Component("memory"), map[string]any{
-				"key": key,
-			})
-		}
+		val, found := m.Runtime.Get(scope, scopeID, key)
+		
+		m.bus.Publish(events.EventType("MemoryReadCompleted"), events.Component("memory"), map[string]any{
+			"scope":    scope,
+			"scope_id": scopeID,
+			"key":      key,
+			"value":    val.Value,
+			"found":    found,
+		})
 	})
 
 	// Subscribe to Artifact storage requests

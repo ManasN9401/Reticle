@@ -72,12 +72,22 @@ This document represents the canonical list of domain events emitted and consume
   - **Payload:** `Artifact` struct
   - **Description:** Emitted after the artifact has been safely persisted to memory.
 
-- **`MemoryUpdateRequested`**
-  - **Producer:** Worker
-  - **Payload:** `{"key": string, "value": string}`
-  - **Description:** Emitted for scalar updates to the Runtime State memory.
+- **`MemoryReadRequested`**
+  - **Producer:** Orchestrator (or other framework components)
+  - **Payload:** `{"scope": string, "scope_id": string, "key": string}`
+  - **Description:** Emitted when a component asynchronously requests a memory read via the event bus.
+
+- **`MemoryReadCompleted`**
+  - **Producer:** MemoryManager
+  - **Payload:** `{"scope": string, "scope_id": string, "key": string, "value": any, "found": bool}`
+  - **Description:** Emitted by the memory manager in response to a read request.
+
+- **`MemoryWriteRequested`**
+  - **Producer:** Worker (or other mutating components)
+  - **Payload:** `MemoryEntry` struct
+  - **Description:** Emitted to mutate the Runtime State memory (e.g. for scalar or JSON object variables).
 
 - **`MemoryUpdated`**
   - **Producer:** MemoryManager
-  - **Payload:** `{"key": string}`
-  - **Description:** Emitted when a scalar key is successfully mutated in the Runtime State memory.
+  - **Payload:** `{"scope": string, "scope_id": string, "key": string}`
+  - **Description:** Emitted when a memory entry is successfully mutated in the Runtime State memory.

@@ -6,6 +6,8 @@ Date: 2026-07-31
 
 # Worker Protocol (v1)
 
+> **Architectural Philosophy:** Worker Protocol v1 is strictly request/response. All required memory is resolved by the Workflow Engine before dispatch. Workers are deterministic functions over their declared inputs. Dynamic memory access is reserved for a future streaming protocol (Worker Protocol v2).
+
 The Worker Protocol defines the strict JSON-based contract for data exchange between the HyperParallel Dispatcher and individual Worker agents. Agents operate as isolated child processes and communicate exclusively via `stdin`, `stdout`, and `stderr`.
 
 ## 1. Task Invocation (`stdin`)
