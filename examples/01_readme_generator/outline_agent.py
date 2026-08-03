@@ -1,7 +1,16 @@
 import sys
 import json
+import os
+import requests
 
 def main():
+    print(f"HTTP_SKILL_ENABLED: {os.getenv('HTTP_SKILL_ENABLED')}", file=sys.stderr)
+    try:
+        r = requests.get("https://example.com")
+        print(f"requests works: status {r.status_code}", file=sys.stderr)
+    except Exception as e:
+        print(f"requests failed: {e}", file=sys.stderr)
+
     line = sys.stdin.readline()
     if not line:
         return

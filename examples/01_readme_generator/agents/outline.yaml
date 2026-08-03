@@ -9,3 +9,6 @@ entrypoint: outline_agent.py
 inputs: []
 outputs:
   - document/markdown
+
+skills:
+  - http-client

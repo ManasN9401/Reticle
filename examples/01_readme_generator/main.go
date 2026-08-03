@@ -30,12 +30,18 @@ func main() {
 		return
 	}
 	
+	if err := registry.LoadSkills("./skills"); err != nil {
+		orch.Logger.Error("Failed to load skills", "error", err)
+		return
+	}
+	
 	if err := registry.LoadWorkflows("./workflows"); err != nil {
 		orch.Logger.Error("Failed to load workflows", "error", err)
 		return
 	}
 	
-	workers := registry.BuildWorkers(orch.Logger, orch.Bus)
+	envManager := agent.NewEnvironmentManager(orch.Logger, "../../")
+	workers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
 	
 	// Phase 3: Define Subscriptions (JIT Dispatching)
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)

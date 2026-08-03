@@ -29,8 +29,18 @@ type AgentDefinition struct {
 
 	Inputs      []string    `yaml:"inputs"`  // ArtifactTypes
 	Outputs     []string    `yaml:"outputs"` // ArtifactTypes
+	Skills      []string    `yaml:"skills"`  // Skill IDs
 
 	Subscriptions []SubscriptionYAML `yaml:"subscriptions"`
+}
+
+type SkillDefinition struct {
+	ID          string   `yaml:"id"`
+	Name        string   `yaml:"name"`
+	Version     string   `yaml:"version"`
+	Description string   `yaml:"description"`
+	Dependencies []string `yaml:"dependencies"`
+	EnvVars      []string `yaml:"env_vars"`
 }
 
 type SubscriptionYAML struct {
@@ -42,12 +52,14 @@ type SubscriptionYAML struct {
 type Registry struct {
 	Definitions map[WorkerID]AgentDefinition
 	Workflows   map[string]*WorkflowDefinition
+	Skills      map[string]SkillDefinition
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
 		Definitions: make(map[WorkerID]AgentDefinition),
 		Workflows:   make(map[string]*WorkflowDefinition),
+		Skills:      make(map[string]SkillDefinition),
 	}
 }
 
@@ -78,6 +90,41 @@ func (r *Registry) LoadAgents(directory string) error {
 		}
 
 		r.Definitions[def.ID] = def
+	}
+
+	return nil
+}
+
+func (r *Registry) LoadSkills(directory string) error {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+
+		path := filepath.Join(directory, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read %s: %w", path, err)
+		}
+
+		var def SkillDefinition
+		if err := yaml.Unmarshal(data, &def); err != nil {
+			return fmt.Errorf("failed to parse %s: %w", path, err)
+		}
+
+		if def.ID == "" {
+			return fmt.Errorf("skill definition in %s is missing ID", path)
+		}
+
+		r.Skills[def.ID] = def
 	}
 
 	return nil
@@ -176,17 +223,37 @@ func (r *Registry) LoadWorkflows(directory string) error {
 	return nil
 }
 
-func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus) map[WorkerID]*Worker {
+func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *EnvironmentManager) map[WorkerID]*Worker {
 	workers := make(map[WorkerID]*Worker)
 
 	for id, def := range r.Definitions {
 		var executable string
 		var args []string
+		var envVars []string
 
 		switch def.Runtime {
 		case RuntimePython:
-			executable = "python"
+			// Fetch all inherited skills
+			var activeSkills []SkillDefinition
+			for _, skillID := range def.Skills {
+				if skill, exists := r.Skills[skillID]; exists {
+					activeSkills = append(activeSkills, skill)
+				} else {
+					l.Error("Agent requested unknown skill", "agent_id", id, "skill_id", skillID)
+				}
+			}
+
+			// Provision Virtual Environment
+			pythonExe, injectedEnvVars, err := em.Provision(id, activeSkills)
+			if err != nil {
+				l.Error("Failed to provision environment", "agent_id", id, "error", err)
+				continue
+			}
+
+			executable = pythonExe
 			args = []string{def.Entrypoint}
+			envVars = injectedEnvVars
+
 		case RuntimeBinary:
 			executable = def.Entrypoint
 			args = []string{}
@@ -195,7 +262,7 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus) map[WorkerID]*W
 			continue
 		}
 
-		workers[id] = NewWorker(id, executable, args, l, b)
+		workers[id] = NewWorker(id, executable, args, envVars, l, b)
 	}
 
 	return workers

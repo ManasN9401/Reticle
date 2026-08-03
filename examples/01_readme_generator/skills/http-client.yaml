@@ -1,0 +1,8 @@
+id: http-client
+name: HTTP Client
+version: 1.0.0
+description: Grants the agent the ability to make HTTP requests
+dependencies:
+  - "requests>=2.25.1"
+env_vars:
+  - "HTTP_SKILL_ENABLED=1"

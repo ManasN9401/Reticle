@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -69,15 +70,17 @@ type Worker struct {
 	ID         WorkerID
 	Executable string
 	Args       []string
+	EnvVars    []string
 	Logger     *logger.Logger
 	Bus        *events.Bus
 }
 
-func NewWorker(id WorkerID, executable string, args []string, l *logger.Logger, b *events.Bus) *Worker {
+func NewWorker(id WorkerID, executable string, args []string, envVars []string, l *logger.Logger, b *events.Bus) *Worker {
 	return &Worker{
 		ID:         id,
 		Executable: executable,
 		Args:       args,
+		EnvVars:    envVars,
 		Logger:     l,
 		Bus:        b,
 	}
@@ -90,6 +93,10 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 	})
 
 	cmd := exec.Command(w.Executable, w.Args...)
+	
+	if len(w.EnvVars) > 0 {
+		cmd.Env = append(os.Environ(), w.EnvVars...)
+	}
 	
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
