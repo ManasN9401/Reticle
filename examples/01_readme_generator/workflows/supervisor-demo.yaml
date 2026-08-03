@@ -1,0 +1,7 @@
+id: supervisor-demo
+name: Supervisor Graph Demo
+version: 1.0.0
+
+nodes:
+  - id: start-supervisor
+    agent: supervisor-gen

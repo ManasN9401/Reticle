@@ -1,0 +1,11 @@
+id: supervisor-gen
+name: Intelligence Supervisor
+description: Dynamically orchestrates the readme generation graph
+version: 1.0.0
+
+runtime: python
+entrypoint: ./workers/supervisor_agent.py
+
+inputs: []
+outputs:
+  - document/verified

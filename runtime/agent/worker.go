@@ -52,10 +52,17 @@ type Task struct {
 	Memory      map[string]any `json:"memory,omitempty"`
 }
 
+type GraphMutation struct {
+	Action             string `json:"action"`
+	TargetAgent        string `json:"target_agent"`
+	ReturnToSupervisor bool   `json:"return_to_supervisor"`
+}
+
 type TaskResponse struct {
-	ID       TaskID           `json:"id"`
-	Result   string           `json:"result,omitempty"`   // Legacy scalar result
-	Artifact *memory.Artifact `json:"artifact,omitempty"` // Structured artifact result
+	ID            TaskID           `json:"id"`
+	Result        string           `json:"result,omitempty"`   // Legacy scalar result
+	Artifact      *memory.Artifact `json:"artifact,omitempty"` // Structured artifact result
+	GraphMutation *GraphMutation   `json:"graph_mutation,omitempty"`
 }
 
 type Worker struct {
@@ -172,6 +179,16 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 			Owner:   req.AgentID,
 		}
 		w.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("worker"), entry)
+	}
+
+	if resp.GraphMutation != nil {
+		w.Bus.Publish(events.EventType("GraphMutationRequested"), events.Component("worker"), map[string]any{
+			"task_id":   req.ID,
+			"worker_id": w.ID,
+			"execution": req.ExecutionID,
+			"workflow":  req.Workflow,
+			"mutation":  resp.GraphMutation,
+		})
 	}
 
 	return &resp, nil

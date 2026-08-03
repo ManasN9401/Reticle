@@ -70,9 +70,14 @@ This document represents the canonical list of domain events emitted and consume
 
 ## Memory & State Lifecycle
 - **`ArtifactsProduced`**
-  - **Producer:** Worker
-  - **Payload:** `Artifact` struct
-  - **Description:** Emitted by the worker wrapper when a valid artifact is parsed from stdout.
+  - **Producer:** Worker / Dispatcher
+  - **Payload:** `*memory.Artifact`
+  - **Description:** Emitted when a worker process returns structured artifact JSON via `stdout`.
+
+- **`GraphMutationRequested`**
+  - **Producer:** Worker / Dispatcher
+  - **Payload:** `{"task_id": string, "worker_id": string, "execution": string, "workflow": string, "mutation": *agent.GraphMutation}`
+  - **Description:** Emitted when a Supervisor agent requests to dynamically inject nodes/cycles into the current execution graph. from stdout.
 
 - **`ArtifactStored`** / **`ArtifactVersionCreated`**
   - **Producer:** MemoryManager

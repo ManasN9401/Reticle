@@ -20,8 +20,8 @@ func main() {
 	}
 	orch.Start()
 
-	workflowEngine := agent.NewWorkflowEngine(orch.Logger, orch.Bus)
-	workflowEngine.Start()
+	graphEngine := agent.NewGraphEngine(orch.Logger, orch.Bus)
+	graphEngine.Start()
 
 	// Phase 2: Agent Discovery & Registration
 	registry := agent.NewRegistry()
@@ -61,18 +61,23 @@ func main() {
 	}
 
 	fmt.Println("\n--- STARTING AUTONOMOUS WORKFLOW ---")
-	err := workflowEngine.SubmitWorkflow(wf, "exec-001")
+	err := graphEngine.SubmitWorkflow(wf, "exec-001")
 	if err != nil {
 		orch.Logger.Error("Failed to submit workflow", "error", err)
 	}
 
-	time.Sleep(1 * time.Second)
+	superWf, ok := registry.Workflows["supervisor-demo"]
+	if ok {
+		fmt.Println("\n--- TESTING SUPERVISOR GRAPH ---")
+		graphEngine.SubmitWorkflow(superWf, "exec-super-001")
+		time.Sleep(2 * time.Second)
+	}
 
 	// Phase 5: Submit Failing Workflow
 	failWf, ok := registry.Workflows["fail-workflow"]
 	if ok {
 		fmt.Println("\n--- TESTING FAILURE CASCADE ---")
-		workflowEngine.SubmitWorkflow(failWf, "exec-002")
+		graphEngine.SubmitWorkflow(failWf, "exec-002")
 		time.Sleep(1 * time.Second)
 	}
 
