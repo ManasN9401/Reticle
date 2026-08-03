@@ -41,12 +41,15 @@ func main() {
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus)
 	
+	for _, sub := range registry.BuildSubscriptions() {
+		subManager.Register(sub)
+	}
+
 	for _, w := range workers {
 		dispatcher.RegisterWorker(w)
 	}
 
-	// The SubscriptionManager can be completely empty for this example!
-	// It is now reserved purely for ad-hoc reactivity outside of workflows.
+	// Ad-hoc reactivity is now fully driven by YAML!
 	subManager.Start()
 	dispatcher.Start()
 

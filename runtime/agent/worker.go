@@ -46,6 +46,7 @@ type Task struct {
 	AgentID     string         `json:"agent_id,omitempty"`
 	ExecutionID string         `json:"execution,omitempty"`
 	Workflow    string         `json:"workflow,omitempty"`
+	Origin      string         `json:"origin,omitempty"`
 	Inputs      []TaskInput    `json:"inputs,omitempty"`
 	Parameters  map[string]any `json:"parameters,omitempty"`
 	Memory      map[string]any `json:"memory,omitempty"`

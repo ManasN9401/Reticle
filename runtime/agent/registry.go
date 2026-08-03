@@ -29,6 +29,14 @@ type AgentDefinition struct {
 
 	Inputs      []string    `yaml:"inputs"`  // ArtifactTypes
 	Outputs     []string    `yaml:"outputs"` // ArtifactTypes
+
+	Subscriptions []SubscriptionYAML `yaml:"subscriptions"`
+}
+
+type SubscriptionYAML struct {
+	ID      string            `yaml:"id"`
+	Event   string            `yaml:"event"`
+	Filters map[string]string `yaml:"filters"`
 }
 
 type Registry struct {
@@ -191,4 +199,26 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus) map[WorkerID]*W
 	}
 
 	return workers
+}
+
+func (r *Registry) BuildSubscriptions() []*Subscription {
+	var subs []*Subscription
+
+	for id, def := range r.Definitions {
+		for i, subYAML := range def.Subscriptions {
+			subID := subYAML.ID
+			if subID == "" {
+				subID = fmt.Sprintf("sub-%s-%d", id, i)
+			}
+			sub := &Subscription{
+				ID:        subID,
+				WorkerID:  id,
+				EventType: subYAML.Event,
+				Filters:   subYAML.Filters,
+			}
+			subs = append(subs, sub)
+		}
+	}
+
+	return subs
 }

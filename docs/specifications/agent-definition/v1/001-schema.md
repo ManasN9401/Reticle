@@ -27,6 +27,13 @@ inputs:             # Optional: A list of expected artifact data types.
 
 outputs:            # Optional: A list of produced artifact data types.
   - string
+
+subscriptions:      # Optional: A list of automation triggers.
+  - id: string      # Optional: Name of this subscription
+    event: string   # Required: The runtime event to listen for.
+    filters:        # Optional: Key-value string matches against the event payload.
+      key: string
+
 ```
 
 ## Example
@@ -42,4 +49,11 @@ inputs:
   - document/markdown
 outputs:
   - document/markdown
+
+subscriptions:
+  - id: audit-markdown
+    event: ArtifactStored
+    filters:
+      producer: outline-gen
+      type: document/markdown
 ```

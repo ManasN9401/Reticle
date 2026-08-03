@@ -27,8 +27,15 @@ This document represents the canonical list of domain events emitted and consume
 
 - **`TaskFailed`**
   - **Producer:** WorkflowEngine
-  - **Payload:** `{"exec_id": string, "node_id": string, "task_id": string, "workflow": string}`
-  - **Description:** Emitted when a node's execution has fatally failed.
+  - **Payload:** `{"task_id": string, "node_id": string, "workflow": string, "exec_id": string}`
+  - **Description:** Emitted when a node in a workflow fails after all retries are exhausted.
+
+### Automations
+
+- **`AutomationTriggered`**
+  - **Producer:** SubscriptionManager
+  - **Payload:** `{"subscription_id": string, "agent_id": string, "execution": string, "trigger_event": string, "trigger_event_id": uint64, "trigger_payload": map[string]any}`
+  - **Description:** Emitted when an event matches an agent's subscription filters, just before generating the isolated `TaskCreated` event. Includes matched payload parameters like `artifact_id` if present.
 
 - **`WorkflowCompleted`**
   - **Producer:** WorkflowEngine

@@ -1,0 +1,16 @@
+id: auditor-gen
+name: Security Auditor
+version: 1.0.0
+
+runtime: python
+entrypoint: workers/auditor_agent.py
+
+inputs:
+  - document/markdown
+outputs:
+  - document/audit
+
+subscriptions:
+  - event: ArtifactStored
+    filters:
+      type: document/markdown

@@ -1,16 +1,21 @@
 package agent
 
 import (
+	"encoding/json"
+	"fmt"
+	"sync/atomic"
+
 	"github.com/hyperparallel/runtime/events"
 	"github.com/hyperparallel/runtime/logger"
 )
 
 // SubscriptionManager evaluates EventBus events against registered Subscriptions.
-// When an event matches, it builds a Task and publishes a TaskReady event.
+// When an event matches, it builds a Task and publishes a TaskCreated event.
 type SubscriptionManager struct {
 	Logger        *logger.Logger
 	Bus           *events.Bus
 	subscriptions map[string]*Subscription
+	autoSeq       atomic.Uint64
 }
 
 func NewSubscriptionManager(l *logger.Logger, b *events.Bus) *SubscriptionManager {
@@ -27,7 +32,67 @@ func (sm *SubscriptionManager) Register(sub *Subscription) {
 		return
 	}
 	sm.subscriptions[sub.ID] = sub
+
+	// Register specific handler on the event bus directly to the asynchronous pool
+	sm.Bus.Subscribe(events.EventType(sub.EventType), func(e events.RuntimeEvent) {
+		matched, data := sm.evaluateFilters(sub.Filters, e.Payload)
+		if !matched {
+			return
+		}
+
+		seq := sm.autoSeq.Add(1)
+		execID := fmt.Sprintf("exec-auto-%06d", seq)
+
+		sm.Logger.Info("Automation matched event", "sub_id", sub.ID, "event", e.Type)
+
+		sm.Bus.Publish(events.EventType("AutomationTriggered"), events.Component("subscription_manager"), map[string]any{
+			"subscription_id":  sub.ID,
+			"execution":        execID,
+			"agent_id":         string(sub.WorkerID),
+			"trigger_event":    e.Type,
+			"trigger_event_id": e.ID,
+			"trigger_payload":  data,
+		})
+
+		task := Task{
+			ID:          TaskID(fmt.Sprintf("%s|%s", execID, sub.WorkerID)),
+			AgentID:     string(sub.WorkerID),
+			ExecutionID: execID,
+			Origin:      "automation",
+		}
+
+		sm.Bus.Publish(events.EventType("TaskCreated"), events.Component("subscription_manager"), task)
+	})
+
 	sm.Logger.Info("SubscriptionManager registered subscription", "sub_id", sub.ID, "worker_id", sub.WorkerID)
+}
+
+func (sm *SubscriptionManager) evaluateFilters(filters map[string]string, payload any) (bool, map[string]any) {
+	b, err := json.Marshal(payload)
+	var data map[string]any
+	
+	if err == nil {
+		json.Unmarshal(b, &data)
+	}
+	
+	if len(filters) == 0 {
+		return true, data
+	}
+
+	if data == nil {
+		return false, nil
+	}
+
+	for k, v := range filters {
+		val, ok := data[k]
+		if !ok {
+			return false, nil
+		}
+		if fmt.Sprintf("%v", val) != v {
+			return false, nil
+		}
+	}
+	return true, data
 }
 
 func (sm *SubscriptionManager) Remove(subID string) {
@@ -35,20 +100,7 @@ func (sm *SubscriptionManager) Remove(subID string) {
 	sm.Logger.Info("SubscriptionManager removed subscription", "sub_id", subID)
 }
 
+// Start no longer uses SubscribeAll, it is handled dynamically by Register.
 func (sm *SubscriptionManager) Start() {
-	sm.Bus.SubscribeAll(func(e events.RuntimeEvent) {
-		for _, sub := range sm.subscriptions {
-			if string(e.Type) == sub.EventType {
-				if sub.Condition == nil || sub.Condition(e) {
-					// Generate the task dynamically based on the event context
-					task := sub.Generate(e)
-
-					sm.Logger.Info("Subscription matched event", "sub_id", sub.ID, "event", e.Type)
-
-					// Decoupled handoff: Publish a TaskReady event
-					sm.Bus.Publish(events.EventType("TaskReady"), events.Component("subscription_manager"), task)
-				}
-			}
-		}
-	})
+	// Intentionally left blank.
 }
