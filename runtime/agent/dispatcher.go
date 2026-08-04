@@ -65,10 +65,17 @@ func (d *Dispatcher) Start() {
 
 		// Asynchronously invoke the worker directly
 		go func(w *Worker, t Task) {
-			d.Bus.Publish(events.EventType("TaskDispatched"), events.Component("dispatcher"), map[string]any{
+			payload := map[string]any{
 				"task_id":   t.ID,
 				"worker_id": w.ID,
-			})
+			}
+			if t.Parameters != nil {
+				if m, ok := t.Parameters["llm_model"]; ok {
+					payload["llm_model"] = m
+				}
+			}
+
+			d.Bus.Publish(events.EventType("TaskDispatched"), events.Component("dispatcher"), payload)
 			
 			_, failure := w.Execute(t)
 			if failure != nil {
