@@ -1,0 +1,12 @@
+id: llm-worker
+name: Universal LLM Worker
+description: A generic worker that delegates tasks to an LLM via litellm.
+version: 1.0.0
+runtime: python
+entrypoint: workers/worker_llm.py
+inputs:
+  - document/markdown
+outputs:
+  - document/markdown
+skills:
+  - llm-access

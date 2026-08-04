@@ -1,0 +1,98 @@
+id: book-creator
+name: LLM Book Creator (Diamond Graph)
+version: 1.0.0
+
+nodes:
+  - id: brainstorm
+    agent: llm-worker
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+      ecc_agent: "planner.md"
+      user_prompt: "Brainstorm an outline for a short fantasy book with exactly 3 chapters."
+      output_id: "book_outline"
+      output_name: "Book Outline"
+
+  - id: writer-1
+    agent: llm-worker
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+      system_prompt: "You are a fantasy author."
+      user_prompt: "Write chapter 1 based on the provided outline. Keep it under 200 words."
+      output_id: "chapter_1_draft"
+      output_name: "Chapter 1 Draft"
+
+  - id: writer-2
+    agent: llm-worker
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+      system_prompt: "You are a fantasy author."
+      user_prompt: "Write chapter 2 based on the provided outline. Keep it under 200 words."
+      output_id: "chapter_2_draft"
+      output_name: "Chapter 2 Draft"
+
+  - id: writer-3
+    agent: llm-worker
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+      system_prompt: "You are a fantasy author."
+      user_prompt: "Write chapter 3 based on the provided outline. Keep it under 200 words."
+      output_id: "chapter_3_draft"
+      output_name: "Chapter 3 Draft"
+
+  - id: editor-1
+    agent: llm-worker
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+      ecc_agent: "code-reviewer.md"
+      user_prompt: "Review and improve Chapter 1. Provide only the final chapter text."
+      output_id: "chapter_1_final"
+      output_name: "Chapter 1 Final"
+
+  - id: editor-2
+    agent: llm-worker
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+      ecc_agent: "code-reviewer.md"
+      user_prompt: "Review and improve Chapter 2. Provide only the final chapter text."
+      output_id: "chapter_2_final"
+      output_name: "Chapter 2 Final"
+
+  - id: editor-3
+    agent: llm-worker
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+      ecc_agent: "code-reviewer.md"
+      user_prompt: "Review and improve Chapter 3. Provide only the final chapter text."
+      output_id: "chapter_3_final"
+      output_name: "Chapter 3 Final"
+
+  - id: publisher
+    agent: llm-worker
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+      system_prompt: "You are a book publisher."
+      user_prompt: "Combine the 3 provided chapters into a single markdown document."
+      output_id: "book_final"
+      output_name: "Final Book"
+
+edges:
+  - from: brainstorm
+    to: writer-1
+  - from: brainstorm
+    to: writer-2
+  - from: brainstorm
+    to: writer-3
+  
+  - from: writer-1
+    to: editor-1
+  - from: writer-2
+    to: editor-2
+  - from: writer-3
+    to: editor-3
+
+  - from: editor-1
+    to: publisher
+  - from: editor-2
+    to: publisher
+  - from: editor-3
+    to: publisher

@@ -70,7 +70,7 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 	// 3. Install required dependencies
 	if len(dependencies) > 0 {
 		em.Logger.Info("Installing skill dependencies", "agent_id", agentID, "deps", dependencies)
-		args := append([]string{"install"}, dependencies...)
+		args := append([]string{"install", "--no-cache-dir"}, dependencies...)
 		cmd := exec.Command(pipExe, args...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return "", nil, fmt.Errorf("pip install failed: %s - %w", string(out), err)

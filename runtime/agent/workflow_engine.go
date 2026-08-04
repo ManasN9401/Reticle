@@ -194,6 +194,12 @@ func (we *GraphEngine) SubmitWorkflow(wf *WorkflowDefinition, executionID string
 	we.Executions[executionID] = exec
 
 	we.Logger.Info("GraphEngine started execution", "workflow_id", wf.ID, "exec_id", executionID)
+	
+	we.Bus.Publish(events.EventType("WorkflowStarted"), events.Component("graph_engine"), map[string]any{
+		"workflow_id": wf.ID,
+		"exec_id":     executionID,
+		"edges":       wf.Edges,
+	})
 
 	for _, rootID := range wf.Roots {
 		we.dispatchNode(exec, rootID, nil)
@@ -240,6 +246,7 @@ func (we *GraphEngine) dispatchNode(exec *WorkflowExecution, nodeID string, inpu
 		ID:          TaskID(fmt.Sprintf("%s|%s", exec.ExecutionID, node.ID)),
 		AgentID:     node.WorkerID,
 		Inputs:      inputs,
+		Parameters:  node.Parameters,
 		Workflow:    exec.Workflow.ID,
 		ExecutionID: exec.ExecutionID,
 	}

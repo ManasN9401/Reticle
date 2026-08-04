@@ -22,17 +22,20 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	bus     *events.Bus
-	addr    string
-	clients map[*websocket.Conn]bool
-	mu      sync.Mutex
+	bus       *events.Bus
+	addr      string
+	clients   map[*websocket.Conn]bool
+	mu        sync.Mutex
+	connected chan struct{}
+	once      sync.Once
 }
 
 func NewServer(bus *events.Bus, addr string) *Server {
 	return &Server{
-		bus:     bus,
-		addr:    addr,
-		clients: make(map[*websocket.Conn]bool),
+		bus:       bus,
+		addr:      addr,
+		clients:   make(map[*websocket.Conn]bool),
+		connected: make(chan struct{}),
 	}
 }
 
@@ -62,6 +65,12 @@ func (s *Server) Start() error {
 	return nil
 }
 
+func (s *Server) WaitForClient() {
+	fmt.Printf("Telemetry Server waiting for browser connection at http://localhost%s...\n", s.addr)
+	<-s.connected
+	fmt.Println("Client connected! Resuming execution...")
+}
+
 func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -72,6 +81,10 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.clients[conn] = true
 	s.mu.Unlock()
+
+	s.once.Do(func() {
+		close(s.connected)
+	})
 
 	// Keep connection alive, listen for close
 	for {

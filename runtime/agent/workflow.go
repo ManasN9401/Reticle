@@ -6,8 +6,9 @@ type WorkflowYAML struct {
 	Version string `yaml:"version"`
 
 	Nodes []struct {
-		ID    string `yaml:"id"`
-		Agent string `yaml:"agent"`
+		ID         string         `yaml:"id"`
+		Agent      string         `yaml:"agent"`
+		Parameters map[string]any `yaml:"parameters"`
 	} `yaml:"nodes"`
 
 	Edges []struct {
@@ -22,8 +23,9 @@ type WorkflowEdge struct {
 }
 
 type WorkflowNode struct {
-	ID       string
-	WorkerID string
+	ID         string
+	WorkerID   string
+	Parameters map[string]any
 }
 
 type WorkflowDefinition struct {

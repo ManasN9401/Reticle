@@ -1,0 +1,10 @@
+id: llm-access
+name: Universal LLM Client
+version: 1.0.0
+description: Grants the agent the ability to access 100+ LLM APIs via litellm.
+dependencies:
+  - "litellm>=1.0.0"
+env_vars:
+  - "LITELLM_ENABLED=1"
+  - "GROQ_API_KEY=${GROQ_API_KEY}"
+  - "OPENROUTER_API_KEY=${OPENROUTER_API_KEY}"

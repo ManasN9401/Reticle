@@ -1,0 +1,239 @@
+id: "startup-launch"
+name: "Startup Launch Workflow (Complex 22-Node DAG)"
+version: "1.0.0"
+
+nodes:
+  - id: ceo
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are the CEO."
+      user_prompt: "Come up with an idea for an app."
+      output_id: "ceo_idea"
+
+  - id: vp-product
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are VP of Product."
+      user_prompt: "Analyze the CEO's idea."
+
+  - id: vp-engineering
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are VP of Engineering."
+      user_prompt: "Evaluate technical feasibility."
+
+  - id: vp-marketing
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are VP of Marketing."
+      user_prompt: "Define target audience."
+
+  - id: product-manager-1
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are a PM."
+      user_prompt: "Write specs."
+
+  - id: product-manager-2
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are a PM."
+      user_prompt: "Write user stories."
+
+  - id: architect
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are the Software Architect."
+      user_prompt: "Design the cloud architecture."
+
+  - id: researcher-1
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are a UX Researcher."
+      user_prompt: "Conduct user interviews."
+
+  - id: researcher-2
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are a Market Researcher."
+      user_prompt: "Analyze competitors."
+
+  - id: designer-1
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are a UI Designer."
+      user_prompt: "Create wireframes."
+
+  - id: designer-2
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are a Visual Designer."
+      user_prompt: "Create high-fidelity mockups."
+
+  - id: backend-1
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are Backend Engineer 1."
+      user_prompt: "Build the database."
+
+  - id: backend-2
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are Backend Engineer 2."
+      user_prompt: "Build the API."
+
+  - id: frontend-1
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are Frontend Engineer 1."
+      user_prompt: "Build the web app."
+
+  - id: frontend-2
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are Frontend Engineer 2."
+      user_prompt: "Build the mobile app."
+
+  - id: qa-1
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are QA 1."
+      user_prompt: "Test web."
+
+  - id: qa-2
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are QA 2."
+      user_prompt: "Test mobile."
+
+  - id: marketer-1
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are Marketer 1."
+      user_prompt: "Write ad copy."
+
+  - id: marketer-2
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are Marketer 2."
+      user_prompt: "Create launch video."
+
+  - id: release-manager
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are the Release Manager."
+      user_prompt: "Prepare deployment."
+
+  - id: pr-manager
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are the PR Manager."
+      user_prompt: "Draft press release."
+
+  - id: product-launcher
+    agent: llm-worker
+    parameters:
+      system_prompt: "You are the Launch Coordinator."
+      user_prompt: "Combine everything into a final launch plan."
+      output_id: "launch_plan"
+
+edges:
+  # L1 -> L2
+  - from: ceo
+    to: vp-product
+  - from: ceo
+    to: vp-engineering
+  - from: ceo
+    to: vp-marketing
+
+  # L2 -> L3
+  - from: vp-product
+    to: product-manager-1
+  - from: vp-product
+    to: product-manager-2
+  - from: vp-product
+    to: researcher-1
+  - from: vp-product
+    to: researcher-2
+  - from: vp-engineering
+    to: architect
+  - from: vp-marketing
+    to: researcher-1
+  - from: vp-marketing
+    to: researcher-2
+
+  # L3 -> L4 (The big crossover mess)
+  - from: product-manager-1
+    to: designer-1
+  - from: product-manager-1
+    to: backend-1
+  - from: product-manager-1
+    to: frontend-1
+  - from: product-manager-2
+    to: designer-2
+  - from: product-manager-2
+    to: backend-2
+  - from: product-manager-2
+    to: frontend-2
+  - from: architect
+    to: backend-1
+  - from: architect
+    to: backend-2
+  - from: architect
+    to: frontend-1
+  - from: architect
+    to: frontend-2
+  - from: researcher-1
+    to: designer-1
+  - from: researcher-1
+    to: designer-2
+  - from: researcher-2
+    to: backend-1
+  - from: researcher-2
+    to: frontend-1
+  - from: researcher-2
+    to: backend-2
+  - from: researcher-2
+    to: frontend-2
+
+  # L4 -> L5
+  - from: designer-1
+    to: qa-1
+  - from: designer-1
+    to: marketer-1
+  - from: designer-2
+    to: qa-2
+  - from: designer-2
+    to: marketer-2
+  - from: backend-1
+    to: qa-1
+  - from: backend-1
+    to: qa-2
+  - from: backend-2
+    to: qa-1
+  - from: backend-2
+    to: qa-2
+  - from: frontend-1
+    to: qa-1
+  - from: frontend-1
+    to: qa-2
+  - from: frontend-2
+    to: qa-1
+  - from: frontend-2
+    to: qa-2
+
+  # L5 -> L6
+  - from: qa-1
+    to: release-manager
+  - from: qa-2
+    to: release-manager
+  - from: marketer-1
+    to: pr-manager
+  - from: marketer-2
+    to: pr-manager
+
+  # L6 -> L7
+  - from: release-manager
+    to: product-launcher
+  - from: pr-manager
+    to: product-launcher

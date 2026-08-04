@@ -125,14 +125,28 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 	scanner := bufio.NewScanner(stdout)
 	var resp TaskResponse
 	var parseErr error
+	var foundJson bool
+	var lastRawLine string
 
-	if scanner.Scan() {
+	for scanner.Scan() {
 		line := scanner.Text()
-		if err := json.Unmarshal([]byte(line), &resp); err != nil {
-			parseErr = fmt.Errorf("failed to parse worker output: %v, raw: %s", err, line)
+		lineStr := string(line)
+		if lineStr != "" {
+			lastRawLine = lineStr
+			// Try parsing; we only care if we get at least one valid json
+			if err := json.Unmarshal([]byte(line), &resp); err == nil {
+				foundJson = true
+				parseErr = nil
+			} else {
+				parseErr = fmt.Errorf("failed to parse worker output: %v, raw: %s", err, line)
+			}
 		}
-	} else {
-		parseErr = fmt.Errorf("worker produced no output")
+	}
+
+	if !foundJson {
+		if parseErr == nil {
+			parseErr = fmt.Errorf("worker produced no valid json output, last raw output: %s", lastRawLine)
+		}
 	}
 
 	err = cmd.Wait()

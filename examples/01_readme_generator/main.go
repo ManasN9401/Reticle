@@ -14,6 +14,7 @@ import (
 
 func main() {
 	debugMode := flag.Bool("debug", false, "Enable debug mode to show full artifact payloads in logs")
+	guiMode := flag.Bool("gui", false, "Start telemetry GUI and wait for browser connection before running")
 	flag.Parse()
 
 	// Phase 1: Bootstrapping the runtime environment
@@ -23,9 +24,12 @@ func main() {
 	}
 	orch.Start()
 
-	// Start Telemetry UI
-	telemetryServer := telemetry.NewServer(orch.Bus, ":8080")
-	telemetryServer.Start()
+	// Start Telemetry UI if requested
+	if *guiMode {
+		telemetryServer := telemetry.NewServer(orch.Bus, ":8080")
+		telemetryServer.Start()
+		telemetryServer.WaitForClient()
+	}
 
 	graphEngine := agent.NewGraphEngine(orch.Logger, orch.Bus)
 	graphEngine.Start()
@@ -186,9 +190,11 @@ func main() {
 	time.Sleep(2 * time.Second)
 
 	fmt.Println("\n--- WORKFLOWS COMPLETED ---")
-	fmt.Println("Telemetry Server is still running. Open http://localhost:8080 in your browser.")
-	fmt.Println("Waiting 60 seconds before shutting down...")
-	time.Sleep(60 * time.Second)
+	if *guiMode {
+		fmt.Println("Telemetry Server is still running. Open http://localhost:8080 in your browser.")
+		fmt.Println("Waiting 60 seconds before shutting down...")
+		time.Sleep(60 * time.Second)
+	}
 
 	orch.Shutdown()
 }
