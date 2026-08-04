@@ -4,8 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"github.com/hyperparallel/runtime/agent"
+	"github.com/hyperparallel/runtime/events"
 	"github.com/hyperparallel/runtime/memory"
 	"github.com/hyperparallel/runtime/orchestrator"
+	"github.com/hyperparallel/runtime/routing"
 	"time"
 )
 
@@ -43,9 +45,24 @@ func main() {
 	envManager := agent.NewEnvironmentManager(orch.Logger, "../../")
 	workers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
 	
-	// Phase 3: Define Subscriptions (JIT Dispatching)
+	// Phase 3: Define Subscriptions (JIT Dispatching) & Runtime Instructions
+	instructionStore := agent.NewInstructionStore()
+	instructionStore.Add(agent.Instruction{
+		ID:      "inst-1",
+		Scope:   agent.ScopeGlobal,
+		Content: "Always use GitHub Flavored Markdown.",
+	})
+	instructionStore.Add(agent.Instruction{
+		ID:      "inst-2",
+		Scope:   agent.ScopeAgent,
+		Target:  "outline-gen",
+		Content: "Include a section for 'Contributors'.",
+	})
+
+	router := routing.NewRouter(orch.Logger, orch.Bus)
+
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
-	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus)
+	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router)
 	
 	for _, sub := range registry.BuildSubscriptions() {
 		subManager.Register(sub)
@@ -128,6 +145,40 @@ func main() {
 		fmt.Printf("   -> GetVersion('readme_final', 1) still retains Version: %d data: %v\n", oldV1.Version, dataStr)
 	}
 	fmt.Println("----------------------------------")
+
+	// Phase 6: Benchmark Model Routing
+	fmt.Println("\n--- BENCHMARKING MODELS FOR ROUTING ---")
+	for _, model := range routing.AvailableModels {
+		benchTaskID := fmt.Sprintf("bench-outline-%s", model.ID)
+		fmt.Printf("Benchmarking %s...\n", model.ID)
+		
+		benchTask := agent.Task{
+			ID:          agent.TaskID(benchTaskID),
+			AgentID:     "outline-gen",
+			ExecutionID: "bench-exec",
+			Workflow:    "benchmark-run",
+			Parameters: map[string]any{
+				"llm_model": model.ID, // Force model
+			},
+		}
+		
+		// Fire TaskCreated directly to dispatcher via bus
+		orch.Bus.Publish(events.EventType("TaskCreated"), events.Component("benchmark"), benchTask)
+		time.Sleep(500 * time.Millisecond) // Give worker time to exit and publish completion
+	}
+
+	// Give time for router updates to settle
+	time.Sleep(1 * time.Second)
+	
+	fmt.Println("\n--- ROUTER MATRIX POST-BENCHMARK ---")
+	for m, prob := range router.Matrix["outline-gen"] {
+		fmt.Printf("Agent: outline-gen | Model: %s | Success Probability: %.2f\n", m, prob)
+	}
+	
+	// Now if we submit a real workflow, the router will use the learned matrix
+	fmt.Println("\n--- STARTING OPTIMIZED ROUTED WORKFLOW ---")
+	graphEngine.SubmitWorkflow(wf, "exec-003-routed")
+	time.Sleep(2 * time.Second)
 
 	orch.Shutdown()
 }

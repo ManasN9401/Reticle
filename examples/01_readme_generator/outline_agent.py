@@ -5,6 +5,7 @@ import requests
 
 def main():
     print(f"HTTP_SKILL_ENABLED: {os.getenv('HTTP_SKILL_ENABLED')}", file=sys.stderr)
+    print(f"LITELLM_ENABLED: {os.getenv('LITELLM_ENABLED')}", file=sys.stderr)
     try:
         r = requests.get("https://example.com")
         print(f"requests works: status {r.status_code}", file=sys.stderr)
@@ -18,6 +19,15 @@ def main():
     try:
         req = json.loads(line)
         req_id = req.get("id", "unknown")
+        instructions = req.get("instructions", [])
+        
+        if instructions:
+            print(f"Received instructions: {instructions}", file=sys.stderr)
+            
+        parameters = req.get("parameters", {})
+        llm_model = parameters.get("llm_model", "none")
+        if llm_model != "none":
+            print(f"LLM Routing Selected Model: {llm_model}", file=sys.stderr)
         
         # The agent ONLY emits what it uniquely created
         artifact = {

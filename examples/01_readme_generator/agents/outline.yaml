@@ -12,3 +12,4 @@ outputs:
 
 skills:
   - http-client
+  - llm-access

@@ -3,20 +3,25 @@ package agent
 import (
 	"github.com/hyperparallel/runtime/events"
 	"github.com/hyperparallel/runtime/logger"
+	"github.com/hyperparallel/runtime/routing"
 )
 
 // Dispatcher listens for TaskReady events and schedules them to the appropriate Worker.
 type Dispatcher struct {
-	Logger  *logger.Logger
-	Bus     *events.Bus
-	Workers map[WorkerID]*Worker
+	Logger       *logger.Logger
+	Bus          *events.Bus
+	Workers      map[WorkerID]*Worker
+	Instructions *InstructionStore
+	Router       *routing.ModelRouter
 }
 
-func NewDispatcher(l *logger.Logger, b *events.Bus) *Dispatcher {
+func NewDispatcher(l *logger.Logger, b *events.Bus, is *InstructionStore, r *routing.ModelRouter) *Dispatcher {
 	return &Dispatcher{
-		Logger:  l,
-		Bus:     b,
-		Workers: make(map[WorkerID]*Worker),
+		Logger:       l,
+		Bus:          b,
+		Workers:      make(map[WorkerID]*Worker),
+		Instructions: is,
+		Router:       r,
 	}
 }
 
@@ -37,6 +42,25 @@ func (d *Dispatcher) Start() {
 		if !ok {
 			d.Logger.Error("Dispatcher failed to trigger worker", "worker_id", workerID, "error", "worker not found")
 			return
+		}
+
+		// Inject instructions dynamically
+		if d.Instructions != nil {
+			task.Instructions = d.Instructions.GetForTask(task.AgentID, task.Workflow)
+		}
+
+		// Inject Model Routing
+		if d.Router != nil {
+			if task.Parameters == nil {
+				task.Parameters = make(map[string]any)
+			}
+			if _, exists := task.Parameters["llm_model"]; !exists {
+				selectedModel := d.Router.SelectModel(string(task.ID), task.AgentID, 0.90) // 90% confidence threshold
+				task.Parameters["llm_model"] = selectedModel
+			} else {
+				// Tell the router to track this forced model so it can learn from it
+				d.Router.TrackForcedModel(string(task.ID), task.Parameters["llm_model"].(string))
+			}
 		}
 
 		// Asynchronously invoke the worker directly

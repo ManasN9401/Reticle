@@ -32,3 +32,8 @@ venv/
 state/
 runtime/logs/
 .gemini/
+.hyperparallel/
+
+# Go
+*.exe
+*.exe~

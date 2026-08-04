@@ -62,7 +62,9 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 
 	for _, skill := range skills {
 		dependencies = append(dependencies, skill.Dependencies...)
-		envVars = append(envVars, skill.EnvVars...)
+		for _, v := range skill.EnvVars {
+			envVars = append(envVars, os.ExpandEnv(v))
+		}
 	}
 
 	// 3. Install required dependencies

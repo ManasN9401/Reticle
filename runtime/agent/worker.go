@@ -48,9 +48,10 @@ type Task struct {
 	ExecutionID string         `json:"execution,omitempty"`
 	Workflow    string         `json:"workflow,omitempty"`
 	Origin      string         `json:"origin,omitempty"`
-	Inputs      []TaskInput    `json:"inputs,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
-	Memory      map[string]any `json:"memory,omitempty"`
+	Inputs       []TaskInput    `json:"inputs,omitempty"`
+	Parameters   map[string]any `json:"parameters,omitempty"`
+	Memory       map[string]any `json:"memory,omitempty"`
+	Instructions []string       `json:"instructions,omitempty"`
 }
 
 type GraphMutation struct {
@@ -135,6 +136,10 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 	}
 
 	err = cmd.Wait()
+	
+	if stderrBuf.Len() > 0 {
+		w.Logger.Info("Worker emitted stderr", "worker_id", w.ID, "stderr", stderrBuf.String())
+	}
 	
 	if err != nil {
 		exitCode := -1
