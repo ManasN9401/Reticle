@@ -56,7 +56,7 @@
             max-width: 1600px;
             display: flex;
             flex-direction: row;
-            gap: 1.5rem;
+            gap: 0.5rem;
             flex-grow: 1;
             height: calc(100vh - 100px);
         }
@@ -67,11 +67,33 @@
             max-width: 80%;
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: 0.5rem;
             z-index: 10;
-            resize: horizontal;
-            overflow: hidden;
-            padding-right: 5px; /* for resize handle */
+        }
+
+        .resizer-vertical {
+            width: 8px;
+            cursor: col-resize;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            transition: background 0.2s;
+            z-index: 20;
+        }
+        .resizer-vertical:hover, .resizer-vertical.active {
+            background: rgba(88, 166, 255, 0.4);
+        }
+
+        .resizer-horizontal {
+            height: 8px;
+            cursor: row-resize;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            transition: background 0.2s;
+            flex-shrink: 0;
+            z-index: 20;
+        }
+        .resizer-horizontal:hover, .resizer-horizontal.active {
+            background: rgba(88, 166, 255, 0.4);
         }
 
         .nodes-container {
@@ -221,7 +243,6 @@
             max-height: 80vh;
             flex-shrink: 0;
             overflow-y: auto;
-            resize: vertical;
             font-family: monospace;
             font-size: 0.8rem;
             backdrop-filter: blur(20px);
@@ -257,10 +278,13 @@
     
     <div class="container">
         <!-- Left Dashboard -->
-        <div class="dashboard-left">
+        <div class="dashboard-left" id="sidebar">
             <div class="nodes-container" id="nodesContainer"></div>
+            <div class="resizer-horizontal" id="resizerLog"></div>
             <div class="log-panel" id="logContainer"></div>
         </div>
+
+        <div class="resizer-vertical" id="resizerSidebar"></div>
 
         <!-- Right Star Map Canvas -->
         <div class="dashboard-right">
@@ -282,6 +306,66 @@
             layoutTree();
         }
         window.addEventListener('resize', resizeCanvas);
+        
+        // Sidebar Resizer
+        const sidebar = document.getElementById('sidebar');
+        const resizerSidebar = document.getElementById('resizerSidebar');
+        let isResizingSidebar = false;
+
+        resizerSidebar.addEventListener('mousedown', (e) => {
+            isResizingSidebar = true;
+            resizerSidebar.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isResizingSidebar) {
+                const newWidth = e.clientX - sidebar.getBoundingClientRect().left;
+                if (newWidth > 150 && newWidth < window.innerWidth * 0.8) {
+                    sidebar.style.width = `${newWidth}px`;
+                    resizeCanvas();
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizingSidebar) {
+                isResizingSidebar = false;
+                resizerSidebar.classList.remove('active');
+                document.body.style.cursor = '';
+            }
+        });
+
+        // Log Panel Resizer
+        const logPanel = document.getElementById('logContainer');
+        const resizerLog = document.getElementById('resizerLog');
+        let isResizingLog = false;
+
+        resizerLog.addEventListener('mousedown', (e) => {
+            isResizingLog = true;
+            resizerLog.classList.add('active');
+            document.body.style.cursor = 'row-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isResizingLog) {
+                const sidebarRect = sidebar.getBoundingClientRect();
+                const logHeight = sidebarRect.bottom - e.clientY;
+                if (logHeight > 50 && logHeight < sidebarRect.height - 100) {
+                    logPanel.style.height = `${logHeight}px`;
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizingLog) {
+                isResizingLog = false;
+                resizerLog.classList.remove('active');
+                document.body.style.cursor = '';
+            }
+        });
         
         const stars = new Map();
         let activePulses = [];
