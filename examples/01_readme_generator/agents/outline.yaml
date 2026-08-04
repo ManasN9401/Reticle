@@ -4,7 +4,7 @@ description: Generates a high-level Markdown outline for a software project
 version: 1.0.0
 
 runtime: python
-entrypoint: outline_agent.py
+entrypoint: workers/outline_agent.py
 
 inputs: []
 outputs:

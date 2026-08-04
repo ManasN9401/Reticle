@@ -8,6 +8,7 @@ import (
 	"github.com/hyperparallel/runtime/memory"
 	"github.com/hyperparallel/runtime/orchestrator"
 	"github.com/hyperparallel/runtime/routing"
+	"github.com/hyperparallel/runtime/telemetry"
 	"time"
 )
 
@@ -21,6 +22,10 @@ func main() {
 		orch.Logger.DebugMode = true
 	}
 	orch.Start()
+
+	// Start Telemetry UI
+	telemetryServer := telemetry.NewServer(orch.Bus, ":8080")
+	telemetryServer.Start()
 
 	graphEngine := agent.NewGraphEngine(orch.Logger, orch.Bus)
 	graphEngine.Start()
@@ -179,6 +184,11 @@ func main() {
 	fmt.Println("\n--- STARTING OPTIMIZED ROUTED WORKFLOW ---")
 	graphEngine.SubmitWorkflow(wf, "exec-003-routed")
 	time.Sleep(2 * time.Second)
+
+	fmt.Println("\n--- WORKFLOWS COMPLETED ---")
+	fmt.Println("Telemetry Server is still running. Open http://localhost:8080 in your browser.")
+	fmt.Println("Waiting 60 seconds before shutting down...")
+	time.Sleep(60 * time.Second)
 
 	orch.Shutdown()
 }

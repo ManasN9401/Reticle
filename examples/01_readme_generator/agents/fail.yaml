@@ -3,6 +3,6 @@ name: Failing Agent
 description: Always crashes
 version: 1.0.0
 runtime: python
-entrypoint: fail_agent.py
+entrypoint: workers/fail_agent.py
 inputs: []
 outputs: []
