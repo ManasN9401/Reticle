@@ -37,3 +37,6 @@ runtime/logs/
 # Go
 *.exe
 *.exe~
+
+#workspaces
+cmd/forge/workspaces/*
