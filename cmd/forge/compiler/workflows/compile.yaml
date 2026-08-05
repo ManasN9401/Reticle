@@ -1,0 +1,28 @@
+id: forge-compiler
+name: HyperParallel Forge Compiler
+version: 1.0.0
+nodes:
+  - id: arch-1
+    agent: architect-agent
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+  - id: scaff-1
+    agent: scaffolder-agent
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+  - id: code-1
+    agent: coder-agent
+    parameters:
+      llm_model: "groq/llama-3.1-8b-instant"
+  - id: write-1
+    agent: writer-agent
+    parameters: {}
+edges:
+  - from: arch-1
+    to: scaff-1
+  - from: arch-1
+    to: code-1
+  - from: scaff-1
+    to: write-1
+  - from: code-1
+    to: write-1

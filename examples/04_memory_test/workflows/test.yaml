@@ -1,0 +1,13 @@
+id: memory-test
+name: Shared Memory Test Workflow
+version: 1.0.0
+nodes:
+  - id: writer-1
+    agent: writer-agent
+    parameters: {}
+  - id: reader-1
+    agent: reader-agent
+    parameters: {}
+edges:
+  - from: writer-1
+    to: reader-1

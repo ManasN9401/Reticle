@@ -1,0 +1,8 @@
+id: writer-agent
+name: "Memory Writer Agent"
+description: "Writes to shared memory."
+version: 1.0.0
+runtime: python
+entrypoint: workers/writer.py
+outputs:
+  - "writer_output"

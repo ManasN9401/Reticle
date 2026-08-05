@@ -157,16 +157,28 @@
             transition: background-color 0.3s ease, box-shadow 0.3s ease;
         }
 
+        .node-card.status-running {
+            background: linear-gradient(135deg, rgba(88, 166, 255, 0.1) 0%, var(--panel-bg) 100%);
+            border-color: rgba(88, 166, 255, 0.3);
+        }
         .node-card.status-running::before {
             background-color: var(--accent-color);
             box-shadow: 0 0 15px var(--accent-color);
         }
 
+        .node-card.status-completed {
+            background: linear-gradient(135deg, rgba(46, 160, 67, 0.1) 0%, var(--panel-bg) 100%);
+            border-color: rgba(46, 160, 67, 0.3);
+        }
         .node-card.status-completed::before {
             background-color: var(--success-color);
             box-shadow: 0 0 15px var(--success-color);
         }
         
+        .node-card.status-failed {
+            background: linear-gradient(135deg, rgba(248, 81, 73, 0.1) 0%, var(--panel-bg) 100%);
+            border-color: rgba(248, 81, 73, 0.3);
+        }
         .node-card.status-failed::before {
             background-color: var(--error-color);
             box-shadow: 0 0 15px var(--error-color);
@@ -545,10 +557,10 @@
         
         const stars = new Map();
         let activePulses = [];
-        let globalEdges = [];
+        let execEdges = new Map();
         let pulseCompleted = false;
         let globalConnectorAlpha = 0;
-        let lastCompletedNode = null;
+        let lastCompletedNode = null; // Stores globalId
         let timeElapsed = 0;
         let lastFrameTime = performance.now();
 
@@ -625,16 +637,20 @@
             
             let html = '';
             
-            const parents = globalEdges.filter(e => e.To === nodeId).map(e => e.From);
-            const children = globalEdges.filter(e => e.From === nodeId).map(e => e.To);
+            const execId = star ? star.execId : null;
+            const edges = execId ? (execEdges.get(execId) || []) : [];
+            const parents = edges.filter(e => e.To === (star ? star.id : nodeId)).map(e => e.From);
+            const children = edges.filter(e => e.From === (star ? star.id : nodeId)).map(e => e.To);
             
             let receivedArtifacts = [];
-            parents.forEach(pId => {
-                const pStar = stars.get(pId);
-                if (pStar && pStar.artifactNames) {
-                    receivedArtifacts.push(...pStar.artifactNames);
-                }
-            });
+            if (execId) {
+                parents.forEach(pId => {
+                    const pStar = stars.get(`${execId}|${pId}`);
+                    if (pStar && pStar.artifactNames) {
+                        receivedArtifacts.push(...pStar.artifactNames);
+                    }
+                });
+            }
             
             if (star) {
                 html += `<div class="details-section">
@@ -746,8 +762,10 @@
         }, { passive: false });
 
         class Star {
-            constructor(id, depth) {
+            constructor(execId, id, depth) {
+                this.execId = execId;
                 this.id = id;
+                this.globalId = `${execId}|${id}`;
                 this.status = 'initializing';
                 this.startTime = Date.now();
                 this.duration = 0;
@@ -788,13 +806,13 @@
                 let activeColor = forceColor;
                 if (!activeColor) {
                     if (this.status === 'running') {
-                        activeColor = '#ffffff';
+                        activeColor = '#58a6ff'; // Accent color for running
                     } else if (this.status === 'completed') {
-                        activeColor = '#2ea043';
+                        activeColor = '#2ea043'; // Success color
                     } else if (this.status === 'failed') {
-                        activeColor = '#f85149';
+                        activeColor = '#f85149'; // Error color
                     } else {
-                        activeColor = '#8b949e';
+                        activeColor = '#8b949e'; // Pending/Idle
                         ctx.shadowBlur = 10;
                     }
                 }
@@ -858,29 +876,54 @@
         }
 
         function layoutTree() {
-            // Group stars by depth
-            const byDepth = new Map();
-            for (const star of stars.values()) {
-                if (!byDepth.has(star.depth)) byDepth.set(star.depth, []);
-                byDepth.get(star.depth).push(star);
-            }
+            const execIds = Array.from(new Set(Array.from(stars.values()).map(s => s.execId)));
+            let currentXOffset = 0;
+            const ISLAND_PADDING = 300;
 
-            // Assign target positions
-            for (const [depth, levelStars] of byDepth.entries()) {
-                // Sort stars alphabetically to prevent crossing edges
-                levelStars.sort((a, b) => a.id.localeCompare(b.id));
-
-                const totalWidth = (levelStars.length - 1) * HORIZONTAL_SPACING;
-                const startX = (cw / 2) - (totalWidth / 2);
+            for (const execId of execIds) {
+                const execStars = Array.from(stars.values()).filter(s => s.execId === execId);
                 
-                // Shift entire tree down to center it vertically
+                // Group stars by depth
+                const byDepth = new Map();
+                for (const star of execStars) {
+                    if (!byDepth.has(star.depth)) byDepth.set(star.depth, []);
+                    byDepth.get(star.depth).push(star);
+                }
+
+                // Find max width of this execution's tree
+                let maxLevelWidth = 0;
+                for (const levelStars of byDepth.values()) {
+                    const w = (levelStars.length - 1) * HORIZONTAL_SPACING;
+                    if (w > maxLevelWidth) maxLevelWidth = w;
+                }
+
+                const islandWidth = maxLevelWidth;
+                const islandCenterX = currentXOffset + (islandWidth / 2);
+
                 const totalHeight = (byDepth.size - 1) * VERTICAL_SPACING;
                 const startY = (ch / 2) - (totalHeight / 2);
 
-                levelStars.forEach((star, index) => {
-                    star.targetX = startX + (index * HORIZONTAL_SPACING);
-                    star.targetY = startY + (depth * VERTICAL_SPACING);
-                });
+                for (const [depth, levelStars] of byDepth.entries()) {
+                    levelStars.sort((a, b) => a.id.localeCompare(b.id));
+
+                    const levelWidth = (levelStars.length - 1) * HORIZONTAL_SPACING;
+                    const startX = islandCenterX - (levelWidth / 2);
+
+                    levelStars.forEach((star, index) => {
+                        star.targetX = startX + (index * HORIZONTAL_SPACING);
+                        star.targetY = startY + (depth * VERTICAL_SPACING);
+                    });
+                }
+                
+                // Advance x offset for next island
+                currentXOffset += islandWidth + ISLAND_PADDING;
+            }
+            
+            // Re-center all islands
+            const totalCanvasWidth = Math.max(0, currentXOffset - ISLAND_PADDING);
+            const shiftX = (cw / 2) - (totalCanvasWidth / 2);
+            for (const star of stars.values()) {
+                star.targetX += shiftX;
             }
         }
 
@@ -905,7 +948,8 @@
                     const child = starArr[j];
                     
                     // Check if an explicit edge exists
-                    const hasEdge = globalEdges.some(e => e.From === parent.id && e.To === child.id);
+                    const edges = execEdges.get(parent.execId) || [];
+                    const hasEdge = (parent.execId === child.execId) && edges.some(e => e.From === parent.id && e.To === child.id);
                     
                     if (hasEdge) {
                         ctx.beginPath();
@@ -1070,9 +1114,11 @@
             
             appendLog(type, e.Source, JSON.stringify(logPayload));
 
+            let execId = payload.execution || payload.exec_id || 'default-exec';
+
             // Listen for WorkflowStarted to get the explicit edges
             if (type === 'WorkflowStarted' && payload.edges) {
-                globalEdges = payload.edges;
+                execEdges.set(execId, payload.edges);
             }
 
             // Trigger Comet Pulse on workflow complete
@@ -1081,7 +1127,8 @@
                     const origin = stars.get(lastCompletedNode);
                     let hasParents = false;
                     for (const parent of stars.values()) {
-                        const hasEdge = globalEdges.some(e => e.From === parent.id && e.To === origin.id);
+                        const edges = execEdges.get(parent.execId) || [];
+                        const hasEdge = (parent.execId === origin.execId) && edges.some(e => e.From === parent.id && e.To === origin.id);
                         if (hasEdge) {
                             activePulses.push({ from: origin, to: parent, progress: 0 });
                             hasParents = true;
@@ -1103,38 +1150,41 @@
                 nodeId = payload.node_id;
             }
 
-            if (!nodeId && type !== 'TaskCreated') return;
+            if (!nodeId && type !== 'TaskCreated' && type !== 'WorkflowStarted') return;
+            if (!nodeId) return;
+
+            const globalId = `${execId}|${nodeId}`;
             
-            if (nodeId) {
-                if (!nodeDataMap.has(nodeId)) nodeDataMap.set(nodeId, []);
-                nodeDataMap.get(nodeId).push({ type, payload: logPayload });
+            if (globalId) {
+                if (!nodeDataMap.has(globalId)) nodeDataMap.set(globalId, []);
+                nodeDataMap.get(globalId).push({ type, payload: logPayload });
             }
 
             if (type === 'WorkerStarted' || type === 'TaskDispatched') {
-                createOrUpdateDOMNode(nodeId, taskId, 'running');
+                createOrUpdateDOMNode(globalId, taskId, 'running');
                 
-                if (!stars.has(nodeId)) {
+                if (!stars.has(globalId)) {
                     let depth = 0;
                     if (lastCompletedNode && stars.has(lastCompletedNode)) {
                         depth = stars.get(lastCompletedNode).depth + 1;
                     }
-                    stars.set(nodeId, new Star(nodeId, depth));
+                    stars.set(globalId, new Star(execId, nodeId, depth));
                     layoutTree();
                 }
-                const s = stars.get(nodeId);
+                const s = stars.get(globalId);
                 s.status = 'running';
                 s.startTime = Date.now();
                 
                 if (payload.llm_model) {
-                    addDOMChip(nodeId, `🧠 ${payload.llm_model}`);
+                    addDOMChip(globalId, `🧠 ${payload.llm_model}`);
                     s.llm = payload.llm_model;
                 }
             }
             else if (type === 'WorkerCompleted') {
-                createOrUpdateDOMNode(nodeId, taskId, 'completed');
-                lastCompletedNode = nodeId;
+                createOrUpdateDOMNode(globalId, taskId, 'completed');
+                lastCompletedNode = globalId;
                 
-                const s = stars.get(nodeId);
+                const s = stars.get(globalId);
                 if (s) {
                     s.status = 'completed';
                     s.pulse = 0;
@@ -1150,18 +1200,15 @@
                 }
             }
             else if (type === 'WorkerFailed') {
-                createOrUpdateDOMNode(nodeId, taskId, 'failed');
-                const s = stars.get(nodeId);
+                createOrUpdateDOMNode(globalId, taskId, 'failed');
+                const s = stars.get(globalId);
                 if (s) {
                     s.status = 'failed';
                     s.pulse = 0;
                 }
             }
             else if (type === 'ArtifactsProduced') {
-                // Since ArtifactsProduced doesn't have task_id, we append to the last completed/running node
-                // Or we can try to guess by agent_id, but lastCompletedNode works for synchronous, 
-                // for parallel it might misattribute. Let's just attribute to last active node.
-                let targetNode = lastCompletedNode || nodeId;
+                let targetNode = lastCompletedNode || globalId;
                 if (targetNode && stars.has(targetNode)) {
                     const artifactName = payload.name || 'Artifact Created';
                     addDOMChip(targetNode, `📄 ${artifactName}`, 'artifact');

@@ -1,0 +1,10 @@
+id: reader-agent
+name: "Memory Reader Agent"
+description: "Reads from shared memory."
+version: 1.0.0
+runtime: python
+entrypoint: workers/reader.py
+inputs:
+  - "writer_output"
+memory:
+  - "secret_code"

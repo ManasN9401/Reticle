@@ -1,0 +1,10 @@
+id: coder-agent
+name: Forge Coder
+description: Generates Python worker scripts for the agents
+version: 1.0.0
+runtime: python
+entrypoint: compiler/workers/coder.py
+inputs:
+  - "dag_json"
+outputs:
+  - "python_files"

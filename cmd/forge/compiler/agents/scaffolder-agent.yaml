@@ -1,0 +1,10 @@
+id: scaffolder-agent
+name: Forge Scaffolder
+description: Generates YAML files from the DAG
+version: 1.0.0
+runtime: python
+entrypoint: compiler/workers/scaffolder.py
+inputs:
+  - "dag_json"
+outputs:
+  - "yaml_files"

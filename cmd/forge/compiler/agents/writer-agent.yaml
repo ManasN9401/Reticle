@@ -1,0 +1,13 @@
+id: writer-agent
+name: Forge Writer
+description: Writes generated files to disk
+version: 1.0.0
+runtime: python
+entrypoint: compiler/workers/writer.py
+memory:
+  - "workspace_dir"
+inputs:
+  - "yaml_files"
+  - "python_files"
+outputs:
+  - "writer_status"
