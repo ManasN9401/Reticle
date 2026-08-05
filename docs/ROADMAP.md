@@ -419,6 +419,8 @@ Defines:
 - Event timeline
 - Task dashboard
 
+*(See `docs/rfc/RFC-022-Dashboard-Graph-UI.md` for official specification)*
+
 ---
 
 ## RFC-023 — Configuration
@@ -466,6 +468,14 @@ Potential future RFCs include:
 - Enterprise administration
 - Multi-project orchestration
 - Federated memory systems
+
+## RFC-025 — Dynamic Workflow Compilation
+Defines the "Zero-Boilerplate Orchestrator" where natural language dynamically compiles to executed DAGs without custom `main.go` entrypoints.
+*(See `docs/rfc/RFC-025-Dynamic-Workflow-Compilation.md` for official specification)*
+
+## RFC-026 — Worker Fault Tolerance & Stdout Protocol
+Defines the strict fault-tolerance constraints, mock fallback patterns, and line-by-line JSON payload extraction logic required for `Worker Protocol (v1)`.
+*(See `docs/rfc/RFC-026-Worker-Stdout-Protocol.md` for official specification)*
 
 ---
 

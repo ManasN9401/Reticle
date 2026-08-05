@@ -36,6 +36,25 @@ func New() *Logger {
 	}
 }
 
+func truncateMap(m map[string]any) {
+	for k, v := range m {
+		switch val := v.(type) {
+		case string:
+			if len(val) > 50 {
+				m[k] = val[:47] + "..."
+			}
+		case map[string]any:
+			truncateMap(val)
+		case []any:
+			for _, item := range val {
+				if itemMap, ok := item.(map[string]any); ok {
+					truncateMap(itemMap)
+				}
+			}
+		}
+	}
+}
+
 func formatArgsForConsole(msg string, args []any) (string, bool) {
 	fields := make(map[string]any)
 	for i := 0; i < len(args); i += 2 {
@@ -54,7 +73,15 @@ func formatArgsForConsole(msg string, args []any) (string, bool) {
 		payloadStr := ""
 		if payload != nil {
 			if b, err := json.Marshal(payload); err == nil && string(b) != "null" {
-				payloadStr = fmt.Sprintf(" -> %s", string(b))
+				var rawMap map[string]any
+				if err := json.Unmarshal(b, &rawMap); err == nil {
+					truncateMap(rawMap)
+					if b2, err2 := json.Marshal(rawMap); err2 == nil {
+						payloadStr = fmt.Sprintf(" -> %s", string(b2))
+					}
+				} else {
+					payloadStr = fmt.Sprintf(" -> %s", string(b))
+				}
 			} else {
 				payloadStr = fmt.Sprintf(" -> %v", payload)
 			}
