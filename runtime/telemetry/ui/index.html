@@ -69,6 +69,7 @@
             flex-direction: column;
             gap: 0.5rem;
             z-index: 10;
+            overflow-y: auto;
         }
 
         .resizer-vertical {
@@ -101,7 +102,8 @@
             flex-direction: column;
             gap: 1rem;
             overflow-y: auto;
-            flex-grow: 1;
+            height: 40%;
+            flex-shrink: 0;
         }
 
         .dashboard-right {
@@ -537,6 +539,41 @@
             }
         });
 
+        // Waitlist Panel Resizer
+        const waitlistPanel = document.getElementById('waitlistContainer');
+        const resizerWaitlist = document.getElementById('resizerWaitlist');
+        let isResizingWaitlist = false;
+
+        resizerWaitlist.addEventListener('mousedown', (e) => {
+            isResizingWaitlist = true;
+            resizerWaitlist.classList.add('active');
+            document.body.style.cursor = 'row-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isResizingWaitlist) {
+                const sidebarRect = sidebar.getBoundingClientRect();
+                const logRect = document.getElementById('logContainer').getBoundingClientRect();
+                
+                // Calculate height based on cursor position relative to nodesContainer
+                const newHeight = sidebarRect.bottom - logRect.height - e.clientY;
+                if (newHeight > 100 && newHeight < sidebarRect.height - 150) {
+                    waitlistPanel.style.height = `${newHeight}px`;
+                    const nodesHeight = e.clientY - sidebarRect.top - 16;
+                    document.getElementById('nodesContainer').style.height = `${nodesHeight}px`;
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizingWaitlist) {
+                isResizingWaitlist = false;
+                resizerWaitlist.classList.remove('active');
+                document.body.style.cursor = '';
+            }
+        });
+
         // Log Panel Resizer
         const logPanel = document.getElementById('logContainer');
         const resizerLog = document.getElementById('resizerLog');
@@ -618,12 +655,12 @@
                     
                     for (const star of stars.values()) {
                         const d = Math.hypot(star.x - mouseX, star.y - mouseY);
-                        // Scale the hit radius so it's always at least 40 screen pixels
+                        // Scale the hit radius so it's always at least 50 screen pixels
                         // Add extra padding for running nodes since they might be animating
-                        const extraPadding = star.status === 'running' ? 25 : 15;
-                        const hitRadius = Math.max(star.radius + extraPadding, 40 / scale);
+                        const extraPadding = star.status === 'running' ? 25 : (star.status === 'failed' ? 20 : 15);
+                        const hitRadius = Math.max(star.radius + extraPadding, 50 / scale);
                         if (d < hitRadius) {
-                            openDetailsPanel(star.id);
+                            openDetailsPanel(star.globalId);
                             break;
                         }
                     }
@@ -723,7 +760,30 @@
                 html += `<div class="details-section"><div class="details-data">No event data found.</div></div>`;
             }
             
+            if (execId && star && (star.status === 'completed' || star.status === 'failed')) {
+                html += `<div style="margin-top: 1rem; text-align: center;">
+                    <button onclick="clearExecution('${execId}')" style="background: var(--error-color); color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">Clear Execution from Map</button>
+                </div>`;
+            }
+
             content.innerHTML = html;
+        }
+
+        function clearExecution(execId) {
+            // Remove all nodes and edges for this execId
+            const keysToRemove = [];
+            for (const [globalId, star] of stars.entries()) {
+                if (star.execId === execId) {
+                    keysToRemove.push(globalId);
+                }
+            }
+            keysToRemove.forEach(k => {
+                stars.delete(k);
+                nodeDataMap.delete(k);
+            });
+            execEdges.delete(execId);
+            closeDetailsPanel();
+            layoutTree();
         }
 
         function closeDetailsPanel() {
@@ -887,12 +947,19 @@
             }
         }
 
+        const knownExecIds = new Set();
         function layoutTree() {
             const execIds = Array.from(new Set(Array.from(stars.values()).map(s => s.execId)));
-            let currentXOffset = 0;
-            const ISLAND_PADDING = 300;
+            let currentXOffset = cw / 2; // Start from center for the first workflow
+            const ISLAND_PADDING = 500;
+            let newlyDiscoveredExecId = null;
 
             for (const execId of execIds) {
+                if (!knownExecIds.has(execId)) {
+                    knownExecIds.add(execId);
+                    newlyDiscoveredExecId = execId;
+                }
+
                 const execStars = Array.from(stars.values()).filter(s => s.execId === execId);
                 
                 // Group stars by depth
@@ -931,11 +998,16 @@
                 currentXOffset += islandWidth + ISLAND_PADDING;
             }
             
-            // Re-center all islands
-            const totalCanvasWidth = Math.max(0, currentXOffset - ISLAND_PADDING);
-            const shiftX = (cw / 2) - (totalCanvasWidth / 2);
-            for (const star of stars.values()) {
-                star.targetX += shiftX;
+            // Auto-pan to the new workflow if one was just discovered
+            if (newlyDiscoveredExecId) {
+                const newStars = Array.from(stars.values()).filter(s => s.execId === newlyDiscoveredExecId && s.depth === 0);
+                if (newStars.length > 0) {
+                    // Calculate pan to center the root node of the new workflow
+                    const rootNode = newStars[0];
+                    // We want rootNode.targetX * scale + panX = cw/2  => panX = cw/2 - rootNode.targetX * scale
+                    panX = (cw / 2) - (rootNode.targetX * scale);
+                    panY = (ch / 2) - (rootNode.targetY * scale) + 150; // slightly above center
+                }
             }
         }
 

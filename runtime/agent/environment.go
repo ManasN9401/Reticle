@@ -26,52 +26,23 @@ func NewEnvironmentManager(l *logger.Logger, rootDir string) *EnvironmentManager
 // It returns the path to the virtual python executable, and the aggregated env vars.
 func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefinition) (string, []string, error) {
 	envPath := filepath.Join(em.BaseDir, string(agentID))
-	baseEnvPath := filepath.Join(em.BaseDir, "_base")
 
 	if err := os.MkdirAll(em.BaseDir, 0755); err != nil {
 		return "", nil, fmt.Errorf("failed to create env base dir: %w", err)
 	}
 
-	// 1. Ensure Base Venv exists
-	basePythonExeWin := filepath.Join(baseEnvPath, "Scripts", "python.exe")
-	basePythonExeUnix := filepath.Join(baseEnvPath, "bin", "python")
-
-	if _, err := os.Stat(basePythonExeWin); os.IsNotExist(err) {
-		if _, err := os.Stat(basePythonExeUnix); os.IsNotExist(err) {
-			em.Logger.Info("Creating base virtual environment", "path", baseEnvPath)
-			cmd := exec.Command("python", "-m", "venv", baseEnvPath)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				return "", nil, fmt.Errorf("failed to create base venv: %s - %w", string(out), err)
-			}
-			
-			// Install litellm and requests universally into base environment
-			em.Logger.Info("Installing universal packages into base environment", "packages", "litellm, requests")
-			pipExe := filepath.Join(baseEnvPath, "Scripts", "pip.exe")
-			if _, err := os.Stat(pipExe); os.IsNotExist(err) {
-				pipExe = filepath.Join(baseEnvPath, "bin", "pip")
-			}
-			pipCmd := exec.Command(pipExe, "install", "litellm", "requests")
-			if out, err := pipCmd.CombinedOutput(); err != nil {
-				return "", nil, fmt.Errorf("failed to install universal base packages: %s - %w", string(out), err)
-			}
-		}
-	}
-
-	// 2. Inherit Base Venv via system-site-packages if Agent Env doesn't exist
+	venvCreated := false
 	pythonExeWin := filepath.Join(envPath, "Scripts", "python.exe")
 	pythonExeUnix := filepath.Join(envPath, "bin", "python")
 
 	if _, err := os.Stat(pythonExeWin); os.IsNotExist(err) {
 		if _, err := os.Stat(pythonExeUnix); os.IsNotExist(err) {
-			em.Logger.Info("Inheriting base virtual environment", "agent_id", agentID, "path", envPath)
-			basePythonExe := basePythonExeWin
-			if _, err := os.Stat(basePythonExe); os.IsNotExist(err) {
-				basePythonExe = basePythonExeUnix
-			}
-			cmd := exec.Command(basePythonExe, "-m", "venv", "--system-site-packages", envPath)
+			em.Logger.Info("Creating virtual environment", "agent_id", agentID, "path", envPath)
+			cmd := exec.Command("python", "-m", "venv", envPath)
 			if out, err := cmd.CombinedOutput(); err != nil {
-				return "", nil, fmt.Errorf("failed to inherit base venv to %s: %s - %w", envPath, string(out), err)
+				return "", nil, fmt.Errorf("failed to create venv to %s: %s - %w", envPath, string(out), err)
 			}
+			venvCreated = true
 		}
 	}
 
@@ -85,6 +56,9 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 	var dependencies []string
 	var envVars []string
 
+	// Always require litellm and requests for Forge workers
+	dependencies = append(dependencies, "litellm", "requests")
+
 	for _, skill := range skills {
 		dependencies = append(dependencies, skill.Dependencies...)
 		for _, v := range skill.EnvVars {
@@ -92,8 +66,8 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 		}
 	}
 
-	// 4. Install required dependencies
-	if len(dependencies) > 0 {
+	// 4. Install required dependencies only if newly created
+	if venvCreated && len(dependencies) > 0 {
 		em.Logger.Info("Installing skill dependencies", "agent_id", agentID, "deps", dependencies)
 		args := append([]string{"-m", "pip", "install"}, dependencies...)
 		cmd := exec.Command(pythonExe, args...)

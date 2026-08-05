@@ -104,6 +104,9 @@ func main() {
 	graphEngine := agent.NewGraphEngine(orch.Logger, orch.Bus)
 	graphEngine.Start()
 
+	waitlistPath := filepath.Join(workspaceDir, "waitlist.json")
+	wm := NewWaitlistManager(waitlistPath, *batchSize, graphEngine, orch)
+
 	registry := agent.NewRegistry()
 	compilerDir, _ := filepath.Abs(filepath.Join("compiler"))
 	
@@ -219,10 +222,14 @@ func main() {
 	}
 	
 	execWf := registry.Workflows["generated-workflow"]
-	// Start Execution Shell
-	waitlistPath := filepath.Join(workspaceDir, "waitlist.json")
-	wm := NewWaitlistManager(waitlistPath, *batchSize, graphEngine, orch, execWf)
+	wm.SetWorkflow(execWf)
 	
+	// Enqueue initial prompt if present
+	if userPrompt != "" {
+		wm.Enqueue(userPrompt, "", ModeParallel)
+	}
+
+	// Start Execution Shell
 	reader := bufio.NewScanner(os.Stdin)
 	fmt.Println("\n==================================================")
 	fmt.Println("             Forge Execution Shell                ")

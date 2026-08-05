@@ -43,21 +43,20 @@ type WaitlistItem struct {
 type WaitlistManager struct {
 	mu           sync.Mutex
 	items        []*WaitlistItem
+	nextID       int
 	filePath     string
 	maxWorkers   int
 	graphEngine  *agent.GraphEngine
 	orchestrator *orchestrator.Orchestrator
 	workflowDef  *agent.WorkflowDefinition
-	nextID       int
 }
 
-func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngine, orch *orchestrator.Orchestrator, wf *agent.WorkflowDefinition) *WaitlistManager {
+func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngine, orch *orchestrator.Orchestrator) *WaitlistManager {
 	wm := &WaitlistManager{
 		filePath:     filePath,
 		maxWorkers:   maxWorkers,
 		graphEngine:  engine,
 		orchestrator: orch,
-		workflowDef:  wf,
 		items:        make([]*WaitlistItem, 0),
 		nextID:       1,
 	}
@@ -134,11 +133,24 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 			if action == "enqueue" {
 				prompt, _ := payload["prompt"].(string)
 				group, _ := payload["group"].(string)
-				wm.Enqueue(prompt, group, ModeParallel)
+				modeStr, _ := payload["mode"].(string)
+				mode := ModeParallel
+				if modeStr == "sequential" {
+					mode = ModeSequential
+				}
+				wm.Enqueue(prompt, group, mode)
 			} else if action == "remove" {
 				id, _ := payload["id"].(string)
 				wm.Remove(id)
 			}
+		}
+	})
+
+	orch.Bus.Subscribe(events.EventType("WaitlistStateRequested"), func(e events.RuntimeEvent) {
+		wm.mu.Lock()
+		defer wm.mu.Unlock()
+		if wm.orchestrator != nil && wm.orchestrator.Bus != nil {
+			wm.orchestrator.Bus.Publish(events.EventType("WaitlistUpdated"), events.Component("waitlist"), wm.items)
 		}
 	})
 	
@@ -196,6 +208,13 @@ func (wm *WaitlistManager) updateStatus(id string, status ExecutionStatus) {
 	}
 }
 
+func (wm *WaitlistManager) SetWorkflow(wf *agent.WorkflowDefinition) {
+	wm.mu.Lock()
+	wm.workflowDef = wf
+	wm.mu.Unlock()
+	wm.Pump() // Start processing if we have pending items
+}
+
 func (wm *WaitlistManager) load() {
 	data, err := os.ReadFile(wm.filePath)
 	if err == nil {
@@ -223,6 +242,10 @@ func (wm *WaitlistManager) Pump() {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	
+	if wm.workflowDef == nil {
+		return // Do not process queue until workflow is loaded
+	}
+
 	// Count running total and running per group
 	runningTotal := 0
 	runningGroups := make(map[string]int)

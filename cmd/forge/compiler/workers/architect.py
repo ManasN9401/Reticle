@@ -31,6 +31,8 @@ If the global agents can fulfill the task, use them (set `is_new: false`).
 If you need new specialized agents, design them (set `is_new: true`).
 For new agents, provide an `id`, `name`, `description`, and a highly detailed `system_prompt`.
 
+CRITICAL REQUIREMENT: You MUST build highly interconnected multi-agent pipelines. DO NOT just create a single monolithic agent that does everything. You MUST break down the task into smaller sub-tasks (e.g., Researcher -> Writer -> Auditor -> Editor) and connect them using edges. If your graph only has 1 or 2 isolated nodes, you have FAILED.
+
 Output MUST be a valid JSON object with the following schema, and NOTHING else (no markdown blocks, just raw JSON):
 {{
   "workflow_name": "Name of workflow",
@@ -58,7 +60,7 @@ Output MUST be a valid JSON object with the following schema, and NOTHING else (
 """
 
         response = completion(
-            model="groq/llama-3.1-8b-instant",
+            model="groq/llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_msg},
                 {"role": "user", "content": user_prompt}
