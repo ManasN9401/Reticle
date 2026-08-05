@@ -30,6 +30,7 @@ type AgentDefinition struct {
 	Inputs      []string    `yaml:"inputs"`  // ArtifactTypes
 	Outputs     []string    `yaml:"outputs"` // ArtifactTypes
 	Skills      []string    `yaml:"skills"`  // Skill IDs
+	Memory      []string    `yaml:"memory"`  // Required shared memory keys
 
 	Subscriptions []SubscriptionYAML `yaml:"subscriptions"`
 }
@@ -263,7 +264,9 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 			continue
 		}
 
-		workers[id] = NewWorker(id, executable, args, envVars, l, b)
+		w := NewWorker(id, executable, args, envVars, l, b)
+		w.RequiredMemory = def.Memory
+		workers[id] = w
 	}
 
 	return workers

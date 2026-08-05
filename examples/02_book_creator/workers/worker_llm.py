@@ -1,3 +1,9 @@
+"""
+HyperParallel Worker Script
+MANDATORY READING:
+- RFC-008: Agent Architecture
+- RFC-027: Worker Runtime Contract
+"""
 import sys
 import json
 import os
@@ -46,9 +52,15 @@ def main():
             print(f"[{req_id}] LLM call failed (missing API key?). Falling back to mock data. Error: {e}", file=sys.stderr)
             result_text = f"**Mocked Content for {req_id}**\n\nThe brave hero ventured into the dark forest, seeking the legendary artifact. Along the way, they encountered a mysterious stranger who offered guidance. The journey was long and perilous, but in the end, they found what they were looking for."
         
+        artifact_name_fallback = f"{str(req_id).split('|')[-1].replace('-', ' ').title()} Output"
+        import re
+        match = re.search(r'^\s*#\s+(.+)', result_text, re.MULTILINE)
+        if match:
+            artifact_name_fallback = match.group(1).strip()
+            
         artifact = {
             "id": parameters.get("output_id", f"{req_id}_output"),
-            "name": parameters.get("output_name", "LLM Output"),
+            "name": parameters.get("output_name", artifact_name_fallback),
             "type": "document/markdown",
             "data": result_text
         }

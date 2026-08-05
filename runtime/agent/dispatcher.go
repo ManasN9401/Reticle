@@ -3,6 +3,7 @@ package agent
 import (
 	"github.com/hyperparallel/runtime/events"
 	"github.com/hyperparallel/runtime/logger"
+	"github.com/hyperparallel/runtime/memory"
 	"github.com/hyperparallel/runtime/routing"
 )
 
@@ -13,15 +14,17 @@ type Dispatcher struct {
 	Workers      map[WorkerID]*Worker
 	Instructions *InstructionStore
 	Router       *routing.ModelRouter
+	RuntimeState *memory.RuntimeState
 }
 
-func NewDispatcher(l *logger.Logger, b *events.Bus, is *InstructionStore, r *routing.ModelRouter) *Dispatcher {
+func NewDispatcher(l *logger.Logger, b *events.Bus, is *InstructionStore, r *routing.ModelRouter, rs *memory.RuntimeState) *Dispatcher {
 	return &Dispatcher{
 		Logger:       l,
 		Bus:          b,
 		Workers:      make(map[WorkerID]*Worker),
 		Instructions: is,
 		Router:       r,
+		RuntimeState: rs,
 	}
 }
 
@@ -60,6 +63,25 @@ func (d *Dispatcher) Start() {
 			} else {
 				// Tell the router to track this forced model so it can learn from it
 				d.Router.TrackForcedModel(string(task.ID), task.Parameters["llm_model"].(string))
+			}
+		}
+
+		// Inject Required Shared Memory
+		if d.RuntimeState != nil && len(worker.RequiredMemory) > 0 {
+			if task.Memory == nil {
+				task.Memory = make(map[string]any)
+			}
+			for _, key := range worker.RequiredMemory {
+				// Hierarchical resolution: Agent -> Execution -> Workflow -> Global
+				if val, found := d.RuntimeState.Get(memory.ScopeAgent, string(workerID), key); found {
+					task.Memory[key] = val.Value
+				} else if val, found := d.RuntimeState.Get(memory.ScopeExecution, task.ExecutionID, key); found {
+					task.Memory[key] = val.Value
+				} else if val, found := d.RuntimeState.Get(memory.ScopeWorkflow, task.Workflow, key); found {
+					task.Memory[key] = val.Value
+				} else if val, found := d.RuntimeState.Get(memory.ScopeGlobal, "global", key); found {
+					task.Memory[key] = val.Value
+				}
 			}
 		}
 

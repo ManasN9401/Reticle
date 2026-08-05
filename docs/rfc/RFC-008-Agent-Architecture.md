@@ -46,8 +46,8 @@ By enforcing strict request/response protocols over standard streams, we decoupl
 - Supporting containerized runtimes (Docker, WASM) instead of just local OS processes.
 
 ## 10. References
-- Deprecated Agent Definition: `docs/specifications/agent-definition/v1/001-schema.md`
-- Deprecated Worker Protocol: `docs/specifications/worker-protocol/v1/001-protocol.md`
+- RFC-026 — Worker Fault Tolerance & Stdout Protocol
+- RFC-027 — Worker Runtime Contract (v1)
 
 ## 11. Related RFCs
 - RFC-003 — Runtime

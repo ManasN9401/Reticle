@@ -71,7 +71,7 @@ func main() {
 	router := routing.NewRouter(orch.Logger, orch.Bus)
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
-	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router)
+	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)
 	
 	for _, sub := range registry.BuildSubscriptions() {
 		subManager.Register(sub)

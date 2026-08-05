@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,15 +46,20 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 		}
 	}
 
-	// 2. Clone Base Venv to Agent Env if it doesn't exist
+	// 2. Inherit Base Venv via system-site-packages if Agent Env doesn't exist
 	pythonExeWin := filepath.Join(envPath, "Scripts", "python.exe")
 	pythonExeUnix := filepath.Join(envPath, "bin", "python")
 
 	if _, err := os.Stat(pythonExeWin); os.IsNotExist(err) {
 		if _, err := os.Stat(pythonExeUnix); os.IsNotExist(err) {
-			em.Logger.Info("Cloning base virtual environment", "agent_id", agentID, "path", envPath)
-			if err := copyDir(baseEnvPath, envPath); err != nil {
-				return "", nil, fmt.Errorf("failed to copy base venv to %s: %w", envPath, err)
+			em.Logger.Info("Inheriting base virtual environment", "agent_id", agentID, "path", envPath)
+			basePythonExe := basePythonExeWin
+			if _, err := os.Stat(basePythonExe); os.IsNotExist(err) {
+				basePythonExe = basePythonExeUnix
+			}
+			cmd := exec.Command(basePythonExe, "-m", "venv", "--system-site-packages", envPath)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return "", nil, fmt.Errorf("failed to inherit base venv to %s: %s - %w", envPath, string(out), err)
 			}
 		}
 	}
@@ -90,71 +94,4 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 	return pythonExe, envVars, nil
 }
 
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
 
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err = io.Copy(out, in); err != nil {
-		return err
-	}
-
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	return os.Chmod(dst, info.Mode())
-}
-
-func copyDir(src, dst string) error {
-	srcInfo, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
-		return err
-	}
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		info, err := os.Lstat(srcPath)
-		if err != nil {
-			return err
-		}
-
-		if info.Mode()&os.ModeSymlink != 0 {
-			linkTarget, err := os.Readlink(srcPath)
-			if err != nil {
-				return err
-			}
-			if err := os.Symlink(linkTarget, dstPath); err != nil {
-				return err
-			}
-		} else if info.IsDir() {
-			if err := copyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-		} else {
-			if err := copyFile(srcPath, dstPath); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}

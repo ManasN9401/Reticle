@@ -60,20 +60,28 @@ type GraphMutation struct {
 	ReturnToSupervisor bool   `json:"return_to_supervisor"`
 }
 
+type MemoryMutation struct {
+	Key   string `json:"key"`
+	Value any    `json:"value"`
+	Scope string `json:"scope,omitempty"`
+}
+
 type TaskResponse struct {
 	ID            TaskID           `json:"id"`
 	Result        string           `json:"result,omitempty"`   // Legacy scalar result
 	Artifact      *memory.Artifact `json:"artifact,omitempty"` // Structured artifact result
 	GraphMutation *GraphMutation   `json:"graph_mutation,omitempty"`
+	Memory        []MemoryMutation `json:"memory,omitempty"`
 }
 
 type Worker struct {
-	ID         WorkerID
-	Executable string
-	Args       []string
-	EnvVars    []string
-	Logger     *logger.Logger
-	Bus        *events.Bus
+	ID             WorkerID
+	Executable     string
+	Args           []string
+	EnvVars        []string
+	RequiredMemory []string
+	Logger         *logger.Logger
+	Bus            *events.Bus
 }
 
 func NewWorker(id WorkerID, executable string, args []string, envVars []string, l *logger.Logger, b *events.Bus) *Worker {
@@ -196,12 +204,40 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 
 	if resp.Artifact != nil {
 		w.Bus.Publish(events.EventType("ArtifactsProduced"), events.Component("worker"), resp.Artifact)
-	} else if resp.Result != "" {
+	}
+	
+	// Legacy scalar result fallback to memory
+	if resp.Result != "" && len(resp.Memory) == 0 {
+		resp.Memory = append(resp.Memory, MemoryMutation{
+			Key:   string(req.ID),
+			Value: resp.Result,
+			Scope: string(memory.ScopeExecution),
+		})
+	}
+
+	for _, mut := range resp.Memory {
+		scope := memory.MemoryScope(mut.Scope)
+		scopeID := req.ExecutionID
+
+		// Determine fallback defaults
+		if scope == "" {
+			scope = memory.ScopeExecution
+		}
+
+		switch scope {
+		case memory.ScopeAgent:
+			scopeID = string(w.ID)
+		case memory.ScopeWorkflow:
+			scopeID = req.Workflow
+		case memory.ScopeGlobal:
+			scopeID = "global"
+		}
+
 		entry := memory.MemoryEntry{
-			Key:     string(req.ID),
-			Value:   resp.Result,
-			Scope:   memory.ScopeExecution, // Defaulting scalar results to Execution scope
-			ScopeID: req.ExecutionID,
+			Key:     mut.Key,
+			Value:   mut.Value,
+			Scope:   scope,
+			ScopeID: scopeID,
 			Owner:   req.AgentID,
 		}
 		w.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("worker"), entry)
