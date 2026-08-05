@@ -3,6 +3,7 @@ HyperParallel Worker Script
 """
 import sys
 import json
+from litellm import completion
 
 def main():
     line = sys.stdin.readline()
@@ -29,23 +30,26 @@ def main():
         agent_id = agent.get("id")
         sys_prompt = agent.get("system_prompt", "You are a helpful assistant.")
         
-        # Generate the Python code using LLM
-        # We will use a standard boilerplate and inject the system prompt
-        boilerplate = f'''"""
-HyperParallel Worker Script
-"""
-import sys
-import json
+        system_msg = f"""
+You are the Forge Coder. You are generating a python worker script for a new agent.
+Agent ID: {agent_id}
+Agent System Prompt: {sys_prompt}
+
+The python script MUST read a JSON line from sys.stdin, process it using an LLM (litellm groq/llama-3.1-8b-instant), and output a JSON artifact to stdout.
+
+Use this boilerplate structure:
+import sys, json
+from litellm import completion
 
 def main():
     line = sys.stdin.readline()
     if not line: return
-    
     try:
         req = json.loads(line)
         req_id = req.get("id", "unknown")
         
-        result = "Hello I am a mock agent. Done!"
+        # your code calling LLM
+        result = "hello"
         
         artifact = {{
             "id": f"{{req_id}}_output",
@@ -53,20 +57,34 @@ def main():
             "type": "document/markdown",
             "data": result
         }}
-        
-        print(json.dumps({{
-            "id": req_id,
-            "artifact": artifact
-        }}))
-        
+        print(json.dumps({{"id": req_id, "artifact": artifact}}))
     except Exception as e:
         print(f"ERROR: {{e}}", file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":
     main()
-'''
-        generated_files[f"workers/{agent_id}.py"] = boilerplate
+
+Output ONLY the raw python code. Do not output markdown code blocks (like ```python).
+"""
+
+        response = completion(
+            model="groq/llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": f"Generate the {agent_id}.py file."}
+            ]
+        )
+        
+        code = response.choices[0].message.content.strip()
+        if code.startswith("```python"):
+            code = code[9:]
+        if code.startswith("```"):
+            code = code[3:]
+        if code.endswith("```"):
+            code = code[:-3]
+            
+        generated_files[f"workers/{agent_id}.py"] = code.strip()
         
     artifact = {
         "id": f"{req_id}_output",

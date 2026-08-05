@@ -46,7 +46,11 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to create sub filesystem: %w", err)
 	}
 	
-	http.Handle("/", http.FileServer(http.FS(subFS)))
+	fsHandler := http.FileServer(http.FS(subFS))
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		fsHandler.ServeHTTP(w, r)
+	})
 	http.HandleFunc("/ws", s.wsHandler)
 
 	// Subscribe to all events and broadcast
@@ -86,14 +90,22 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 		close(s.connected)
 	})
 
-	// Keep connection alive, listen for close
+	// Keep connection alive, listen for messages
 	for {
-		if _, _, err := conn.ReadMessage(); err != nil {
+		_, msg, err := conn.ReadMessage()
+		if err != nil {
 			s.mu.Lock()
 			delete(s.clients, conn)
 			s.mu.Unlock()
 			conn.Close()
 			break
+		}
+		
+		var payload map[string]any
+		if err := json.Unmarshal(msg, &payload); err == nil {
+			if action, ok := payload["action"].(string); ok && (action == "enqueue" || action == "remove") {
+				s.bus.Publish(events.EventType("WaitlistCommand"), events.Component("telemetry_ui"), payload)
+			}
 		}
 	}
 }

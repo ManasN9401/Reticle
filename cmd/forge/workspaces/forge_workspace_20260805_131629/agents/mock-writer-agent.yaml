@@ -1,6 +1,0 @@
-id: mock-writer-agent
-name: Mock Writer
-description: Writes mock things
-version: 1.0.0
-runtime: python
-entrypoint: workers/mock-writer-agent.py

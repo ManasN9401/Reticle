@@ -70,6 +70,23 @@ func (as *ArtifactStore) FindByID(id ArtifactID) (*Artifact, bool) {
 	return as.Get(id)
 }
 
+// GetByExecution returns all artifacts created during a specific execution run
+func (as *ArtifactStore) GetByExecution(execID string) []*Artifact {
+	as.mu.RLock()
+	defer as.mu.RUnlock()
+	
+	var results []*Artifact
+	for _, history := range as.store {
+		if len(history) > 0 {
+			latest := history[len(history)-1]
+			if latest.Execution == execID {
+				results = append(results, latest)
+			}
+		}
+	}
+	return results
+}
+
 // GetVersion retrieves a specific version of an artifact series (1-indexed).
 func (as *ArtifactStore) GetVersion(id ArtifactID, version uint32) (*Artifact, bool) {
 	as.mu.RLock()

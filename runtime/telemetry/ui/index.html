@@ -437,6 +437,18 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
                 </button>
             </div>
+            <div class="resizer-horizontal" id="resizerWaitlist"></div>
+            <div class="waitlist-panel fs-container" id="waitlistContainer" style="height: 30%; min-height: 150px; flex-shrink: 0; background: var(--panel-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 1rem; box-sizing: border-box; display: flex; flex-direction: column;">
+                <h3 style="margin-top:0; color:#fff; font-size: 0.9rem; margin-bottom: 10px; flex-shrink: 0;">Queue (Waitlist)</h3>
+                <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-shrink: 0;">
+                    <input type="text" id="waitlistInput" placeholder="Enter prompt..." onkeydown="if(event.key==='Enter') submitWaitlistPrompt()" style="flex-grow: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 6px; font-family: 'Inter', sans-serif; font-size: 0.8rem;">
+                    <button onclick="submitWaitlistPrompt()" style="background: var(--accent-color); color: #000; border: none; border-radius: 4px; padding: 0 12px; font-weight: bold; cursor: pointer; font-size: 0.8rem;">Queue</button>
+                </div>
+                <div id="waitlistItems" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto;"></div>
+                <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                </button>
+            </div>
             <div class="resizer-horizontal" id="resizerLog"></div>
             <div class="log-panel fs-container" id="logContainer">
                 <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
@@ -1101,6 +1113,51 @@
 
         connectWS();
 
+        function submitWaitlistPrompt() {
+            const input = document.getElementById('waitlistInput');
+            const prompt = input.value.trim();
+            if (prompt) {
+                ws.send(JSON.stringify({ action: "enqueue", prompt: prompt, group: "" }));
+                input.value = '';
+            }
+        }
+
+        function removeWaitlistItem(id) {
+            ws.send(JSON.stringify({ action: "remove", id: id }));
+        }
+
+        function renderWaitlist(items) {
+            const container = document.getElementById('waitlistItems');
+            container.innerHTML = '';
+            items.forEach(item => {
+                const el = document.createElement('div');
+                el.style = `
+                    background: rgba(255,255,255,0.05); 
+                    border: 1px solid rgba(255,255,255,0.1); 
+                    padding: 8px; 
+                    border-radius: 6px;
+                    font-size: 0.8rem;
+                    position: relative;
+                `;
+                
+                let removeBtn = '';
+                if (item.status === 'PENDING') {
+                    removeBtn = `<button onclick="removeWaitlistItem('${item.id}')" style="position: absolute; right: 8px; top: 8px; background: none; border: none; color: var(--error-color); cursor: pointer; font-size: 1rem; padding: 0; line-height: 1;">×</button>`;
+                }
+
+                el.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; margin-bottom: 4px; padding-right: 15px;">
+                        <span style="font-weight:bold; color: var(--accent-color)">${item.id}</span>
+                        <span style="color: ${item.status === 'RUNNING' ? 'var(--accent-color)' : item.status === 'COMPLETED' ? 'var(--success-color)' : 'var(--text-secondary)'}">${item.status}</span>
+                    </div>
+                    ${removeBtn}
+                    <div style="color: #fff; margin-right: 15px;">${item.prompt || '(Empty Prompt)'}</div>
+                    <div style="color: var(--text-secondary); font-size: 0.7rem; margin-top: 4px;">Group: ${item.group || 'none'} | Mode: ${item.mode}</div>
+                `;
+                container.appendChild(el);
+            });
+        }
+
         function processEvent(e) {
             const type = e.Type;
             const payload = e.Payload;
@@ -1218,6 +1275,9 @@
                         star.artifactNames.push(artifactName);
                     }
                 }
+            }
+            else if (type === 'WaitlistUpdated') {
+                renderWaitlist(payload);
             }
         }
 

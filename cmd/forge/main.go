@@ -19,6 +19,23 @@ import (
 	"github.com/hyperparallel/runtime/telemetry"
 )
 
+func loadEnv(rootDir string) {
+	envPath := filepath.Join(rootDir, ".env")
+	data, err := os.ReadFile(envPath)
+	if err == nil {
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" && !strings.HasPrefix(line, "#") {
+				parts := strings.SplitN(line, "=", 2)
+				if len(parts) == 2 {
+					os.Setenv(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+				}
+			}
+		}
+	}
+}
+
 func runWorkflowSync(graphEngine *agent.GraphEngine, orch *orchestrator.Orchestrator, wf *agent.WorkflowDefinition, execId string) error {
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -53,6 +70,7 @@ func runWorkflowSync(graphEngine *agent.GraphEngine, orch *orchestrator.Orchestr
 
 func main() {
 	autoApprove := flag.Bool("auto-approve", false, "Execute the compiled workflow automatically without prompting")
+	batchSize := flag.Int("batch", 1, "Number of concurrent executions for the generated workflow in Phase 2")
 	flag.Parse()
 
 	args := flag.Args()
@@ -67,15 +85,12 @@ func main() {
 	fmt.Println("==================================================")
 	fmt.Printf("Prompt: %s\n\n", userPrompt)
 
+	// Clean up old workspaces
+	cleanupWorkspaces("workspaces", 3)
+
 	timestamp := time.Now().Format("20060102_150405")
 	workspaceDir, _ := filepath.Abs(filepath.Join("workspaces", fmt.Sprintf("forge_workspace_%s", timestamp)))
-	
-	availableAgents := `
-- web-search-agent (Searches the web)
-- markdown-writer-agent (Writes markdown docs)
-- python-runner-agent (Executes Python code securely)
-- auditor-agent (Reviews code/text)
-`
+	rootDir, _ := filepath.Abs("../../")
 
 	// 1. Boot Runtime
 	orch := orchestrator.New()
@@ -91,11 +106,26 @@ func main() {
 
 	registry := agent.NewRegistry()
 	compilerDir, _ := filepath.Abs(filepath.Join("compiler"))
+	
+	// Load Global Skills and Agents
+	_ = registry.LoadSkills(filepath.Join(rootDir, "skills"))
+	_ = registry.LoadAgents(filepath.Join(rootDir, "agents"))
+	
+	// Build Available Agents prompt dynamically
+	var sb strings.Builder
+	for id, agentDef := range registry.Definitions {
+		sb.WriteString(fmt.Sprintf("- %s (%s)\n", id, agentDef.Description))
+	}
+	availableAgents := sb.String()
+	
+	// Load Compiler Agents
 	_ = registry.LoadSkills(filepath.Join(compilerDir, "skills"))
 	_ = registry.LoadAgents(filepath.Join(compilerDir, "agents"))
 	_ = registry.LoadWorkflows(filepath.Join(compilerDir, "workflows"))
 	
-	rootDir, _ := filepath.Abs("../../")
+	// Load .env keys securely
+	loadEnv(rootDir)
+	
 	envManager := agent.NewEnvironmentManager(orch.Logger, rootDir)
 	workers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
 	
@@ -189,14 +219,72 @@ func main() {
 	}
 	
 	execWf := registry.Workflows["generated-workflow"]
-	if execWf == nil {
-		log.Fatalf("Execution Failed: generated-workflow not found in registry")
-	}
-	err = runWorkflowSync(graphEngine, orch, execWf, "exec-001")
-	if err != nil {
-		log.Fatalf("Execution Failed: %v", err)
-	}
-	fmt.Println("\n[PHASE 2] EXECUTION SUCCESSFUL")
+	// Start Execution Shell
+	waitlistPath := filepath.Join(workspaceDir, "waitlist.json")
+	wm := NewWaitlistManager(waitlistPath, *batchSize, graphEngine, orch, execWf)
 	
+	reader := bufio.NewScanner(os.Stdin)
+	fmt.Println("\n==================================================")
+	fmt.Println("             Forge Execution Shell                ")
+	fmt.Println("==================================================")
+	fmt.Printf("Concurrency Limit: %d\n", *batchSize)
+	fmt.Println("Commands:")
+	fmt.Println("  exit                - Shutdown Orchestrator")
+	fmt.Println("  @group:NAME [PROMPT]- Queue prompt in a sequential group")
+	fmt.Println("  [PROMPT]            - Queue prompt in default parallel mode")
+	fmt.Print("> ")
+	
+	for reader.Scan() {
+		text := strings.TrimSpace(reader.Text())
+		if text == "exit" {
+			break
+		}
+		if text == "" {
+			fmt.Print("> ")
+			continue
+		}
+	
+		group := ""
+		mode := ModeParallel
+		if strings.HasPrefix(text, "@group:") {
+			parts := strings.SplitN(text, " ", 2)
+			group = strings.TrimPrefix(parts[0], "@group:")
+			if len(parts) > 1 {
+				text = parts[1]
+			} else {
+				text = ""
+			}
+			mode = ModeSequential
+		}
+	
+		wm.Enqueue(text, group, mode)
+	}
+	
+	fmt.Println("\n[INFO] Shutting down...")
 	time.Sleep(2 * time.Second) // Let telemetry flush
+}
+
+func cleanupWorkspaces(workspacesDir string, keepCount int) {
+	entries, err := os.ReadDir(workspacesDir)
+	if err != nil {
+		return
+	}
+
+	var dirs []os.DirEntry
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "forge_workspace_") {
+			dirs = append(dirs, entry)
+		}
+	}
+
+	// Sort oldest to newest (assuming lexicographical timestamp naming)
+	if len(dirs) <= keepCount {
+		return
+	}
+
+	for i := 0; i < len(dirs)-keepCount; i++ {
+		dirPath := filepath.Join(workspacesDir, dirs[i].Name())
+		fmt.Printf("[INFO] Cleaning up old workspace: %s\n", dirs[i].Name())
+		os.RemoveAll(dirPath)
+	}
 }

@@ -43,6 +43,17 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 			if out, err := cmd.CombinedOutput(); err != nil {
 				return "", nil, fmt.Errorf("failed to create base venv: %s - %w", string(out), err)
 			}
+			
+			// Install litellm and requests universally into base environment
+			em.Logger.Info("Installing universal packages into base environment", "packages", "litellm, requests")
+			pipExe := filepath.Join(baseEnvPath, "Scripts", "pip.exe")
+			if _, err := os.Stat(pipExe); os.IsNotExist(err) {
+				pipExe = filepath.Join(baseEnvPath, "bin", "pip")
+			}
+			pipCmd := exec.Command(pipExe, "install", "litellm", "requests")
+			if out, err := pipCmd.CombinedOutput(); err != nil {
+				return "", nil, fmt.Errorf("failed to install universal base packages: %s - %w", string(out), err)
+			}
 		}
 	}
 

@@ -1,8 +1,0 @@
-id: generated-workflow
-name: Mocked Workflow
-version: 1.0.0
-nodes:
-  - id: writer-1
-    agent: mock-writer-agent
-    parameters:
-      llm_model: groq/llama-3.1-8b-instant\nedges:

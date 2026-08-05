@@ -6,6 +6,9 @@ MANDATORY READING:
 """
 import sys
 import json
+import os
+from litellm import completion
+
 def main():
     line = sys.stdin.readline()
     if not line: return
@@ -19,24 +22,51 @@ def main():
     try:
         print(f"[{req_id}] Architecting DAG...", file=sys.stderr)
         
-        result = """
-        {
-          "workflow_name": "Mocked Workflow",
-          "agents": [
-            {
-              "id": "mock-writer-agent",
-              "name": "Mock Writer",
-              "description": "Writes mock things",
-              "is_new": true, 
-              "system_prompt": "You are a mocked writer agent."
-            }
-          ],
-          "nodes": [
-            { "id": "writer-1", "agent_id": "mock-writer-agent" }
-          ],
-          "edges": []
-        }
-        """
+        system_msg = f"""
+You are the Forge Architect. Your job is to design a Directed Acyclic Graph (DAG) for a multi-agent system that fulfills the user's prompt.
+You have access to the following global available agents:
+{available_agents}
+
+If the global agents can fulfill the task, use them (set `is_new: false`).
+If you need new specialized agents, design them (set `is_new: true`).
+For new agents, provide an `id`, `name`, `description`, and a highly detailed `system_prompt`.
+
+Output MUST be a valid JSON object with the following schema, and NOTHING else (no markdown blocks, just raw JSON):
+{{
+  "workflow_name": "Name of workflow",
+  "agents": [
+    {{
+      "id": "agent-id",
+      "name": "Human Readable Name",
+      "description": "Short description",
+      "is_new": true, 
+      "system_prompt": "Highly detailed prompt explaining their job..."
+    }},
+    {{
+      "id": "auditor-agent",
+      "is_new": false
+    }}
+  ],
+  "nodes": [
+    {{ "id": "node-1", "agent_id": "agent-id" }},
+    {{ "id": "node-2", "agent_id": "auditor-agent" }}
+  ],
+  "edges": [
+    {{ "from": "node-1", "to": "node-2" }}
+  ]
+}}
+"""
+
+        response = completion(
+            model="groq/llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={ "type": "json_object" }
+        )
+        
+        result = response.choices[0].message.content
         
         artifact = {
             "id": f"{req_id}_output",
@@ -51,37 +81,8 @@ def main():
         }))
         
     except Exception as e:
-        print(f"[{req_id}] LLM failed (missing key?), falling back to mock DAG. Error: {e}", file=sys.stderr)
-        result = """
-        {
-          "workflow_name": "Mocked Workflow",
-          "agents": [
-            {
-              "id": "mock-writer-agent",
-              "name": "Mock Writer",
-              "description": "Writes mock things",
-              "is_new": true, 
-              "system_prompt": "You are a mocked writer agent."
-            }
-          ],
-          "nodes": [
-            { "id": "writer-1", "agent_id": "mock-writer-agent" }
-          ],
-          "edges": []
-        }
-        """
-        
-        artifact = {
-            "id": f"{req_id}_output",
-            "name": "DAG JSON",
-            "type": "application/json",
-            "data": result
-        }
-        
-        print(json.dumps({
-            "id": req_id,
-            "artifact": artifact
-        }))
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

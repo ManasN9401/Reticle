@@ -90,6 +90,10 @@ func (r *Registry) LoadAgents(directory string) error {
 			return fmt.Errorf("agent definition in %s is missing ID", path)
 		}
 
+		if def.Entrypoint != "" && !filepath.IsAbs(def.Entrypoint) {
+			def.Entrypoint = filepath.Join(directory, def.Entrypoint)
+		}
+
 		r.Definitions[def.ID] = def
 	}
 
