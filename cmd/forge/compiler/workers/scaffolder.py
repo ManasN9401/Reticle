@@ -34,7 +34,7 @@ name: {agent.get('name', agent_id)}
 description: {agent.get('description', '')}
 version: 1.0.0
 runtime: python
-entrypoint: ../workers/{agent_id}.py
+entrypoint: workers/{agent_id}.py
 """
         generated_files[f"agents/{agent_id}.yaml"] = agent_yaml_str
         

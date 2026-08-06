@@ -91,7 +91,8 @@ func (r *Registry) LoadAgents(directory string) error {
 		}
 
 		if def.Entrypoint != "" && !filepath.IsAbs(def.Entrypoint) {
-			def.Entrypoint = filepath.Join(directory, def.Entrypoint)
+			workspaceRoot := filepath.Dir(directory)
+			def.Entrypoint = filepath.Join(workspaceRoot, def.Entrypoint)
 		}
 
 		r.Definitions[def.ID] = def

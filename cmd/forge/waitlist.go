@@ -93,6 +93,7 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 							}
 							
 							fileName := string(art.ID)
+							fileName = strings.ReplaceAll(fileName, "|", "_")
 							
 							// Add extension if not present in ID
 							if !strings.Contains(fileName, ".") {
@@ -107,8 +108,12 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 							
 							// Just write it out
 							artPath := filepath.Join(outDir, fileName)
-							os.WriteFile(artPath, content, 0644)
-							readmeContent += fmt.Sprintf("- `%s` (Producer: %s, Type: %s)\n", fileName, art.Producer, art.Type)
+							err := os.WriteFile(artPath, content, 0644)
+							if err != nil {
+								readmeContent += fmt.Sprintf("- `%s` (Producer: %s, Type: %s) - FAILED TO WRITE: %v\n", fileName, art.Producer, art.Type, err)
+							} else {
+								readmeContent += fmt.Sprintf("- `%s` (Producer: %s, Type: %s)\n", fileName, art.Producer, art.Type)
+							}
 						}
 					}
 					os.WriteFile(filepath.Join(outDir, "README.md"), []byte(readmeContent), 0644)
@@ -219,11 +224,20 @@ func (wm *WaitlistManager) load() {
 	data, err := os.ReadFile(wm.filePath)
 	if err == nil {
 		json.Unmarshal(data, &wm.items)
+		dirty := false
 		for _, item := range wm.items {
 			var num int
 			if _, err := fmt.Sscanf(item.ID, "exec-%d", &num); err == nil && num >= wm.nextID {
 				wm.nextID = num + 1
 			}
+			// Reset tasks that were running during previous crash
+			if item.Status == StatusRunning {
+				item.Status = StatusFailed
+				dirty = true
+			}
+		}
+		if dirty {
+			wm.save()
 		}
 	}
 }

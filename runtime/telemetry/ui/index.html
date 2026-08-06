@@ -148,6 +148,13 @@
             display: flex;
             flex-direction: column;
             gap: 0.5rem;
+            transition: all 0.2s ease;
+        }
+
+        .node-card.selected {
+            border: 1px solid rgba(88, 166, 255, 0.8);
+            box-shadow: 0 0 15px rgba(88, 166, 255, 0.4);
+            background: rgba(88, 166, 255, 0.1);
         }
 
         .node-card::before {
@@ -430,13 +437,17 @@
 </head>
 <body>
 
-    <h1>HyperParallel Orchestrator</h1>
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; padding: 0 1rem;">
+        <h1 style="margin: 0; font-size: 1.5rem; font-weight: 800; background: linear-gradient(90deg, #58a6ff, #a371f7); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">HyperParallel Orchestrator</h1>
+    </div>
     
     <div class="container">
         <!-- Left Dashboard -->
         <div class="dashboard-left" id="sidebar">
-            <div class="nodes-container fs-container" id="nodesContainer">
-                <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
+            <div class="nodes-container fs-container" id="nodesContainer" style="background: var(--panel-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 1rem; box-sizing: border-box; position: relative;">
+                <h3 style="margin-top:0; color:#fff; font-size: 0.9rem; margin-bottom: 10px; flex-shrink: 0; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">Active Agents</h3>
+                <div id="nodesEmptyState" style="color: rgba(255,255,255,0.4); font-size: 0.8rem; text-align: center; margin-top: 2rem;">No agents currently running.</div>
+                <button class="fs-btn" style="z-index: 1000; top: 10px; right: 10px;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
                 </button>
             </div>
@@ -675,6 +686,11 @@
 
         function openDetailsPanel(nodeId) {
             selectedNodeId = nodeId;
+            
+            document.querySelectorAll('.node-card').forEach(el => el.classList.remove('selected'));
+            const selectedEl = document.getElementById(`node-${nodeId}`);
+            if (selectedEl) selectedEl.classList.add('selected');
+            
             const panel = document.getElementById('nodeDetailsPanel');
             const title = document.getElementById('detailsTitle');
             const content = document.getElementById('detailsContent');
@@ -893,36 +909,6 @@
                 ctx.fillStyle = activeColor;
                 ctx.shadowColor = activeColor;
                 ctx.fill();
-
-                if (selectedNodeId === this.id) {
-                    ctx.save();
-                    ctx.translate(this.x, this.y);
-                    ctx.rotate(timeElapsed * 1.5);
-                    
-                    const scouterColor = 'rgba(88, 166, 255, 0.9)'; // Blue color
-                    const r = this.radius + 10; // Smaller halo
-                    
-                    ctx.beginPath();
-                    ctx.arc(0, 0, r, 0, Math.PI * 2);
-                    ctx.strokeStyle = scouterColor;
-                    ctx.lineWidth = 2; // Thinner ring
-                    ctx.shadowBlur = 10;
-                    ctx.shadowColor = scouterColor;
-                    ctx.stroke();
-                    
-                    ctx.fillStyle = scouterColor;
-                    for(let i=0; i<4; i++) {
-                        ctx.rotate(Math.PI / 2);
-                        ctx.beginPath();
-                        ctx.moveTo(0, -r);
-                        ctx.lineTo(-10, -(r + 15)); // Smaller arrows
-                        ctx.lineTo(10, -(r + 15));
-                        ctx.closePath();
-                        ctx.fill();
-                    }
-                    
-                    ctx.restore();
-                }
                 
                 // Draw labels
                 ctx.shadowBlur = 0;
@@ -1122,7 +1108,8 @@
                         pulse.to.pulseTriggered = true;
                         let hasParents = false;
                         for (const parent of starArr) {
-                            const hasEdge = globalEdges.some(e => e.From === parent.id && e.To === pulse.to.id);
+                            const edges = execEdges.get(parent.execId) || [];
+                            const hasEdge = (parent.execId === pulse.to.execId) && edges.some(e => e.From === parent.id && e.To === pulse.to.id);
                             if (hasEdge) {
                                 nextPulses.push({ from: pulse.to, to: parent, progress: 0 });
                                 hasParents = true;
@@ -1259,6 +1246,34 @@
             // Listen for WorkflowStarted to get the explicit edges
             if (type === 'WorkflowStarted' && payload.edges) {
                 execEdges.set(execId, payload.edges);
+                
+                const nodes = new Set();
+                payload.edges.forEach(e => { nodes.add(e.From); nodes.add(e.To); });
+                
+                const depths = new Map();
+                const getDepth = (nId) => {
+                    if (depths.has(nId)) return depths.get(nId);
+                    const parents = payload.edges.filter(e => e.To === nId).map(e => e.From);
+                    if (parents.length === 0) {
+                        depths.set(nId, 0);
+                        return 0;
+                    }
+                    let maxD = 0;
+                    for (const p of parents) {
+                        if (p === nId) continue; 
+                        maxD = Math.max(maxD, getDepth(p));
+                    }
+                    depths.set(nId, maxD + 1);
+                    return maxD + 1;
+                };
+                
+                for (const nId of nodes) {
+                    const globalId = `${execId}|${nId}`;
+                    if (!stars.has(globalId)) {
+                        stars.set(globalId, new Star(execId, nId, getDepth(nId)));
+                    }
+                }
+                layoutTree();
             }
 
             // Trigger Comet Pulse on workflow complete
@@ -1311,12 +1326,6 @@
                 
                 if (!stars.has(globalId)) {
                     let depth = 0;
-                    if (lastCompletedNode && stars.has(lastCompletedNode)) {
-                        const lastNode = stars.get(lastCompletedNode);
-                        if (lastNode.execId === execId) {
-                            depth = lastNode.depth + 1;
-                        }
-                    }
                     stars.set(globalId, new Star(execId, nodeId, depth));
                     layoutTree();
                 }
@@ -1377,6 +1386,9 @@
             let nodeEl = document.getElementById(`node-${workerId}`);
             
             if (!nodeEl) {
+                const emptyState = document.getElementById('nodesEmptyState');
+                if (emptyState) emptyState.style.display = 'none';
+
                 nodeEl = document.createElement('div');
                 nodeEl.id = `node-${workerId}`;
                 nodeEl.className = 'node-card';
@@ -1392,11 +1404,12 @@
                 nodeEl.style.cursor = 'pointer';
                 nodeEl.onclick = () => openDetailsPanel(workerId);
                 
-                nodesContainer.appendChild(nodeEl);
+                document.getElementById('nodesContainer').appendChild(nodeEl);
                 nodesMap.set(workerId, nodeEl);
             }
 
-            nodeEl.className = `node-card status-${status}`;
+            const isSelected = nodeEl.classList.contains('selected');
+            nodeEl.className = `node-card status-${status}${isSelected ? ' selected' : ''}`;
             document.getElementById(`badge-${workerId}`).innerText = status.toUpperCase();
             if (taskId && !document.getElementById(`task-${workerId}`).innerText) {
                 document.getElementById(`task-${workerId}`).innerText = taskId;

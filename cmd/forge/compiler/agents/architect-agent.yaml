@@ -3,7 +3,7 @@ name: Forge Architect
 description: Designs the workflow DAG and agents from a user prompt
 version: 1.0.0
 runtime: python
-entrypoint: ../workers/architect.py
+entrypoint: workers/architect.py
 memory:
   - "user_prompt"
   - "available_agents"
