@@ -66,7 +66,7 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 	}
 
 	// Install base dependencies if needed
-	baseDeps := []string{"litellm", "requests"}
+	baseDeps := []string{"litellm", "requests", "tenacity"}
 	baseDepsString := strings.Join(baseDeps, "\n")
 	baseDepsFile := filepath.Join(baseEnvPath, ".deps")
 	
