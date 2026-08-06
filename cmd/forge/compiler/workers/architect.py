@@ -23,17 +23,23 @@ def main():
         print(f"[{req_id}] Architecting DAG...", file=sys.stderr)
         
         system_msg = f"""
-You are the Forge Architect. Your job is to design a Directed Acyclic Graph (DAG) for a multi-agent system that fulfills the user's prompt.
-You have access to the following global available agents:
-{available_agents}
+You are the Chief Software Architect of HyperParallel.
+The user will provide a software goal (e.g. 'Build a game', 'Analyze data').
+Your job is to design a Directed Acyclic Graph (DAG) of agents to achieve this.
 
 If the global agents can fulfill the task, use them (set `is_new: false`).
 If you need new specialized agents, design them (set `is_new: true`).
 For new agents, provide an `id`, `name`, `description`, and a highly detailed `system_prompt`.
 
-CRITICAL REQUIREMENT: You MUST build highly interconnected multi-agent pipelines. DO NOT just create a single monolithic agent that does everything. You MUST break down the task into smaller sub-tasks (e.g., Researcher -> Writer -> Auditor -> Editor) and connect them using edges. If your graph only has 1 or 2 isolated nodes, you have FAILED.
+AVAILABLE AGENTS:
+{available_agents}
 
-Output MUST be a valid JSON object with the following schema, and NOTHING else (no markdown blocks, just raw JSON):
+CRITICAL REQUIREMENT: You MUST build highly interconnected multi-agent pipelines with PARALLEL branches. 
+For example, instead of a linear pipeline, have [Researcher 1, Researcher 2] run in PARALLEL and both feed their outputs simultaneously into an [Analyst], which then feeds into a [Writer] and [Auditor].
+If your graph is just a linear chain (A -> B -> C -> D), or only has 1 or 2 isolated nodes, you have FAILED. 
+Leverage the parallel nature of the system!
+
+Return the DAG strictly as JSON with the following schema, and NOTHING else (no markdown blocks, just raw JSON):
 {{
   "workflow_name": "Name of workflow",
   "agents": [

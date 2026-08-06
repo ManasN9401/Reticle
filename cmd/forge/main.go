@@ -71,25 +71,41 @@ func runWorkflowSync(graphEngine *agent.GraphEngine, orch *orchestrator.Orchestr
 func main() {
 	autoApprove := flag.Bool("auto-approve", false, "Execute the compiled workflow automatically without prompting")
 	batchSize := flag.Int("batch", 1, "Number of concurrent executions for the generated workflow in Phase 2")
+	workspaceFlag := flag.String("workspace", "", "Path to an existing compiled workspace to run (skips compilation Phase 1)")
 	flag.Parse()
 
 	args := flag.Args()
-	if len(args) == 0 {
-		fmt.Println("Usage: forge [flags] \"<prompt>\"")
-		os.Exit(1)
+	var userPrompt string
+	if len(args) > 0 {
+		userPrompt = strings.Join(args, " ")
 	}
-	userPrompt := strings.Join(args, " ")
 
 	fmt.Println("==================================================")
 	fmt.Println("             HyperParallel Forge                  ")
 	fmt.Println("==================================================")
-	fmt.Printf("Prompt: %s\n\n", userPrompt)
+	if *workspaceFlag != "" {
+		fmt.Printf("Loading Workspace: %s\n\n", *workspaceFlag)
+	} else {
+		fmt.Printf("Prompt: %s\n\n", userPrompt)
+	}
 
 	// Clean up old workspaces
 	cleanupWorkspaces("workspaces", 3)
 
 	timestamp := time.Now().Format("20060102_150405")
-	workspaceDir, _ := filepath.Abs(filepath.Join("workspaces", fmt.Sprintf("forge_workspace_%s", timestamp)))
+	var workspaceDir string
+	if *workspaceFlag != "" {
+		workspaceDir, _ = filepath.Abs(*workspaceFlag)
+	} else {
+		workspaceDir, _ = filepath.Abs(filepath.Join("workspaces", fmt.Sprintf("forge_workspace_%s", timestamp)))
+		if userPrompt == "" {
+			fmt.Printf("[INFO] No prompt provided. Creating empty workspace: %s\n", filepath.Base(workspaceDir))
+			os.MkdirAll(workspaceDir, 0755)
+			os.MkdirAll(filepath.Join(workspaceDir, "agents"), 0755)
+			os.MkdirAll(filepath.Join(workspaceDir, "workflows"), 0755)
+			*workspaceFlag = workspaceDir // Trick Phase 1 into skipping
+		}
+	}
 	rootDir, _ := filepath.Abs("../../")
 
 	// 1. Boot Runtime
@@ -173,28 +189,32 @@ func main() {
 	time.Sleep(500 * time.Millisecond) // Let memory propagate
 
 	// PHASE 1
-	wf := registry.Workflows["forge-compiler"]
-	fmt.Println("\n[PHASE 1] COMPILATION STARTED")
-	
-	err := runWorkflowSync(graphEngine, orch, wf, "compile-001")
-	if err != nil {
-		log.Fatalf("Compilation Failed: %v", err)
-	}
-	fmt.Println("\n[PHASE 1] COMPILATION SUCCESSFUL")
+	if *workspaceFlag == "" {
+		wf := registry.Workflows["forge-compiler"]
+		fmt.Println("\n[PHASE 1] COMPILATION STARTED")
+		
+		err := runWorkflowSync(graphEngine, orch, wf, "compile-001")
+		if err != nil {
+			log.Fatalf("Compilation Failed: %v", err)
+		}
+		fmt.Println("\n[PHASE 1] COMPILATION SUCCESSFUL")
 
-	// 4. Ask for Approval
-	if !*autoApprove {
-		fmt.Printf("\nForge has compiled the workspace to: %s\n", workspaceDir)
-		fmt.Print("Do you want to execute it now? (y/n): ")
-		reader := bufio.NewReader(os.Stdin)
-		response, _ := reader.ReadString('\n')
-		response = strings.TrimSpace(strings.ToLower(response))
-		if response != "y" && response != "yes" {
-			fmt.Println("Execution aborted. The workspace has been saved.")
-			os.Exit(0)
+		// 4. Ask for Approval
+		if !*autoApprove {
+			fmt.Printf("\nForge has compiled the workspace to: %s\n", workspaceDir)
+			fmt.Print("Do you want to execute it now? (y/n): ")
+			reader := bufio.NewReader(os.Stdin)
+			response, _ := reader.ReadString('\n')
+			response = strings.TrimSpace(strings.ToLower(response))
+			if response != "y" && response != "yes" {
+				fmt.Println("Execution aborted. The workspace has been saved.")
+				os.Exit(0)
+			}
+		} else {
+			fmt.Println("\n[INFO] Auto-Approve enabled. Proceeding to execution immediately.")
 		}
 	} else {
-		fmt.Println("\n[INFO] Auto-Approve enabled. Proceeding to execution immediately.")
+		fmt.Println("\n[PHASE 1] SKIPPED (Loading existing workspace)")
 	}
 
 	// 5. Hot-Load new agents

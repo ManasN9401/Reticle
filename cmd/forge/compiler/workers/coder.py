@@ -37,7 +37,7 @@ Agent System Prompt: {sys_prompt}
 
 The python script MUST read a JSON line from sys.stdin, process it using an LLM (litellm groq/llama-3.1-8b-instant), and output a JSON artifact to stdout.
 
-Use this boilerplate structure:
+Use this boilerplate structure EXACTLY. Do NOT add routers, if/else action checks, or unexpected required fields to the JSON input:
 import sys, json
 from litellm import completion
 
@@ -48,8 +48,15 @@ def main():
         req = json.loads(line)
         req_id = req.get("id", "unknown")
         
-        # your code calling LLM
-        result = "hello"
+        # Example litellm call (adapt the prompt as needed for {agent_id}):
+        response = completion(
+            model="groq/llama-3.1-8b-instant",
+            messages=[
+                {{"role": "system", "content": "You are a helpful assistant."}},
+                {{"role": "user", "content": json.dumps(req)}}
+            ]
+        )
+        result = response.choices[0].message.content
         
         artifact = {{
             "id": f"{{req_id}}_output",

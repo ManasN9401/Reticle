@@ -188,7 +188,7 @@ func (wm *WaitlistManager) Remove(id string) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	for i, item := range wm.items {
-		if item.ID == id && item.Status == StatusPending {
+		if item.ID == id {
 			wm.items = append(wm.items[:i], wm.items[i+1:]...)
 			wm.save()
 			break

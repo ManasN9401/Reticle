@@ -58,7 +58,8 @@
             flex-direction: row;
             gap: 0.5rem;
             flex-grow: 1;
-            height: calc(100vh - 100px);
+            height: calc(100vh - 120px);
+            min-height: 0;
         }
 
         .dashboard-left {
@@ -103,7 +104,8 @@
             gap: 1rem;
             overflow-y: auto;
             height: 40%;
-            flex-shrink: 0;
+            flex-shrink: 1;
+            min-height: 100px;
         }
 
         .dashboard-right {
@@ -254,8 +256,7 @@
             padding: 1rem;
             height: 200px;
             min-height: 100px;
-            max-height: 80vh;
-            flex-shrink: 0;
+            flex-shrink: 1;
             overflow-y: auto;
             font-family: monospace;
             font-size: 0.8rem;
@@ -440,7 +441,7 @@
                 </button>
             </div>
             <div class="resizer-horizontal" id="resizerWaitlist"></div>
-            <div class="waitlist-panel fs-container" id="waitlistContainer" style="height: 30%; min-height: 150px; flex-shrink: 0; background: var(--panel-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 1rem; box-sizing: border-box; display: flex; flex-direction: column;">
+            <div class="waitlist-panel fs-container" id="waitlistContainer" style="height: 30%; min-height: 150px; flex-shrink: 1; background: var(--panel-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 1rem; box-sizing: border-box; display: flex; flex-direction: column;">
                 <h3 style="margin-top:0; color:#fff; font-size: 0.9rem; margin-bottom: 10px; flex-shrink: 0;">Queue (Waitlist)</h3>
                 <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-shrink: 0;">
                     <input type="text" id="waitlistInput" placeholder="Enter prompt..." onkeydown="if(event.key==='Enter') submitWaitlistPrompt()" style="flex-grow: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 6px; font-family: 'Inter', sans-serif; font-size: 0.8rem;">
@@ -951,7 +952,7 @@
         function layoutTree() {
             const execIds = Array.from(new Set(Array.from(stars.values()).map(s => s.execId)));
             let currentXOffset = cw / 2; // Start from center for the first workflow
-            const ISLAND_PADDING = 500;
+            const ISLAND_PADDING = 200;
             let newlyDiscoveredExecId = null;
 
             for (const execId of execIds) {
@@ -1200,31 +1201,35 @@
 
         function renderWaitlist(items) {
             const container = document.getElementById('waitlistItems');
+            if (!container) return;
             container.innerHTML = '';
+            
             items.forEach(item => {
                 const el = document.createElement('div');
-                el.style = `
+                el.style.cssText = `
                     background: rgba(255,255,255,0.05); 
                     border: 1px solid rgba(255,255,255,0.1); 
+                    border-radius: 6px; 
                     padding: 8px; 
-                    border-radius: 6px;
-                    font-size: 0.8rem;
-                    position: relative;
+                    display: flex; 
+                    flex-direction: column; 
+                    gap: 4px;
                 `;
                 
-                let removeBtn = '';
-                if (item.status === 'PENDING') {
-                    removeBtn = `<button onclick="removeWaitlistItem('${item.id}')" style="position: absolute; right: 8px; top: 8px; background: none; border: none; color: var(--error-color); cursor: pointer; font-size: 1rem; padding: 0; line-height: 1;">×</button>`;
-                }
-
+                let color = '#8b949e';
+                if (item.status === 'RUNNING') color = '#58a6ff';
+                if (item.status === 'COMPLETED') color = '#2ea043';
+                if (item.status === 'FAILED') color = '#f85149';
+                
                 el.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; margin-bottom: 4px; padding-right: 15px;">
-                        <span style="font-weight:bold; color: var(--accent-color)">${item.id}</span>
-                        <span style="color: ${item.status === 'RUNNING' ? 'var(--accent-color)' : item.status === 'COMPLETED' ? 'var(--success-color)' : 'var(--text-secondary)'}">${item.status}</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong style="color: ${color}; font-size: 0.8rem;">${item.status}</strong>
+                        <span style="color: #8b949e; font-size: 0.7rem; font-family: monospace;">${item.id}</span>
                     </div>
-                    ${removeBtn}
-                    <div style="color: #fff; margin-right: 15px;">${item.prompt || '(Empty Prompt)'}</div>
-                    <div style="color: var(--text-secondary); font-size: 0.7rem; margin-top: 4px;">Group: ${item.group || 'none'} | Mode: ${item.mode}</div>
+                    <div style="font-size: 0.85rem; color: #fff;">${item.prompt}</div>
+                    <div style="display: flex; gap: 8px; margin-top: 4px;">
+                        <button onclick="removeWaitlistItem('${item.id}')" style="background: rgba(248,81,73,0.2); color: #f85149; border: 1px solid rgba(248,81,73,0.4); border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 0.7rem;">Remove</button>
+                    </div>
                 `;
                 container.appendChild(el);
             });
@@ -1243,7 +1248,13 @@
             
             appendLog(type, e.Source, JSON.stringify(logPayload));
 
-            let execId = payload.execution || payload.exec_id || 'default-exec';
+            let execId = payload.execution || payload.exec_id;
+            if (!execId && (payload.task_id || payload.id)) {
+                let tid = payload.task_id || payload.id;
+                if (tid.includes('|')) execId = tid.split('|')[0];
+                else execId = tid;
+            }
+            execId = execId || 'default-exec';
 
             // Listen for WorkflowStarted to get the explicit edges
             if (type === 'WorkflowStarted' && payload.edges) {
@@ -1279,7 +1290,13 @@
                 nodeId = payload.node_id;
             }
 
-            if (!nodeId && type !== 'TaskCreated' && type !== 'WorkflowStarted') return;
+            if (!nodeId && type !== 'TaskCreated' && type !== 'WorkflowStarted' && type !== 'WaitlistUpdated') return;
+            
+            if (type === 'WaitlistUpdated') {
+                renderWaitlist(payload);
+                return;
+            }
+
             if (!nodeId) return;
 
             const globalId = `${execId}|${nodeId}`;
@@ -1295,7 +1312,10 @@
                 if (!stars.has(globalId)) {
                     let depth = 0;
                     if (lastCompletedNode && stars.has(lastCompletedNode)) {
-                        depth = stars.get(lastCompletedNode).depth + 1;
+                        const lastNode = stars.get(lastCompletedNode);
+                        if (lastNode.execId === execId) {
+                            depth = lastNode.depth + 1;
+                        }
                     }
                     stars.set(globalId, new Star(execId, nodeId, depth));
                     layoutTree();
