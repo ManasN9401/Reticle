@@ -60,6 +60,26 @@ def main():
         req = json.loads(line)
         req_id = req.get("id", "unknown")
         
+        mem = req.get("memory", {{}})
+        workspace_dir = mem.get("workspace_dir", ".")
+        src_dir = os.path.join(workspace_dir, "src")
+        workspace_context = ""
+        if os.path.exists(src_dir):
+            for root, dirs, files in os.walk(src_dir):
+                for file in files:
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, src_dir)
+                    try:
+                        with open(full_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        workspace_context += f"\\n--- FILE: {{rel_path}} ---\\n{{content}}\\n"
+                    except:
+                        pass
+                        
+        context_msg = "The workspace (src/) is currently empty."
+        if workspace_context:
+            context_msg = f"Current state of the workspace (src/):\\n{{workspace_context}}"
+        
         endpoints = [
             {{"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY", "")}},
             {{"model": "groq/llama-3.1-8b-instant", "api_key": "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"}},
@@ -79,6 +99,7 @@ def main():
                         api_key=ep["api_key"],
                         messages=[
                             {{"role": "system", "content": {json.dumps(sys_prompt)}}},
+                            {{"role": "system", "content": context_msg}},
                             {{"role": "user", "content": f"Process this request: {{json.dumps(req)}}"}}
                         ]
                     )
