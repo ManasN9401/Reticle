@@ -1,6 +1,0 @@
-id: auditor-agent
-name: Global Auditor
-description: Reviews text and output for correctness
-version: 1.0.0
-runtime: python
-entrypoint: workers/auditor.py

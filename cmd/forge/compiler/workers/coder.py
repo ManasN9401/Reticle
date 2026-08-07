@@ -24,7 +24,7 @@ def main():
     generated_files = {}
     
     for agent in dag.get("agents", []):
-        if not agent.get("is_new"):
+        if not agent.get("is_new") and not agent.get("system_prompt"):
             continue
             
         agent_id = agent.get("id")
@@ -37,7 +37,7 @@ Agent System Prompt: {sys_prompt}
 
 The python script MUST read a JSON line from sys.stdin, process it using an LLM (litellm groq/llama-3.1-8b-instant), and output a JSON artifact to stdout.
 
-Use this boilerplate structure EXACTLY. Do NOT add routers, if/else action checks, or unexpected required fields to the JSON input:
+Use this boilerplate structure EXACTLY without changing a single line outside of the 'messages' list in do_completion(). Do NOT add routers, if/else action checks, try/except fallbacks, or unexpected required fields to the JSON input:
 import sys, json, time
 from litellm import completion
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -51,15 +51,15 @@ def main():
         
         @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=10))
         def do_completion():
+            # ONLY modify the messages list below. DO NOT add any kwargs or parameters to completion().
             return completion(
                 model="groq/llama-3.1-8b-instant",
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": json.dumps(req)}
+                    {{"role": "system", "content": "{sys_prompt}"}},
+                    {{"role": "user", "content": f"Process this request: {{json.dumps(req)}}"}}
                 ]
             )
             
-        # Example litellm call (adapt the prompt as needed for {agent_id}):
         response = do_completion()
         result = response.choices[0].message.content
         

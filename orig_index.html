@@ -1,0 +1,790 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HyperParallel Telemetry</title>
+    <style>
+        :root {
+            --bg-color: #050a15;
+            --panel-bg: rgba(13, 17, 28, 0.65);
+            --border-color: rgba(255, 255, 255, 0.15);
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --accent-color: #58a6ff;
+            --success-color: #2ea043;
+            --error-color: #f85149;
+            --warning-color: #d29922;
+        }
+
+        @keyframes moveGrid {
+            0% { background-position: 0 0; }
+            100% { background-position: 40px 40px; }
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            animation: moveGrid 3s linear infinite;
+            color: var(--text-primary);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        h1 {
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #ffffff;
+            text-align: center;
+            letter-spacing: -0.5px;
+            flex-shrink: 0;
+            text-shadow: 0 0 20px rgba(88, 166, 255, 0.5);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1600px;
+            display: flex;
+            flex-direction: row;
+            gap: 1.5rem;
+            flex-grow: 1;
+            height: calc(100vh - 100px);
+        }
+
+        .dashboard-left {
+            width: 35%;
+            min-width: 20%;
+            max-width: 80%;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            z-index: 10;
+            resize: horizontal;
+            overflow: hidden;
+            padding-right: 5px; /* for resize handle */
+        }
+
+        .nodes-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+
+        .dashboard-right {
+            flex-grow: 1;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            box-shadow: 
+                0 16px 48px 0 rgba(0, 0, 0, 0.6),
+                inset 0 1px 1px rgba(255,255,255,0.1);
+            position: relative;
+            overflow: hidden;
+            z-index: 10;
+        }
+
+        #starMap {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: grab;
+        }
+        #starMap:active {
+            cursor: grabbing;
+        }
+
+        .node-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 
+                0 8px 32px 0 rgba(0, 0, 0, 0.4),
+                inset 0 1px 1px rgba(255,255,255,0.05);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .node-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background-color: var(--text-secondary);
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .node-card.status-running::before {
+            background-color: var(--accent-color);
+            box-shadow: 0 0 15px var(--accent-color);
+        }
+
+        .node-card.status-completed::before {
+            background-color: var(--success-color);
+            box-shadow: 0 0 15px var(--success-color);
+        }
+        
+        .node-card.status-failed::before {
+            background-color: var(--error-color);
+            box-shadow: 0 0 15px var(--error-color);
+        }
+
+        .node-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .node-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #fff;
+            margin: 0;
+        }
+
+        .node-task {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-family: monospace;
+            word-break: break-all;
+        }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .chip {
+            background: rgba(88, 166, 255, 0.15);
+            color: var(--accent-color);
+            border: 1px solid rgba(88, 166, 255, 0.4);
+            padding: 0.25rem 0.6rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: inset 0 0 10px rgba(88, 166, 255, 0.1);
+        }
+
+        .chip.artifact {
+            background: rgba(46, 160, 67, 0.15);
+            color: #3fb950;
+            border-color: rgba(46, 160, 67, 0.4);
+            box-shadow: inset 0 0 10px rgba(46, 160, 67, 0.1);
+        }
+
+        .status-badge {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 700;
+            color: var(--text-secondary);
+        }
+        
+        .status-running .status-badge { color: var(--accent-color); text-shadow: 0 0 10px var(--accent-color); }
+        .status-completed .status-badge { color: var(--success-color); text-shadow: 0 0 10px var(--success-color); }
+        .status-failed .status-badge { color: var(--error-color); text-shadow: 0 0 10px var(--error-color); }
+
+        .log-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1rem;
+            height: 200px;
+            min-height: 100px;
+            max-height: 80vh;
+            flex-shrink: 0;
+            overflow-y: auto;
+            resize: vertical;
+            font-family: monospace;
+            font-size: 0.8rem;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: inset 0 1px 1px rgba(255,255,255,0.05);
+        }
+
+        .log-entry {
+            margin-bottom: 0.3rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 0.3rem;
+        }
+
+        .log-time { color: var(--text-secondary); margin-right: 5px; }
+        .log-type { color: var(--accent-color); font-weight: bold; margin-right: 5px; }
+        .log-source { color: var(--warning-color); margin-right: 5px; }
+
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
+    </style>
+</head>
+<body>
+
+    <h1>HyperParallel Orchestrator</h1>
+    
+    <div class="container">
+        <!-- Left Dashboard -->
+        <div class="dashboard-left">
+            <div class="nodes-container" id="nodesContainer"></div>
+            <div class="log-panel" id="logContainer"></div>
+        </div>
+
+        <!-- Right Star Map Canvas -->
+        <div class="dashboard-right">
+            <canvas id="starMap"></canvas>
+        </div>
+    </div>
+
+    <script>
+        const nodesContainer = document.getElementById('nodesContainer');
+        const logContainer = document.getElementById('logContainer');
+        const nodesMap = new Map(); 
+        
+        const canvas = document.getElementById('starMap');
+        const ctx = canvas.getContext('2d');
+        let cw, ch;
+        function resizeCanvas() {
+            cw = canvas.width = canvas.parentElement.clientWidth;
+            ch = canvas.height = canvas.parentElement.clientHeight;
+            layoutTree();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        
+        const stars = new Map();
+        let activePulses = [];
+        let globalEdges = [];
+        let pulseCompleted = false;
+        let globalConnectorAlpha = 0;
+        let lastCompletedNode = null;
+        let timeElapsed = 0;
+        let lastFrameTime = performance.now();
+
+        // High-tech layout constants
+        const VERTICAL_SPACING = 150;
+        const HORIZONTAL_SPACING = 200;
+
+        // Canvas transformations (Panning and Zooming)
+        let panX = 0;
+        let panY = 0;
+        let scale = 1;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            dragStartX = e.clientX - panX;
+            dragStartY = e.clientY - panY;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                panX = e.clientX - dragStartX;
+                panY = e.clientY - dragStartY;
+            }
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomIntensity = 0.1;
+            const wheel = e.deltaY < 0 ? 1 : -1;
+            const zoomFactor = Math.exp(wheel * zoomIntensity);
+            
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            const newScale = scale * zoomFactor;
+            
+            panX = mouseX - (mouseX - panX) * zoomFactor;
+            panY = mouseY - (mouseY - panY) * zoomFactor;
+            
+            scale = newScale;
+        }, { passive: false });
+
+        class Star {
+            constructor(id, depth) {
+                this.id = id;
+                this.status = 'initializing';
+                this.startTime = Date.now();
+                this.duration = 0;
+                this.color = '#ffffff';
+                this.radius = 12;
+                this.pulse = 0;
+                this.llm = null;
+                this.artifacts = 0;
+                
+                // Tree Layout Properties
+                this.depth = depth;
+                this.targetX = 0;
+                this.targetY = 0;
+                this.x = cw / 2;
+                this.y = 50; // Start at top and animate into position
+                this.pulseTriggered = false;
+            }
+
+            update(dt) {
+                // Smoothly interpolate position to target (Spring physics)
+                this.x += (this.targetX - this.x) * (dt * 5);
+                this.y += (this.targetY - this.y) * (dt * 5);
+
+                if (this.status === 'running') {
+                    // Slower pulse
+                    timeElapsed += dt;
+                    this.pulse = (Math.sin(timeElapsed * 4) + 1) / 2;
+                }
+            }
+
+            draw(ctx, forceColor = null) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius + (this.pulse * 4), 0, Math.PI * 2);
+                
+                ctx.shadowBlur = 20 + (this.pulse * 20);
+                
+                let activeColor = forceColor;
+                if (!activeColor) {
+                    if (this.status === 'running') {
+                        activeColor = '#ffffff';
+                    } else if (this.status === 'completed') {
+                        activeColor = this.color;
+                    } else if (this.status === 'failed') {
+                        activeColor = '#f85149';
+                    } else {
+                        activeColor = '#8b949e';
+                        ctx.shadowBlur = 0;
+                    }
+                }
+
+                ctx.fillStyle = activeColor;
+                ctx.shadowColor = activeColor;
+                ctx.fill();
+                
+                // Draw labels
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = forceColor ? forceColor : '#ffffff';
+                ctx.font = 'bold 14px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(this.id, this.x, this.y + 35);
+                
+                if (this.status === 'running' && this.llm) {
+                    ctx.fillStyle = '#58a6ff';
+                    ctx.fillText('≡ƒºá ' + this.llm, this.x, this.y - 25);
+                }
+                
+                if (this.artifacts > 0) {
+                    ctx.fillStyle = '#2ea043';
+                    const yOffset = (this.status === 'running' && this.llm) ? 45 : 25;
+                    ctx.fillText('≡ƒôäx' + this.artifacts, this.x, this.y - yOffset);
+                }
+
+                ctx.restore();
+            }
+        }
+
+        function layoutTree() {
+            // Group stars by depth
+            const byDepth = new Map();
+            for (const star of stars.values()) {
+                if (!byDepth.has(star.depth)) byDepth.set(star.depth, []);
+                byDepth.get(star.depth).push(star);
+            }
+
+            // Assign target positions
+            for (const [depth, levelStars] of byDepth.entries()) {
+                // Sort stars alphabetically to prevent crossing edges
+                levelStars.sort((a, b) => a.id.localeCompare(b.id));
+
+                const totalWidth = (levelStars.length - 1) * HORIZONTAL_SPACING;
+                const startX = (cw / 2) - (totalWidth / 2);
+                
+                // Shift entire tree down to center it vertically
+                const totalHeight = (byDepth.size - 1) * VERTICAL_SPACING;
+                const startY = (ch / 2) - (totalHeight / 2);
+
+                levelStars.forEach((star, index) => {
+                    star.targetX = startX + (index * HORIZONTAL_SPACING);
+                    star.targetY = startY + (depth * VERTICAL_SPACING);
+                });
+            }
+        }
+
+        function renderCanvas(timestamp) {
+            const dt = (timestamp - lastFrameTime) / 1000;
+            lastFrameTime = timestamp;
+            
+            ctx.clearRect(0, 0, cw, ch);
+            ctx.save();
+            ctx.translate(panX, panY);
+            ctx.scale(scale, scale);
+            
+            const starArr = Array.from(stars.values());
+            
+            // Draw connecting structural lines (directed from depth to depth+1)
+            ctx.save();
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            for (let i = 0; i < starArr.length; i++) {
+                for (let j = 0; j < starArr.length; j++) {
+                    const parent = starArr[i];
+                    const child = starArr[j];
+                    
+                    // Check if an explicit edge exists
+                    const hasEdge = globalEdges.some(e => e.From === parent.id && e.To === child.id);
+                    
+                    if (hasEdge) {
+                        ctx.beginPath();
+                        ctx.moveTo(parent.x, parent.y);
+                        // Draw curved structural lines like a circuit board
+                        ctx.bezierCurveTo(parent.x, parent.y + 50, child.x, child.y - 50, child.x, child.y);
+                        
+                        ctx.strokeStyle = `rgba(255, 255, 255, 0.15)`;
+                        ctx.stroke();
+                        
+                        // Fade to green on completion
+                        if (globalConnectorAlpha > 0) {
+                            ctx.strokeStyle = `rgba(46, 160, 67, ${globalConnectorAlpha * 0.8})`;
+                            ctx.stroke();
+                        }
+                    }
+                }
+            }
+            ctx.restore();
+            
+            // Process active high-tech pulses travelling UP the tree
+            let nextPulses = [];
+            for (let i = activePulses.length - 1; i >= 0; i--) {
+                const pulse = activePulses[i];
+                // Approximate distance for speed calculation
+                const dist = Math.hypot(pulse.from.x - pulse.to.x, pulse.from.y - pulse.to.y);
+                pulse.progress += 800 * dt;
+                
+                if (pulse.progress < dist) {
+                    ctx.save();
+                    const currentDist = Math.min(dist, pulse.progress);
+                    const tailDist = Math.max(0, pulse.progress - 150);
+                    
+                    // Bezier t goes from 0 (parent) to 1 (child)
+                    // We are traveling from 'from' (child) to 'to' (parent), so t goes 1 -> 0
+                    const startT = 1 - (tailDist / dist);
+                    const endT = 1 - (currentDist / dist);
+                    
+                    const getBezierPoint = (t) => {
+                        const u = 1 - t;
+                        const tt = t * t;
+                        const uu = u * u;
+                        const uuu = uu * u;
+                        const ttt = tt * t;
+                        let x = uuu * pulse.to.x;
+                        let y = uuu * pulse.to.y;
+                        x += 3 * uu * t * pulse.to.x;
+                        y += 3 * uu * t * (pulse.to.y + 50);
+                        x += 3 * u * tt * pulse.from.x;
+                        y += 3 * u * tt * (pulse.from.y - 50);
+                        x += ttt * pulse.from.x;
+                        y += ttt * pulse.from.y;
+                        return {x, y};
+                    };
+                    
+                    // Draw tail
+                    ctx.strokeStyle = '#2ea043';
+                    ctx.lineWidth = 6;
+                    ctx.shadowColor = '#2ea043';
+                    ctx.shadowBlur = 20;
+                    ctx.beginPath();
+                    const steps = 10;
+                    for (let step = 0; step <= steps; step++) {
+                        const t = startT + (endT - startT) * (step / steps);
+                        const pt = getBezierPoint(t);
+                        if (step === 0) ctx.moveTo(pt.x, pt.y);
+                        else ctx.lineTo(pt.x, pt.y);
+                    }
+                    ctx.stroke();
+                    
+                    // Draw head
+                    const headPt = getBezierPoint(endT);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.shadowColor = '#ffffff';
+                    ctx.shadowBlur = 30;
+                    ctx.beginPath();
+                    ctx.arc(headPt.x, headPt.y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.restore();
+                } else {
+                    // Reached parent node
+                    pulse.to.draw(ctx, '#2ea043');
+                    if (!pulse.to.pulseTriggered) {
+                        pulse.to.pulseTriggered = true;
+                        let hasParents = false;
+                        for (const parent of starArr) {
+                            const hasEdge = globalEdges.some(e => e.From === parent.id && e.To === pulse.to.id);
+                            if (hasEdge) {
+                                nextPulses.push({ from: pulse.to, to: parent, progress: 0 });
+                                hasParents = true;
+                            }
+                        }
+                        if (!hasParents && pulse.to.depth === 0) {
+                            pulseCompleted = true; // Reached the top node!
+                        }
+                    }
+                    activePulses.splice(i, 1);
+                }
+            }
+            activePulses.push(...nextPulses);
+            
+            if (pulseCompleted) {
+                globalConnectorAlpha = Math.min(1, globalConnectorAlpha + dt * 0.5); // Fades over 2s
+            }
+
+            // Draw stars normally
+            for (const star of starArr) {
+                star.update(dt);
+                star.draw(ctx);
+            }
+            
+            ctx.restore();
+            
+            requestAnimationFrame(renderCanvas);
+        }
+
+        resizeCanvas();
+        requestAnimationFrame(renderCanvas);
+
+        // Connect to WebSocket with Auto-Reconnect
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let ws = null;
+        let isReconnecting = false;
+
+        function connectWS() {
+            ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
+
+            ws.onopen = () => {
+                appendLog('SYSTEM', 'frontend', 'Connected to Telemetry Server');
+                isReconnecting = false;
+            };
+
+            ws.onclose = () => {
+                if (!isReconnecting) {
+                    appendLog('SYSTEM', 'frontend', 'Disconnected. Auto-reconnecting...');
+                }
+                isReconnecting = true;
+                setTimeout(connectWS, 1000);
+            };
+
+            ws.onerror = (e) => {};
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                processEvent(data);
+            };
+        }
+
+        connectWS();
+
+        function processEvent(e) {
+            const type = e.Type;
+            const payload = e.Payload;
+
+            // Sanitize payload for logging
+            const logPayload = JSON.parse(JSON.stringify(payload));
+            if (logPayload.inputs) {
+                logPayload.inputs.forEach(i => { if (i.data) i.data = '<TRUNCATED>'; });
+            }
+            if (logPayload.data) logPayload.data = '<TRUNCATED>';
+            
+            appendLog(type, e.Source, JSON.stringify(logPayload));
+
+            // Listen for WorkflowStarted to get the explicit edges
+            if (type === 'WorkflowStarted' && payload.edges) {
+                globalEdges = payload.edges;
+            }
+
+            // Trigger Comet Pulse on workflow complete
+            if (type === 'WorkflowCompleted') {
+                if (lastCompletedNode && stars.has(lastCompletedNode)) {
+                    const origin = stars.get(lastCompletedNode);
+                    let hasParents = false;
+                    for (const parent of stars.values()) {
+                        const hasEdge = globalEdges.some(e => e.From === parent.id && e.To === origin.id);
+                        if (hasEdge) {
+                            activePulses.push({ from: origin, to: parent, progress: 0 });
+                            hasParents = true;
+                        }
+                    }
+                    if (!hasParents && origin.depth === 0) {
+                        pulseCompleted = true; // Top node already
+                    }
+                }
+            }
+
+            let workerId = payload.worker_id || payload.producer || payload.agent_id;
+            let taskId = payload.task_id || payload.id; 
+            
+            let nodeId = workerId;
+            if (taskId && taskId.includes('|')) {
+                nodeId = taskId.split('|')[1];
+            } else if (payload.node_id) {
+                nodeId = payload.node_id;
+            }
+
+            if (!nodeId && type !== 'TaskCreated') return;
+
+            if (type === 'WorkerStarted' || type === 'TaskDispatched') {
+                createOrUpdateDOMNode(nodeId, taskId, 'running');
+                
+                if (!stars.has(nodeId)) {
+                    let depth = 0;
+                    if (lastCompletedNode && stars.has(lastCompletedNode)) {
+                        depth = stars.get(lastCompletedNode).depth + 1;
+                    }
+                    stars.set(nodeId, new Star(nodeId, depth));
+                    layoutTree();
+                }
+                const s = stars.get(nodeId);
+                s.status = 'running';
+                s.startTime = Date.now();
+                
+                if (payload.llm_model) {
+                    addDOMChip(nodeId, `≡ƒºá ${payload.llm_model}`);
+                    s.llm = payload.llm_model;
+                }
+            }
+            else if (type === 'WorkerCompleted') {
+                createOrUpdateDOMNode(nodeId, taskId, 'completed');
+                lastCompletedNode = nodeId;
+                
+                const s = stars.get(nodeId);
+                if (s) {
+                    s.status = 'completed';
+                    s.pulse = 0;
+                    s.duration = (Date.now() - s.startTime) / 1000;
+                    
+                    if (s.duration < 1.0) {
+                        s.color = '#58a6ff'; // Blue
+                    } else if (s.duration < 5.0) {
+                        s.color = '#ffffff'; // White
+                    } else {
+                        s.color = '#8b949e'; // Grey
+                    }
+                }
+            }
+            else if (type === 'WorkerFailed') {
+                createOrUpdateDOMNode(nodeId, taskId, 'failed');
+                const s = stars.get(nodeId);
+                if (s) {
+                    s.status = 'failed';
+                    s.pulse = 0;
+                }
+            }
+            else if (type === 'ArtifactsProduced') {
+                // Since ArtifactsProduced doesn't have task_id, we append to the last completed/running node
+                // Or we can try to guess by agent_id, but lastCompletedNode works for synchronous, 
+                // for parallel it might misattribute. Let's just attribute to last active node.
+                let targetNode = lastCompletedNode || nodeId;
+                if (targetNode && stars.has(targetNode)) {
+                    addDOMChip(targetNode, `≡ƒôä Artifact Created`, 'artifact');
+                    stars.get(targetNode).artifacts++;
+                }
+            }
+        }
+
+        function createOrUpdateDOMNode(workerId, taskId, status) {
+            let nodeEl = document.getElementById(`node-${workerId}`);
+            
+            if (!nodeEl) {
+                nodeEl = document.createElement('div');
+                nodeEl.id = `node-${workerId}`;
+                nodeEl.className = 'node-card';
+                
+                nodeEl.innerHTML = `
+                    <div class="node-header">
+                        <h3 class="node-title">${workerId}</h3>
+                        <span class="status-badge" id="badge-${workerId}">INITIALIZING</span>
+                    </div>
+                    <div class="node-task" id="task-${workerId}">${taskId || ''}</div>
+                    <div class="chips" id="chips-${workerId}"></div>
+                `;
+                
+                nodesContainer.appendChild(nodeEl);
+                nodesMap.set(workerId, nodeEl);
+            }
+
+            nodeEl.className = `node-card status-${status}`;
+            document.getElementById(`badge-${workerId}`).innerText = status.toUpperCase();
+            if (taskId && !document.getElementById(`task-${workerId}`).innerText) {
+                document.getElementById(`task-${workerId}`).innerText = taskId;
+            }
+        }
+
+        function addDOMChip(workerId, text, typeClass = '') {
+            const chipsContainer = document.getElementById(`chips-${workerId}`);
+            if (!chipsContainer) return;
+
+            if (Array.from(chipsContainer.children).some(c => c.innerText === text)) {
+                return;
+            }
+
+            const chip = document.createElement('span');
+            chip.className = `chip ${typeClass}`;
+            chip.innerText = text;
+            chipsContainer.appendChild(chip);
+        }
+
+        function appendLog(type, source, content) {
+            const el = document.createElement('div');
+            el.className = 'log-entry';
+            const time = new Date().toLocaleTimeString();
+            el.innerHTML = `
+                <span class="log-time">[${time}]</span>
+                <span class="log-type">${type}</span>
+                <span class="log-source">(${source})</span>
+                <span class="log-content">${content}</span>
+            `;
+            logContainer.appendChild(el);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>

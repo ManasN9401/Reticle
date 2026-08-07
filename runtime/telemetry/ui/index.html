@@ -620,7 +620,7 @@
         let activePulses = [];
         let execEdges = new Map();
         let pulseCompleted = false;
-        let globalConnectorAlpha = 0;
+        let execAlpha = new Map();
         let lastCompletedNode = null; // Stores globalId
         let timeElapsed = 0;
         let lastFrameTime = performance.now();
@@ -688,7 +688,8 @@
             selectedNodeId = nodeId;
             
             document.querySelectorAll('.node-card').forEach(el => el.classList.remove('selected'));
-            const selectedEl = document.getElementById(`node-${nodeId}`);
+            const shortId = nodeId.includes('|') ? nodeId.split('|')[1] : nodeId;
+            const selectedEl = document.getElementById(`node-${shortId}`);
             if (selectedEl) selectedEl.classList.add('selected');
             
             const panel = document.getElementById('nodeDetailsPanel');
@@ -1032,8 +1033,9 @@
                         ctx.stroke();
                         
                         // Fade to green on completion
-                        if (globalConnectorAlpha > 0) {
-                            ctx.strokeStyle = `rgba(46, 160, 67, ${globalConnectorAlpha * 0.8})`;
+                        const alphaObj = execAlpha.get(parent.execId);
+                        if (alphaObj && alphaObj.current > 0) {
+                            ctx.strokeStyle = `rgba(46, 160, 67, ${alphaObj.current * 0.8})`;
                             ctx.stroke();
                         }
                     }
@@ -1124,8 +1126,11 @@
             }
             activePulses.push(...nextPulses);
             
-            if (pulseCompleted) {
-                globalConnectorAlpha = Math.min(1, globalConnectorAlpha + dt * 0.5); // Fades over 2s
+            // Update alphas
+            for (const [eId, alphaObj] of execAlpha.entries()) {
+                if (alphaObj.current < alphaObj.target) {
+                    alphaObj.current = Math.min(alphaObj.target, alphaObj.current + dt * 0.5);
+                }
             }
 
             // Draw stars normally
@@ -1278,6 +1283,7 @@
 
             // Trigger Comet Pulse on workflow complete
             if (type === 'WorkflowCompleted') {
+                execAlpha.set(execId, { target: 1, current: 0 });
                 if (lastCompletedNode && stars.has(lastCompletedNode)) {
                     const origin = stars.get(lastCompletedNode);
                     let hasParents = false;

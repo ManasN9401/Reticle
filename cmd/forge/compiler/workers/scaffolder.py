@@ -24,7 +24,7 @@ def main():
     
     # Generate Agent YAMLs
     for agent in dag.get("agents", []):
-        if not agent.get("is_new"):
+        if not agent.get("is_new") and not agent.get("system_prompt"):
             continue
             
         agent_id = agent.get("id")

@@ -271,6 +271,13 @@ func main() {
 			continue
 		}
 	
+		if execWf == nil {
+			fmt.Println("[ERROR] No workflow loaded in this workspace. You cannot queue executions.")
+			fmt.Println("[HINT] To compile a new workflow, restart forge with your prompt as an argument: .\\forge.exe \"your prompt here\"")
+			fmt.Print("> ")
+			continue
+		}
+
 		group := ""
 		mode := ModeParallel
 		if strings.HasPrefix(text, "@group:") {
