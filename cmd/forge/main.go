@@ -72,6 +72,7 @@ func main() {
 	autoApprove := flag.Bool("auto-approve", false, "Execute the compiled workflow automatically without prompting")
 	batchSize := flag.Int("batch", 1, "Number of concurrent executions for the generated workflow in Phase 2")
 	workspaceFlag := flag.String("workspace", "", "Path to an existing compiled workspace to run (skips compilation Phase 1)")
+	portFlag := flag.Int("port", 8080, "Port to run the UI telemetry server on")
 	flag.Parse()
 
 	args := flag.Args()
@@ -113,9 +114,9 @@ func main() {
 	orch.Start()
 	defer orch.Shutdown()
 
-	telemetryServer := telemetry.NewServer(orch.Bus, ":8080")
+	telemetryServer := telemetry.NewServer(orch.Bus, fmt.Sprintf(":%d", *portFlag))
 	go telemetryServer.Start()
-	fmt.Println("[UI] Telemetry running on http://localhost:8080")
+	fmt.Printf("[UI] Telemetry running on http://localhost:%d\n", *portFlag)
 
 	graphEngine := agent.NewGraphEngine(orch.Logger, orch.Bus)
 	graphEngine.Start()
@@ -207,8 +208,8 @@ func main() {
 			response, _ := reader.ReadString('\n')
 			response = strings.TrimSpace(strings.ToLower(response))
 			if response != "y" && response != "yes" {
-				fmt.Println("Execution aborted. The workspace has been saved.")
-				os.Exit(0)
+				fmt.Println("Execution of initial prompt skipped. Entering Execution Shell...")
+				userPrompt = "" // Prevent it from being enqueued
 			}
 		} else {
 			fmt.Println("\n[INFO] Auto-Approve enabled. Proceeding to execution immediately.")
@@ -292,6 +293,10 @@ func main() {
 		}
 	
 		wm.Enqueue(text, group, mode)
+	}
+	
+	if err := reader.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading standard input: %v\n", err)
 	}
 	
 	fmt.Println("\n[INFO] Shutting down...")

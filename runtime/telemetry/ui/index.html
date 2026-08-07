@@ -688,9 +688,11 @@
             selectedNodeId = nodeId;
             
             document.querySelectorAll('.node-card').forEach(el => el.classList.remove('selected'));
-            const shortId = nodeId.includes('|') ? nodeId.split('|')[1] : nodeId;
-            const selectedEl = document.getElementById(`node-${shortId}`);
-            if (selectedEl) selectedEl.classList.add('selected');
+            const selectedEl = document.getElementById(`node-${nodeId}`);
+            if (selectedEl) {
+                selectedEl.classList.add('selected');
+                selectedEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
             
             const panel = document.getElementById('nodeDetailsPanel');
             const title = document.getElementById('detailsTitle');
@@ -910,6 +912,36 @@
                 ctx.fillStyle = activeColor;
                 ctx.shadowColor = activeColor;
                 ctx.fill();
+                
+                // Draw selection halo
+                if (selectedNodeId === this.globalId) {
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate((performance.now() / 1000) * 1.5);
+                    
+                    const scouterColor = 'rgba(88, 166, 255, 0.9)'; // Blue color
+                    const r = this.radius + 10; // Smaller halo
+                    
+                    ctx.beginPath();
+                    ctx.arc(0, 0, r, 0, Math.PI * 2);
+                    ctx.strokeStyle = scouterColor;
+                    ctx.lineWidth = 2; // Thinner ring
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = scouterColor;
+                    ctx.stroke();
+                    
+                    ctx.fillStyle = scouterColor;
+                    for(let i=0; i<4; i++) {
+                        ctx.rotate(Math.PI / 2);
+                        ctx.beginPath();
+                        ctx.moveTo(0, -r);
+                        ctx.lineTo(-10, -(r + 15)); // Smaller arrows
+                        ctx.lineTo(10, -(r + 15));
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                    ctx.restore();
+                }
                 
                 // Draw labels
                 ctx.shadowBlur = 0;

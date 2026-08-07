@@ -135,7 +135,8 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 	orch.Bus.Subscribe(events.EventType("WaitlistCommand"), func(e events.RuntimeEvent) {
 		if payload, ok := e.Payload.(map[string]any); ok {
 			action, _ := payload["action"].(string)
-			if action == "enqueue" {
+			switch action {
+			case "enqueue":
 				prompt, _ := payload["prompt"].(string)
 				group, _ := payload["group"].(string)
 				modeStr, _ := payload["mode"].(string)
@@ -144,7 +145,7 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 					mode = ModeSequential
 				}
 				wm.Enqueue(prompt, group, mode)
-			} else if action == "remove" {
+			case "remove":
 				id, _ := payload["id"].(string)
 				wm.Remove(id)
 			}

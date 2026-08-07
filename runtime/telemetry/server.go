@@ -90,9 +90,10 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 		close(s.connected)
 	})
 
-	// Request waitlist state so it broadcasts to the new client
+	// Request waitlist and workflow state so it broadcasts to the new client
 	if s.bus != nil {
 		s.bus.Publish(events.EventType("WaitlistStateRequested"), events.Component("telemetry_ui"), nil)
+		s.bus.Publish(events.EventType("WorkflowStateRequested"), events.Component("telemetry_ui"), nil)
 	}
 
 	// Keep connection alive, listen for messages

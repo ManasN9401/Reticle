@@ -214,14 +214,38 @@ func (r *Registry) LoadWorkflows(directory string) error {
 		}
 
 		// Find Roots
+		inDegree := make(map[string]int)
 		for nodeID := range def.Nodes {
-			if len(def.Parents[nodeID]) == 0 {
+			inDegree[nodeID] = len(def.Parents[nodeID])
+			if inDegree[nodeID] == 0 {
 				def.Roots = append(def.Roots, nodeID)
 			}
 		}
 
 		if len(def.Roots) == 0 {
 			return fmt.Errorf("workflow %s has no roots (cycle detected or empty graph)", y.ID)
+		}
+
+		// Check for cycles using Kahn's algorithm
+		queue := make([]string, len(def.Roots))
+		copy(queue, def.Roots)
+		visitedCount := 0
+
+		for len(queue) > 0 {
+			curr := queue[0]
+			queue = queue[1:]
+			visitedCount++
+
+			for _, child := range def.Children[curr] {
+				inDegree[child]--
+				if inDegree[child] == 0 {
+					queue = append(queue, child)
+				}
+			}
+		}
+
+		if visitedCount != len(def.Nodes) {
+			return fmt.Errorf("workflow %s contains a cycle (Directed Acyclic Graph requirement violated)", y.ID)
 		}
 
 		r.Workflows[y.ID] = def

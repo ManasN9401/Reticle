@@ -30,8 +30,8 @@ def main():
         agent_id = agent.get("id")
         
         agent_yaml_str = f"""id: {agent_id}
-name: {agent.get('name', agent_id)}
-description: {agent.get('description', '')}
+name: "{str(agent.get('name', agent_id)).replace('"', "'")}"
+description: "{str(agent.get('description', '')).replace('"', "'")}"
 version: 1.0.0
 runtime: python
 entrypoint: workers/{agent_id}.py
@@ -51,13 +51,114 @@ nodes:"""
     parameters:
       llm_model: groq/llama-3.1-8b-instant"""
         
+    workflow_yaml_str += """
+  - id: file-writer-node
+    agent: file-writer
+    parameters: {}"""
+        
     workflow_yaml_str += "\nedges:"
     for edge in dag.get("edges", []):
         workflow_yaml_str += f"""
   - from: {edge.get('from')}
     to: {edge.get('to')}"""
+    
+    for node in dag.get("nodes", []):
+        workflow_yaml_str += f"""
+  - from: {node.get('id')}
+    to: file-writer-node"""
         
     generated_files["workflows/workflow.yaml"] = workflow_yaml_str
+    
+    generated_files["agents/file-writer.yaml"] = """id: file-writer
+name: "File Writer"
+description: "Writes extracted code to disk."
+version: 1.0.0
+runtime: python
+entrypoint: workers/file-writer.py
+"""
+
+    generated_files["workers/file-writer.py"] = """import sys, json, os, re, logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def main():
+    line = sys.stdin.readline()
+    if not line: return
+    
+    req = json.loads(line)
+    req_id = req.get("id", "unknown")
+    inputs = req.get("inputs", [])
+    mem = req.get("memory", {})
+    workspace_dir = mem.get("workspace_dir", "./workspaces/default")
+    src_dir = os.path.join(workspace_dir, "src")
+    os.makedirs(src_dir, exist_ok=True)
+    
+    operations_executed = 0
+    errors = []
+    success_log = []
+    
+    for inp in inputs:
+        data = inp.get("data", "")
+        # Extract ```json blocks
+        matches = re.finditer(r'```json\\s*(.*?)\\s*```', data, re.DOTALL)
+        for match in matches:
+            try:
+                block = json.loads(match.group(1))
+                ops = block.get("file_operations", [])
+                for op in ops:
+                    action = op.get("action")
+                    path = op.get("path")
+                    clean_path = os.path.normpath(path).lstrip(os.sep)
+                    if ".." in clean_path:
+                        errors.append(f"Invalid path: {path}")
+                        continue
+                        
+                    full_path = os.path.join(src_dir, clean_path)
+                    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                    
+                    if action == "create":
+                        content = op.get("content", "")
+                        with open(full_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+                        operations_executed += 1
+                        success_log.append(f"Created: {clean_path}")
+                    elif action == "edit":
+                        search = op.get("search", "")
+                        replace = op.get("replace", "")
+                        if not os.path.exists(full_path):
+                            errors.append(f"Cannot edit non-existent file: {path}")
+                            continue
+                        with open(full_path, "r", encoding="utf-8") as f:
+                            current_content = f.read()
+                        if search not in current_content:
+                            errors.append(f"Search string not found in {path}")
+                            continue
+                        new_content = current_content.replace(search, replace, 1)
+                        with open(full_path, "w", encoding="utf-8") as f:
+                            f.write(new_content)
+                        operations_executed += 1
+                        success_log.append(f"Edited: {clean_path}")
+            except Exception as e:
+                pass
+                
+    result_text = f"Executed {operations_executed} file operations in src/:"
+    if success_log:
+        result_text += "\\n" + "\\n".join(success_log)
+    if errors:
+        result_text += f"\\n\\nErrors ({len(errors)}):\\n" + "\\n".join(errors)
+    
+    artifact = {
+        "id": f"{req_id}_output",
+        "name": "File Writer Output",
+        "type": "text/plain",
+        "data": result_text
+    }
+    print(json.dumps({"id": req_id, "artifact": artifact}))
+
+if __name__ == "__main__":
+    main()
+"""
     
     artifact = {
         "id": f"{req_id}_output",

@@ -40,5 +40,10 @@ runtime/logs/
 
 #workspaces
 cmd/forge/workspaces/*
+!cmd/forge/workspaces/default/
 
 *old_*
+diff*.txt
+git_diff*.txt
+git_history*.txt
+orig_*

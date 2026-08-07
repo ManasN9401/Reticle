@@ -3,7 +3,6 @@ HyperParallel Worker Script
 """
 import sys
 import json
-from litellm import completion
 
 def main():
     line = sys.stdin.readline()
@@ -29,18 +28,30 @@ def main():
             
         agent_id = agent.get("id")
         sys_prompt = agent.get("system_prompt", "You are a helpful assistant.")
+        sys_prompt += """\n\nTo write new files or edit existing files, you MUST include a JSON block in your response wrapped in ```json ... ``` with this exact structure:
+{
+  "file_operations": [
+    {
+      "action": "create",
+      "path": "main.py",
+      "content": "print('hello')"
+    },
+    {
+      "action": "edit",
+      "path": "main.py",
+      "search": "old string to replace",
+      "replace": "new string"
+    }
+  ]
+}
+All paths must be relative to the src/ directory."""
         
-        system_msg = f"""
-You are the Forge Coder. You are generating a python worker script for a new agent.
-Agent ID: {agent_id}
-Agent System Prompt: {sys_prompt}
-
-The python script MUST read a JSON line from sys.stdin, process it using an LLM (litellm groq/llama-3.1-8b-instant), and output a JSON artifact to stdout.
-
-Use this boilerplate structure EXACTLY without changing a single line outside of the 'messages' list in do_completion(). Do NOT add routers, if/else action checks, try/except fallbacks, or unexpected required fields to the JSON input:
-import sys, json, time
+        code = f"""import sys, json, time, logging, os
 from litellm import completion
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def main():
     line = sys.stdin.readline()
@@ -49,16 +60,33 @@ def main():
         req = json.loads(line)
         req_id = req.get("id", "unknown")
         
-        @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=10))
+        endpoints = [
+            {{"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY", "")}},
+            {{"model": "groq/llama-3.1-8b-instant", "api_key": "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"}},
+            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct:free", "api_key": os.environ.get("OPENROUTER_API_KEY", "")}},
+            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct:free", "api_key": "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"}}
+        ]
+        
+        @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60), before_sleep=before_sleep_log(logger, logging.WARNING))
         def do_completion():
-            # ONLY modify the messages list below. DO NOT add any kwargs or parameters to completion().
-            return completion(
-                model="groq/llama-3.1-8b-instant",
-                messages=[
-                    {{"role": "system", "content": "{sys_prompt}"}},
-                    {{"role": "user", "content": f"Process this request: {{json.dumps(req)}}"}}
-                ]
-            )
+            import random
+            random.shuffle(endpoints)
+            last_err = None
+            for ep in endpoints:
+                try:
+                    resp = completion(
+                        model=ep["model"],
+                        api_key=ep["api_key"],
+                        messages=[
+                            {{"role": "system", "content": {json.dumps(sys_prompt)}}},
+                            {{"role": "user", "content": f"Process this request: {{json.dumps(req)}}"}}
+                        ]
+                    )
+                    return resp
+                except Exception as e:
+                    last_err = e
+                    logger.warning(f"Failed with {{ep['model']}}: {{e}}")
+            raise last_err
             
         response = do_completion()
         result = response.choices[0].message.content
@@ -76,26 +104,7 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-Output ONLY the raw python code. Do not output markdown code blocks (like ```python).
 """
-
-        response = completion(
-            model="groq/llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": system_msg},
-                {"role": "user", "content": f"Generate the {agent_id}.py file."}
-            ]
-        )
-        
-        code = response.choices[0].message.content.strip()
-        if code.startswith("```python"):
-            code = code[9:]
-        if code.startswith("```"):
-            code = code[3:]
-        if code.endswith("```"):
-            code = code[:-3]
-            
         generated_files[f"workers/{agent_id}.py"] = code.strip()
         
     artifact = {

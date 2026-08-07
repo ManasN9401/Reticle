@@ -138,17 +138,11 @@ func (we *GraphEngine) Start() {
 			return
 		}
 
-		var taskID TaskID
-		switch v := payload["task_id"].(type) {
-		case string:
-			taskID = TaskID(v)
-		case TaskID:
-			taskID = v
-		default:
+		taskID, ok := payload["task_id"].(string)
+		if !ok {
 			return
 		}
-
-		execID, nodeID := we.parseTaskID(taskID)
+		execID, nodeID := we.parseTaskID(TaskID(taskID))
 		if execID == "" || nodeID == "" {
 			return
 		}
@@ -178,6 +172,16 @@ func (we *GraphEngine) Start() {
 			"reason":    "node_failure",
 			"node_id":   nodeID,
 		})
+	})
+
+	we.Bus.Subscribe(events.EventType("WorkflowStateRequested"), func(e events.RuntimeEvent) {
+		for execID, exec := range we.Executions {
+			we.Bus.Publish(events.EventType("WorkflowStarted"), events.Component("graph_engine"), map[string]any{
+				"workflow_id": exec.Workflow.ID,
+				"exec_id":     execID,
+				"edges":       exec.Workflow.Edges,
+			})
+		}
 	})
 }
 
