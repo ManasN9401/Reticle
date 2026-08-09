@@ -15,6 +15,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def main():
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr
+
+    import litellm
+    litellm.suppress_debug_info = True
+
     line = sys.stdin.readline()
     if not line: return
     
@@ -27,6 +33,8 @@ def main():
     try:
         print(f"[{req_id}] Architecting DAG...", file=sys.stderr)
         
+        available_agents_prompt = available_agents if available_agents and available_agents.strip() != "None" else "None. You MUST create all new specialized agents (set is_new: true for ALL agents)."
+
         system_msg = f"""
 You are the Chief Software Architect of HyperParallel.
 The user will provide a software goal (e.g. 'Build a game', 'Analyze data').
@@ -37,7 +45,7 @@ If you need new specialized agents (which you almost certainly will), design the
 For ALL new agents, you MUST provide an `id`, `name`, `description`, and a highly detailed `system_prompt`.
 
 AVAILABLE AGENTS:
-{available_agents}
+{available_agents_prompt}
 
 CRITICAL REQUIREMENT: You MUST build highly interconnected multi-agent pipelines with PARALLEL branches. 
 For example, instead of a linear pipeline, have [Researcher 1, Researcher 2] run in PARALLEL and both feed their outputs simultaneously into an [Analyst], which then feeds into a [Writer] and [Auditor].
@@ -73,16 +81,17 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         endpoints = [
             {"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY", "")},
             {"model": "groq/llama-3.1-8b-instant", "api_key": "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"},
-            {"model": "openrouter/meta-llama/llama-3.1-8b-instruct:free", "api_key": os.environ.get("OPENROUTER_API_KEY", "")},
-            {"model": "openrouter/meta-llama/llama-3.1-8b-instruct:free", "api_key": "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"}
+            {"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY", "")},
+            {"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": "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"}
         ]
 
         @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60), before_sleep=before_sleep_log(logger, logging.WARNING))
         def get_architect_response():
             import random
             random.shuffle(endpoints)
-            last_err = None
+            last_err = Exception("No endpoints available")
             
+            resp = None
             for ep in endpoints:
                 try:
                     resp = completion(
@@ -94,12 +103,13 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                             {"role": "user", "content": f"Design the agent graph for this goal: {user_prompt}"}
                         ]
                     )
-                    return resp
+                    break
                 except Exception as e:
                     last_err = e
                     logger.warning(f"Failed with {ep['model']}: {e}")
                     
-            raise last_err
+            if resp is None:
+                raise last_err
             
             # Programmatic Validation to enforce the strict constraints
             try:
@@ -108,9 +118,12 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 # Gather valid agent IDs
                 valid_agents = set()
                 if available_agents and available_agents != "None":
-                    valid_agents.update([a.strip() for a in available_agents.split(',')])
+                    import re
+                    valid_agents.update(re.findall(r'^- ([^\s]+)', available_agents, re.MULTILINE))
                 for a in data.get("agents", []):
                     if a.get("id"):
+                        if a["id"] not in valid_agents:
+                            a["is_new"] = True
                         valid_agents.add(a["id"])
                 
                 # Gather valid node IDs and check agent assignments
@@ -169,10 +182,10 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
             "data": result
         }
         
-        print(json.dumps({
+        real_stdout.write(json.dumps({
             "id": req_id,
             "artifact": artifact
-        }))
+        }) + "\n")
         
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)

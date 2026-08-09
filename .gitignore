@@ -42,6 +42,12 @@ runtime/logs/
 cmd/forge/workspaces/*
 !cmd/forge/workspaces/default/
 
+# Forge generated artifacts (when run directly in cmd/forge)
+cmd/forge/agents/
+cmd/forge/workers/
+cmd/forge/workflows/
+cmd/forge/src/
+
 *old_*
 diff*.txt
 git_diff*.txt

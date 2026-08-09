@@ -8,3 +8,5 @@ inputs:
   - "dag_json"
 outputs:
   - "yaml_files"
+memory:
+  - "workspace_dir"

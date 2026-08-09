@@ -131,6 +131,8 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 
 	// Read response
 	scanner := bufio.NewScanner(stdout)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 10*1024*1024)
 	var resp TaskResponse
 	var parseErr error
 	var foundJson bool

@@ -75,6 +75,8 @@ description: "Writes extracted code to disk."
 version: 1.0.0
 runtime: python
 entrypoint: workers/file-writer.py
+memory:
+  - "workspace_dir"
 """
 
     generated_files["workers/file-writer.py"] = """import sys, json, os, re, logging
@@ -110,6 +112,7 @@ def main():
                     action = op.get("action")
                     path = op.get("path")
                     clean_path = os.path.normpath(path).lstrip(os.sep)
+                    if clean_path.startswith("src" + os.sep): clean_path = clean_path[4:]
                     if ".." in clean_path:
                         errors.append(f"Invalid path: {path}")
                         continue
@@ -142,6 +145,29 @@ def main():
             except Exception as e:
                 pass
                 
+        # Extract markdown files
+        file_matches = re.finditer(r'### FILE:\\s*([^\\n]+)\\n```[a-zA-Z]*\\n(.*?)```', data, re.DOTALL)
+        for match in file_matches:
+            try:
+                path = match.group(1).strip()
+                content = match.group(2)
+                
+                clean_path = os.path.normpath(path).lstrip(os.sep)
+                if clean_path.startswith("src" + os.sep): clean_path = clean_path[4:]
+                if ".." in clean_path:
+                    errors.append(f"Invalid path: {path}")
+                    continue
+                    
+                full_path = os.path.join(src_dir, clean_path)
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                
+                with open(full_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                operations_executed += 1
+                success_log.append(f"Created: {clean_path}")
+            except Exception as e:
+                pass
+                
     result_text = f"Executed {operations_executed} file operations in src/:"
     if success_log:
         result_text += "\\n" + "\\n".join(success_log)
@@ -160,11 +186,20 @@ if __name__ == "__main__":
     main()
 """
     
+    import os
+    mem = req.get("memory", {})
+    workspace_dir = mem.get("workspace_dir", ".")
+    for path, content in generated_files.items():
+        full_path = os.path.join(workspace_dir, path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
+            
     artifact = {
         "id": f"{req_id}_output",
         "name": "YAML Files",
         "type": "application/json",
-        "data": json.dumps(generated_files)
+        "data": "{}"
     }
     
     print(json.dumps({

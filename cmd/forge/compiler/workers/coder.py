@@ -47,6 +47,13 @@ def main():
 All paths must be relative to the src/ directory."""
         
         code = f"""import sys, json, time, logging, os
+
+real_stdout = sys.stdout
+sys.stdout = sys.stderr
+
+import litellm
+litellm.suppress_debug_info = True
+
 from litellm import completion
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 
@@ -58,12 +65,14 @@ def main():
     if not line: return
     try:
         req = json.loads(line)
-        req_id = req.get("id", "unknown")
+        req_id = req.get("id")
+        inputs = req.get("inputs", [])
         
+        workspace_context = ""
         mem = req.get("memory", {{}})
         workspace_dir = mem.get("workspace_dir", ".")
         src_dir = os.path.join(workspace_dir, "src")
-        workspace_context = ""
+        
         if os.path.exists(src_dir):
             for root, dirs, files in os.walk(src_dir):
                 for file in files:
@@ -83,8 +92,8 @@ def main():
         endpoints = [
             {{"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY", "")}},
             {{"model": "groq/llama-3.1-8b-instant", "api_key": "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"}},
-            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct:free", "api_key": os.environ.get("OPENROUTER_API_KEY", "")}},
-            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct:free", "api_key": "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"}}
+            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY", "")}},
+            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": "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"}}
         ]
         
         @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60), before_sleep=before_sleep_log(logger, logging.WARNING))
@@ -118,7 +127,7 @@ def main():
             "type": "document/markdown",
             "data": result
         }}
-        print(json.dumps({{"id": req_id, "artifact": artifact}}))
+        real_stdout.write(json.dumps({{"id": req_id, "artifact": artifact}}) + "\\n")
     except Exception as e:
         print(f"ERROR: {{e}}", file=sys.stderr)
         sys.exit(1)
@@ -128,11 +137,20 @@ if __name__ == "__main__":
 """
         generated_files[f"workers/{agent_id}.py"] = code.strip()
         
+    import os
+    mem = req.get("memory", {})
+    workspace_dir = mem.get("workspace_dir", ".")
+    for path, content in generated_files.items():
+        full_path = os.path.join(workspace_dir, path)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
+            
     artifact = {
         "id": f"{req_id}_output",
         "name": "Python Files",
         "type": "application/json",
-        "data": json.dumps(generated_files)
+        "data": "{}"
     }
     
     print(json.dumps({

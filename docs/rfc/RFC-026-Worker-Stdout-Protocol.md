@@ -28,12 +28,14 @@ The orchestrator must be incredibly defensively programmed against rogue or nois
 
 ## 6. Architectural Laws
 1. The Orchestrator's execution loop (`worker.go`) must scan `stdout` line-by-line indefinitely until the process exits.
-2. The Orchestrator must attempt to `json.Unmarshal` every parsed line. The last valid JSON payload successfully parsed before the process exits with code `0` is considered the definitive artifact. All other output is treated as auxiliary logging.
-3. Worker scripts (e.g., `worker_llm.py`) must wrap critical API calls in broad `try/except` blocks.
-4. If a critical API call fails (e.g., `Invalid API Key`), the worker must dump the stack trace to `stderr` and emit a Mock JSON payload to `stdout` to allow downstream nodes to continue testing topology.
+2. The Orchestrator uses a custom `bufio.Scanner` buffer configured to support up to **10MB** output payloads (extended from the standard 64KB limit). Workers must ensure their final JSON payload does not exceed this hard limit.
+3. The Orchestrator must attempt to `json.Unmarshal` every parsed line. The last valid JSON payload successfully parsed before the process exits with code `0` is considered the definitive artifact. All other output is treated as auxiliary logging.
+4. Worker scripts (e.g., `worker_llm.py`) must wrap critical API calls in broad `try/except` blocks.
+5. If a critical API call fails (e.g., `Invalid API Key`), the worker must dump the stack trace to `stderr` and emit a Mock JSON payload to `stdout` to allow downstream nodes to continue testing topology.
+6. Worker scripts MUST redirect native standard output (`sys.stdout = sys.stderr`) globally before loading third-party libraries (e.g. LiteLLM), capturing the original `stdout` file descriptor exclusively for the final JSON artifact dump.
 
 ## 7. Rationale
-A single string warning from a Python library (e.g., "Warning: API endpoint deprecated") previously caused the entire Go orchestrator to panic when it tried to parse `stdout` as JSON. By implementing a continuous scanner that seeks the valid payload, we achieve immunity to library noise. By enforcing mock fallbacks, we enable developers to test massive, highly-concurrent graph topologies locally without incurring API costs or hitting rate limits.
+A single string warning from a Python library (e.g., "Warning: API endpoint deprecated") or logging strings (e.g. `Provider List: https://...`) previously caused the entire Go orchestrator to panic when it tried to parse `stdout` as JSON. By implementing a continuous scanner that seeks the valid payload, and strictly enforcing the `sys.stdout = sys.stderr` redirection inside the worker processes, we achieve total immunity to library noise. By enforcing mock fallbacks, we enable developers to test massive, highly-concurrent graph topologies locally without incurring API costs or hitting rate limits. Furthermore, the 10MB buffer size resolves `bufio.ErrTooLong` freezes encountered during massive agent DAG compilations.
 
 ## 8. Trade-offs
 - Searching every line of `stdout` for a JSON payload incurs a slight CPU penalty compared to reading the stream directly into a single unmarshal buffer.
