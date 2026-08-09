@@ -48,9 +48,8 @@ AVAILABLE AGENTS:
 {available_agents_prompt}
 
 CRITICAL REQUIREMENT: You MUST build highly interconnected multi-agent pipelines with PARALLEL branches. 
-For example, instead of a linear pipeline, have [Researcher 1, Researcher 2] run in PARALLEL and both feed their outputs simultaneously into an [Analyst], which then feeds into a [Writer] and [Auditor].
-If your graph is just a linear chain (A -> B -> C -> D), or only has 1 or 2 isolated nodes, you have FAILED. 
-Leverage the parallel nature of the system!
+For example, instead of a linear pipeline, have [Researcher 1, Researcher 2] run in PARALLEL and both feed their outputs simultaneously into an [Analyst].
+The system WILL reject your graph if its depth is greater than 3, forcing you to spread agents out horizontally in parallel!
 
 Return the DAG strictly as JSON with the following schema, and NOTHING else (no markdown blocks, just raw JSON):
 {{
@@ -152,20 +151,31 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     adj[from_node].append(to_node)
                     in_degree[to_node] += 1
                     
-                # Cycle detection using Kahn's algorithm
+                # Cycle detection using Kahn's algorithm and Depth calculation
+                depth = {n: 1 for n in valid_nodes if in_degree[n] == 0}
                 queue = [n for n in valid_nodes if in_degree[n] == 0]
                 visited_count = 0
+                max_depth = 1
                 while queue:
                     curr = queue.pop(0)
                     visited_count += 1
+                    curr_d = depth[curr]
                     for neighbor in adj[curr]:
+                        depth[neighbor] = max(depth.get(neighbor, 1), curr_d + 1)
+                        max_depth = max(max_depth, depth[neighbor])
                         in_degree[neighbor] -= 1
                         if in_degree[neighbor] == 0:
                             queue.append(neighbor)
                             
                 if visited_count != len(valid_nodes):
                     raise ValueError("Graph contains a cycle! Directed Acyclic Graph (DAG) requirement violated.")
-                        
+                    
+                if len(valid_nodes) < 4:
+                    raise ValueError(f"Graph only has {len(valid_nodes)} nodes. You MUST create at least 4 nodes to form a complex workflow.")
+                    
+                if max_depth > 3:
+                    raise ValueError(f"Graph is too deep (depth {max_depth}). You MUST build WIDE parallel pipelines instead of deep linear ones. Max allowed depth is 3.")
+
             except Exception as e:
                 raise Exception(f"Validation failed: {str(e)}") # This triggers the @retry
                 

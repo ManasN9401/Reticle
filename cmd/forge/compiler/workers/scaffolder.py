@@ -51,10 +51,6 @@ nodes:"""
     parameters:
       llm_model: groq/llama-3.1-8b-instant"""
         
-    workflow_yaml_str += """
-  - id: file-writer-node
-    agent: file-writer
-    parameters: {}"""
         
     workflow_yaml_str += "\nedges:"
     for edge in dag.get("edges", []):
@@ -62,22 +58,10 @@ nodes:"""
   - from: {edge.get('from')}
     to: {edge.get('to')}"""
     
-    for node in dag.get("nodes", []):
-        workflow_yaml_str += f"""
-  - from: {node.get('id')}
-    to: file-writer-node"""
         
     generated_files["workflows/workflow.yaml"] = workflow_yaml_str
     
-    generated_files["agents/file-writer.yaml"] = """id: file-writer
-name: "File Writer"
-description: "Writes extracted code to disk."
-version: 1.0.0
-runtime: python
-entrypoint: workers/file-writer.py
-memory:
-  - "workspace_dir"
-"""
+
 
     generated_files["workers/file-writer.py"] = """import sys, json, os, re, logging
 
