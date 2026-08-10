@@ -76,6 +76,49 @@ def write_file(path, content, workspace_dir):
         return f"Successfully wrote to {path}"
     except Exception as e:
         return f"Error writing file: {e}"
+def list_dir(path, workspace_dir):
+    full_path = os.path.join(workspace_dir, "src", path)
+    if not os.path.exists(full_path):
+        return f"Error: Path {path} not found."
+    try:
+        if not os.path.isdir(full_path):
+            return f"Error: {path} is not a directory."
+        items = os.listdir(full_path)
+        return "\\n".join(items) if items else "Directory is empty."
+    except Exception as e:
+        return f"Error listing directory: {e}"
+
+def replace_file_content(path, target_content, replacement_content, workspace_dir):
+    full_path = os.path.join(workspace_dir, "src", path)
+    if not os.path.exists(full_path):
+        return f"Error: File {path} not found."
+    try:
+        with open(full_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        if target_content not in content:
+            return "Error: target_content not found in file. Make sure the indentation and whitespace match exactly."
+        content = content.replace(target_content, replacement_content, 1)
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return f"Successfully replaced content in {path}"
+    except Exception as e:
+        return f"Error replacing content: {e}"
+
+def analyze_code_problems(path, workspace_dir):
+    container_name = "forge_" + os.path.basename(os.path.abspath(workspace_dir)).replace(".", "_").replace("-", "_")
+    try:
+        cmd = f"pip install flake8 -q && flake8 {path}"
+        docker_cmd = ["docker", "exec", container_name, "bash", "-c", cmd]
+        result = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=60)
+        output = result.stdout.strip()
+        if result.returncode == 0 and not output:
+            return "No problems found! Code looks clean."
+        elif output:
+            return f"Problems found:\\n{output}"
+        else:
+            return f"Error running analysis:\\n{result.stderr.strip()}"
+    except Exception as e:
+        return f"Error running analysis: {e}"
 
 tools = [
     {
@@ -134,6 +177,50 @@ tools = [
                 "required": ["path", "content"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_dir",
+            "description": "List files and directories in a given path.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path to list (e.g. '.', 'src', 'tests')"}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "replace_file_content",
+            "description": "Replace an exact target string with a new string in a file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path to the file inside src/"},
+                    "target_content": {"type": "string", "description": "The exact string to be replaced. MUST MATCH EXACTLY including whitespace!"},
+                    "replacement_content": {"type": "string", "description": "The content to replace it with."}
+                },
+                "required": ["path", "target_content", "replacement_content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_code_problems",
+            "description": "Run flake8 linter on a file to find syntax errors, undefined variables, and missing imports.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path to the python file inside src/"}
+                },
+                "required": ["path"]
+            }
+        }
     }
 ]
 """
@@ -164,6 +251,7 @@ def main():
         agent_id = agent.get("id")
         sys_prompt = agent.get("system_prompt", "You are a helpful assistant.")
         sys_prompt += """\n\nYou are an autonomous agent equipped with tools. You must use the tools to read the workspace, execute tests, and modify files.
+When creating or modifying Python files, you MUST use the `analyze_code_problems` tool to instantly catch syntax errors and undefined variables before finalizing. Use `list_dir` to explore the workspace instead of guessing file paths.
 When you are completely finished with your task, you must output a final summary. DO NOT output code blocks like ```json file_operations``` anymore, you must use your write_file tool to apply changes!"""
         
         code = f"""import sys, json, time, logging, os
@@ -180,7 +268,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_l
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from utils import execute_terminal_command, read_file, search_codebase, write_file, tools
+from utils import execute_terminal_command, read_file, search_codebase, write_file, list_dir, replace_file_content, analyze_code_problems, tools
 
 def main():
     line = sys.stdin.readline()
@@ -222,7 +310,7 @@ def main():
             
         messages = [
             {{"role": "system", "content": {json.dumps(sys_prompt)}}},
-            {{"role": "user", "content": f"Process this request: {{json.dumps(req)}}. The workspace is located at {{src_dir}}. Use your tools to inspect and modify it."}}
+            {{"role": "user", "content": f"Process this request: {{json.dumps(req)}}.\\n\\nCRITICAL INSTRUCTION: You are an autonomous agent. You MUST use the `write_file` tool to save your work to the workspace at {{src_dir}}. DO NOT just output code in your chat response. If you do not use `write_file`, your work will be permanently lost! Furthermore, you MUST use the native JSON tool-calling API. Do NOT output raw strings like `:function=write_file>`."}}
         ]
         
         while True:
@@ -256,6 +344,12 @@ def main():
                             res = search_codebase(args.get("regex_pattern"), workspace_dir)
                         elif func_name == "write_file":
                             res = write_file(args.get("path"), args.get("content"), workspace_dir)
+                        elif func_name == "list_dir":
+                            res = list_dir(args.get("path"), workspace_dir)
+                        elif func_name == "replace_file_content":
+                            res = replace_file_content(args.get("path"), args.get("target_content"), args.get("replacement_content"), workspace_dir)
+                        elif func_name == "analyze_code_problems":
+                            res = analyze_code_problems(args.get("path"), workspace_dir)
                         else:
                             res = "Unknown tool."
                     except json.JSONDecodeError as e:
@@ -270,6 +364,12 @@ def main():
                         "content": str(res)
                     }})
             else:
+                if msg.content and (":function=" in msg.content or "<function=" in msg.content):
+                    messages.append({{
+                        "role": "user",
+                        "content": "ERROR: You attempted to call a tool by outputting raw text. You MUST use the native JSON tool calling API. Do not output raw function strings."
+                    }})
+                    continue
                 break
                 
         result = messages[-1].get("content", "")

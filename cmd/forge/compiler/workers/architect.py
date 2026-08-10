@@ -49,7 +49,9 @@ AVAILABLE AGENTS:
 
 CRITICAL REQUIREMENT: You MUST build highly interconnected multi-agent pipelines with PARALLEL branches. 
 For example, instead of a linear pipeline, have [Researcher 1, Researcher 2] run in PARALLEL and both feed their outputs simultaneously into an [Analyst].
-The system WILL reject your graph if its depth is greater than 3, forcing you to spread agents out horizontally in parallel!
+The system WILL reject your graph if it is completely linear. You MUST have at least 2 agents running in parallel at some point in your pipeline. Max allowed depth is 6.
+
+CRITICAL INSTRUCTION: The agents you create are SOFTWARE ENGINEERS and ASSET CREATORS. They do not "play" or "run" the game, they WRITE THE SOURCE CODE for it! Make sure their `system_prompt` explicitly instructs them to write code files (e.g. "Write the main.py entrypoint", "Write the collision logic"). Do NOT instruct them to "run the game".
 
 Return the DAG strictly as JSON with the following schema, and NOTHING else (no markdown blocks, just raw JSON):
 {{
@@ -167,14 +169,23 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                         if in_degree[neighbor] == 0:
                             queue.append(neighbor)
                             
+                # Count nodes per depth layer to find maximum width
+                width_counts = {}
+                for d in depth.values():
+                    width_counts[d] = width_counts.get(d, 0) + 1
+                max_width = max(width_counts.values()) if width_counts else 0
+
                 if visited_count != len(valid_nodes):
                     raise ValueError("Graph contains a cycle! Directed Acyclic Graph (DAG) requirement violated.")
                     
                 if len(valid_nodes) < 4:
                     raise ValueError(f"Graph only has {len(valid_nodes)} nodes. You MUST create at least 4 nodes to form a complex workflow.")
                     
-                if max_depth > 3:
-                    raise ValueError(f"Graph is too deep (depth {max_depth}). You MUST build WIDE parallel pipelines instead of deep linear ones. Max allowed depth is 3.")
+                if max_width < 2:
+                    raise ValueError(f"Graph is completely linear (max width is 1). You MUST build WIDE parallel pipelines (e.g. multiple agents running at the same time).")
+                    
+                if max_depth > 6:
+                    raise ValueError(f"Graph is too deep (depth {max_depth}). Keep pipelines reasonably compressed. Max allowed depth is 6.")
 
             except Exception as e:
                 raise Exception(f"Validation failed: {str(e)}") # This triggers the @retry
