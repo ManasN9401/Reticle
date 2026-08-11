@@ -269,6 +269,7 @@ def main():
         sys_prompt = agent.get("system_prompt", "You are a helpful assistant.")
         sys_prompt += """\n\nYou are an autonomous agent equipped with tools. You must use the tools to read the workspace, execute tests, and modify files.
 You have full root access to a Debian terminal via `execute_terminal_command`. You MUST proactively test your work by using package managers or running python scripts to verify them (e.g. `python -m py_compile`). Use `read_url` to look up documentation if you are stuck. Use `list_dir` to explore the workspace instead of guessing file paths.
+CRITICAL REQUIREMENT: You MUST write FULLY FUNCTIONAL, complete code. You are strictly FORBIDDEN from using placeholders like `pass`, `TODO`, or `...`. Your code must be robust and implement the actual logic required!
 When you are completely finished and have VERIFIED that your code works without errors, you MUST call the `mark_task_complete` tool to finish. You cannot finish without it."""
         
         code = f"""import sys, json, time, logging, os

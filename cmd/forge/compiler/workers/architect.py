@@ -49,7 +49,7 @@ AVAILABLE AGENTS:
 
 CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. If the user's task is highly complex (e.g. building an app or a game), you MUST decompose it into wide, parallel pipelines (multiple agents running simultaneously), and one of your agents MUST explicitly be responsible for creating the main entrypoint (e.g., 'main.py' or 'index.js'). However, if the task is simple, a simple linear 1 or 2-node graph is perfectly acceptable.
 
-CRITICAL INSTRUCTION: Your agents MUST be given extremely specific technical constraints. They are free to create non-code assets (e.g. markdown for lore, audio specs, pixel art grids), but for code, they MUST build everything from scratch using standard libraries (e.g. Python and 'pygame'). Do NOT let them hallucinate or import external imaginary engines (like 'import game_engine' or 'import engine'). Do NOT instruct them to "run" the game.
+CRITICAL INSTRUCTION: Your agents MUST be given extremely specific technical constraints. They are free to create non-code assets (e.g. markdown for lore, audio specs, pixel art grids), but for code, they MUST build everything from scratch using standard libraries (e.g. Python and 'pygame'). Do NOT let them hallucinate or import external imaginary engines (like 'import game_engine' or 'import engine'). Instruct them to write fully robust code with NO PLACEHOLDERS (e.g. no 'pass' or 'TODO'). Do NOT instruct them to "run" the game.
 
 Return the DAG strictly as JSON with the following schema, and NOTHING else (no markdown blocks, just raw JSON):
 {{
@@ -85,6 +85,11 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
             {"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY_2", "")}
         ]
 
+        conversation = [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": f"Design the agent graph for this goal: {user_prompt}"}
+        ]
+
         @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60), before_sleep=before_sleep_log(logger, logging.WARNING))
         def get_architect_response():
             import random
@@ -98,10 +103,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                         model=ep["model"],
                         api_key=ep["api_key"],
                         response_format={ "type": "json_object" },
-                        messages=[
-                            {"role": "system", "content": system_msg},
-                            {"role": "user", "content": f"Design the agent graph for this goal: {user_prompt}"}
-                        ],
+                        messages=conversation,
                         max_tokens=8192
                     )
                     break
@@ -191,7 +193,11 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     raise ValueError(f"Graph is too deep (depth {max_depth}). Keep pipelines reasonably compressed. Max allowed depth is 6.")
 
             except Exception as e:
-                raise Exception(f"Validation failed: {str(e)}") # This triggers the @retry
+                err_msg = f"Validation failed: {str(e)}"
+                if resp and resp.choices and len(resp.choices) > 0:
+                    conversation.append({"role": "assistant", "content": resp.choices[0].message.content})
+                    conversation.append({"role": "user", "content": f"{err_msg}\nFix this and output the raw JSON again."})
+                raise Exception(err_msg) # This triggers the @retry
                 
             return resp
             
