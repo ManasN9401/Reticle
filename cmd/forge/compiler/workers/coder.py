@@ -68,6 +68,8 @@ def search_codebase(regex_pattern, workspace_dir):
         return f"Error searching codebase: {e}"
 
 def write_file(path, content, workspace_dir):
+    if path.startswith("src/") or path.startswith("src\\\\"):
+        path = path[4:]
     full_path = os.path.join(workspace_dir, "src", path)
     if os.path.exists(full_path):
         return f"Error: File {path} already exists! You are working in a shared workspace and cannot blindly overwrite files. You MUST use replace_file_content to surgically insert your logic, or read the file first."
@@ -220,6 +222,22 @@ tools = [
                 "required": ["url"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mark_task_complete",
+            "description": "Call this tool to indicate you have fully completed and tested your assigned task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string", "description": "A summary of what you did"},
+                    "test_command_used": {"type": "string", "description": "The command you ran to test your work (e.g. 'python -m py_compile main.py')"},
+                    "test_output": {"type": "string", "description": "The output of the test command proving it works"}
+                },
+                "required": ["summary", "test_command_used", "test_output"]
+            }
+        }
     }
 ]
 """
@@ -250,8 +268,8 @@ def main():
         agent_id = agent.get("id")
         sys_prompt = agent.get("system_prompt", "You are a helpful assistant.")
         sys_prompt += """\n\nYou are an autonomous agent equipped with tools. You must use the tools to read the workspace, execute tests, and modify files.
-You have full root access to a Debian terminal via `execute_terminal_command`. You MUST proactively test your work by using package managers (apt, npm, pip) to install and run the appropriate linters, testing frameworks, or prose-checkers (e.g. eslint, flake8, proselint) for whatever language you are writing in. Use `read_url` to look up documentation if you are stuck. Use `list_dir` to explore the workspace instead of guessing file paths.
-When you are completely finished with your task, you must output a final summary. DO NOT output code blocks like ```json file_operations``` anymore, you must use your write_file tool to apply changes!"""
+You have full root access to a Debian terminal via `execute_terminal_command`. You MUST proactively test your work by using package managers or running python scripts to verify them (e.g. `python -m py_compile`). Use `read_url` to look up documentation if you are stuck. Use `list_dir` to explore the workspace instead of guessing file paths.
+When you are completely finished and have VERIFIED that your code works without errors, you MUST call the `mark_task_complete` tool to finish. You cannot finish without it."""
         
         code = f"""import sys, json, time, logging, os
 
@@ -332,6 +350,7 @@ def main():
             messages.append(clean_msg)
             
             if msg.tool_calls:
+                task_completed = False
                 for tool_call in msg.tool_calls:
                     func_name = tool_call.function.name
                     try:
@@ -357,6 +376,24 @@ def main():
                                     files_modified[args.get("path")] = f.read()
                         elif func_name == "read_url":
                             res = read_url(args.get("url"), workspace_dir)
+                        elif func_name == "mark_task_complete":
+                            task_completed = True
+                            summary = args.get("summary", "")
+                            test_cmd = args.get("test_command_used", "")
+                            test_output = args.get("test_output", "")
+                            
+                            # Fake the tool response and the final assistant response
+                            messages.append({{
+                                "role": "tool",
+                                "name": func_name,
+                                "tool_call_id": tool_call.id,
+                                "content": "Task complete."
+                            }})
+                            messages.append({{
+                                "role": "assistant",
+                                "content": f"### Verification Summary\\n{{summary}}\\n\\n**Test Command:** `{test_cmd}`\\n\\n### Test Output\\n```\\n{{test_output}}\\n```"
+                            }})
+                            break # Break the inner loop
                         else:
                             res = "Unknown tool."
                     except json.JSONDecodeError as e:
@@ -370,6 +407,9 @@ def main():
                         "tool_call_id": tool_call.id,
                         "content": str(res)
                     }})
+                    
+                if task_completed:
+                    break
             else:
                 if msg.content and (":function=" in msg.content or "<function=" in msg.content):
                     messages.append({{
@@ -377,7 +417,12 @@ def main():
                         "content": "ERROR: You attempted to call a tool by outputting raw text. You MUST use the native JSON tool calling API. Do not output raw function strings."
                     }})
                     continue
-                break
+                else:
+                    messages.append({{
+                        "role": "user",
+                        "content": "ERROR: You cannot just stop calling tools. You must explicitly call the `mark_task_complete` tool once you have fully tested your implementation. If you have not tested your code, run `execute_terminal_command` (e.g. python -m py_compile) to test it first!"
+                    }})
+                    continue
                 
         result = messages[-1].get("content", "")
         if files_modified:

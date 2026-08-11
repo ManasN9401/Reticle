@@ -49,7 +49,7 @@ AVAILABLE AGENTS:
 
 CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. If the user's task is highly complex (e.g. building an app or a game), you MUST decompose it into wide, parallel pipelines (multiple agents running simultaneously), and one of your agents MUST explicitly be responsible for creating the main entrypoint (e.g., 'main.py' or 'index.js'). However, if the task is simple, a simple linear 1 or 2-node graph is perfectly acceptable.
 
-CRITICAL INSTRUCTION: The agents you create are SOFTWARE ENGINEERS and ASSET CREATORS. They do not "play" or "run" the game, they WRITE THE SOURCE CODE for it! Make sure their `system_prompt` explicitly instructs them to write code files (e.g. "Write the main.py entrypoint", "Write the collision logic"). Do NOT instruct them to "run the game".
+CRITICAL INSTRUCTION: Your agents MUST be given extremely specific technical constraints. They are free to create non-code assets (e.g. markdown for lore, audio specs, pixel art grids), but for code, they MUST build everything from scratch using standard libraries (e.g. Python and 'pygame'). Do NOT let them hallucinate or import external imaginary engines (like 'import game_engine' or 'import engine'). Do NOT instruct them to "run" the game.
 
 Return the DAG strictly as JSON with the following schema, and NOTHING else (no markdown blocks, just raw JSON):
 {{

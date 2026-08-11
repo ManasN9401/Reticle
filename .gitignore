@@ -53,3 +53,5 @@ diff*.txt
 git_diff*.txt
 git_history*.txt
 orig_*
+# Forge workspaces
+cmd/forge/workspaces/*
