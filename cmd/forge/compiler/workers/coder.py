@@ -69,6 +69,8 @@ def search_codebase(regex_pattern, workspace_dir):
 
 def write_file(path, content, workspace_dir):
     full_path = os.path.join(workspace_dir, "src", path)
+    if os.path.exists(full_path):
+        return f"Error: File {path} already exists! You are working in a shared workspace and cannot blindly overwrite files. You MUST use replace_file_content to surgically insert your logic, or read the file first."
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     try:
         with open(full_path, "w", encoding="utf-8") as f:
@@ -104,21 +106,18 @@ def replace_file_content(path, target_content, replacement_content, workspace_di
     except Exception as e:
         return f"Error replacing content: {e}"
 
-def analyze_code_problems(path, workspace_dir):
-    container_name = "forge_" + os.path.basename(os.path.abspath(workspace_dir)).replace(".", "_").replace("-", "_")
+def read_url(url, workspace_dir):
     try:
-        cmd = f"pip install flake8 -q && flake8 {path}"
-        docker_cmd = ["docker", "exec", container_name, "bash", "-c", cmd]
-        result = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=60)
-        output = result.stdout.strip()
-        if result.returncode == 0 and not output:
-            return "No problems found! Code looks clean."
-        elif output:
-            return f"Problems found:\\n{output}"
-        else:
-            return f"Error running analysis:\\n{result.stderr.strip()}"
+        import urllib.request
+        import re
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            html = response.read().decode('utf-8', errors='ignore')
+            text = re.sub('<[^<]+>', ' ', html)
+            text = re.sub('\\s+', ' ', text)
+            return text[:20000]
     except Exception as e:
-        return f"Error running analysis: {e}"
+        return f"Error reading URL: {e}"
 
 tools = [
     {
@@ -211,14 +210,14 @@ tools = [
     {
         "type": "function",
         "function": {
-            "name": "analyze_code_problems",
-            "description": "Run flake8 linter on a file to find syntax errors, undefined variables, and missing imports.",
+            "name": "read_url",
+            "description": "Fetch and extract text content from a URL (e.g. documentation, API references, tutorials).",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Relative path to the python file inside src/"}
+                    "url": {"type": "string", "description": "The URL to read"}
                 },
-                "required": ["path"]
+                "required": ["url"]
             }
         }
     }
@@ -251,7 +250,7 @@ def main():
         agent_id = agent.get("id")
         sys_prompt = agent.get("system_prompt", "You are a helpful assistant.")
         sys_prompt += """\n\nYou are an autonomous agent equipped with tools. You must use the tools to read the workspace, execute tests, and modify files.
-When creating or modifying Python files, you MUST use the `analyze_code_problems` tool to instantly catch syntax errors and undefined variables before finalizing. Use `list_dir` to explore the workspace instead of guessing file paths.
+You have full root access to a Debian terminal via `execute_terminal_command`. You MUST proactively test your work by using package managers (apt, npm, pip) to install and run the appropriate linters, testing frameworks, or prose-checkers (e.g. eslint, flake8, proselint) for whatever language you are writing in. Use `read_url` to look up documentation if you are stuck. Use `list_dir` to explore the workspace instead of guessing file paths.
 When you are completely finished with your task, you must output a final summary. DO NOT output code blocks like ```json file_operations``` anymore, you must use your write_file tool to apply changes!"""
         
         code = f"""import sys, json, time, logging, os
@@ -268,7 +267,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_l
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from utils import execute_terminal_command, read_file, search_codebase, write_file, list_dir, replace_file_content, analyze_code_problems, tools
+from utils import execute_terminal_command, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
 
 def main():
     line = sys.stdin.readline()
@@ -283,9 +282,9 @@ def main():
         
         endpoints = [
             {{"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY", "")}},
-            {{"model": "groq/llama-3.1-8b-instant", "api_key": "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"}},
+            {{"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY_2", "")}},
             {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY", "")}},
-            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": "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"}}
+            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY_2", "")}}
         ]
         
         @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60), before_sleep=before_sleep_log(logger, logging.WARNING))
@@ -300,7 +299,8 @@ def main():
                         api_key=ep["api_key"],
                         messages=messages,
                         tools=tools,
-                        parallel_tool_calls=False
+                        parallel_tool_calls=False,
+                        max_tokens=8192
                     )
                     return resp
                 except Exception as e:
@@ -310,9 +310,10 @@ def main():
             
         messages = [
             {{"role": "system", "content": {json.dumps(sys_prompt)}}},
-            {{"role": "user", "content": f"Process this request: {{json.dumps(req)}}.\\n\\nCRITICAL INSTRUCTION: You are an autonomous agent. You MUST use the `write_file` tool to save your work to the workspace at {{src_dir}}. DO NOT just output code in your chat response. If you do not use `write_file`, your work will be permanently lost! Furthermore, you MUST use the native JSON tool-calling API. Do NOT output raw strings like `:function=write_file>`."}}
+            {{"role": "user", "content": f"Process this request: {{json.dumps(req)}}.\\n\\nCRITICAL INSTRUCTION: You are an autonomous agent. You MUST use the `write_file` tool to save your work to the workspace. Your file paths must be relative (e.g. 'main.py' or 'utils.py'), do NOT prepend 'src/' to your paths! DO NOT just output code in your chat response. If you do not use `write_file`, your work will be permanently lost! Furthermore, you MUST use the native JSON tool-calling API. Do NOT output raw strings like `:function=write_file>`."}}
         ]
         
+        files_modified = {{}}
         while True:
             response = do_completion(messages)
             msg = response.choices[0].message
@@ -344,12 +345,18 @@ def main():
                             res = search_codebase(args.get("regex_pattern"), workspace_dir)
                         elif func_name == "write_file":
                             res = write_file(args.get("path"), args.get("content"), workspace_dir)
+                            if "Successfully" in res:
+                                files_modified[args.get("path")] = args.get("content")
                         elif func_name == "list_dir":
                             res = list_dir(args.get("path"), workspace_dir)
                         elif func_name == "replace_file_content":
                             res = replace_file_content(args.get("path"), args.get("target_content"), args.get("replacement_content"), workspace_dir)
-                        elif func_name == "analyze_code_problems":
-                            res = analyze_code_problems(args.get("path"), workspace_dir)
+                            if "Successfully" in res:
+                                full_path = os.path.join(workspace_dir, "src", args.get("path"))
+                                with open(full_path, "r", encoding="utf-8") as f:
+                                    files_modified[args.get("path")] = f.read()
+                        elif func_name == "read_url":
+                            res = read_url(args.get("url"), workspace_dir)
                         else:
                             res = "Unknown tool."
                     except json.JSONDecodeError as e:
@@ -373,10 +380,14 @@ def main():
                 break
                 
         result = messages[-1].get("content", "")
+        if files_modified:
+            result += "\\n\\n### Files Modified By This Agent:\\n"
+            for p, c in files_modified.items():
+                result += f"#### {{p}}\\n```\\n{{c}}\\n```\\n"
         
         artifact = {{
             "id": f"{{req_id}}_output",
-            "name": "{agent_id} Output",
+            "name": f"{agent_id} Output",
             "type": "document/markdown",
             "data": result
         }}

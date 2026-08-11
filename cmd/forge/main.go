@@ -108,6 +108,7 @@ func main() {
 		}
 	}
 	rootDir, _ := filepath.Abs("../../")
+	loadEnv(rootDir)
 
 	// 1. Boot Runtime
 	orch := orchestrator.New()

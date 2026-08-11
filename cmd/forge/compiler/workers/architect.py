@@ -47,14 +47,13 @@ For ALL new agents, you MUST provide an `id`, `name`, `description`, and a highl
 AVAILABLE AGENTS:
 {available_agents_prompt}
 
-CRITICAL REQUIREMENT: You MUST build highly interconnected multi-agent pipelines with PARALLEL branches. 
-For example, instead of a linear pipeline, have [Researcher 1, Researcher 2] run in PARALLEL and both feed their outputs simultaneously into an [Analyst].
-The system WILL reject your graph if it is completely linear. You MUST have at least 2 agents running in parallel at some point in your pipeline. Max allowed depth is 6.
+CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. If the user's task is highly complex (e.g. building an app or a game), you MUST decompose it into wide, parallel pipelines (multiple agents running simultaneously), and one of your agents MUST explicitly be responsible for creating the main entrypoint (e.g., 'main.py' or 'index.js'). However, if the task is simple, a simple linear 1 or 2-node graph is perfectly acceptable.
 
 CRITICAL INSTRUCTION: The agents you create are SOFTWARE ENGINEERS and ASSET CREATORS. They do not "play" or "run" the game, they WRITE THE SOURCE CODE for it! Make sure their `system_prompt` explicitly instructs them to write code files (e.g. "Write the main.py entrypoint", "Write the collision logic"). Do NOT instruct them to "run the game".
 
 Return the DAG strictly as JSON with the following schema, and NOTHING else (no markdown blocks, just raw JSON):
 {{
+  "complexity_analysis": "complex", // MUST be exactly "simple" or "complex"
   "workflow_name": "Name of workflow",
   "agents": [
     {{
@@ -81,9 +80,9 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 
         endpoints = [
             {"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY", "")},
-            {"model": "groq/llama-3.1-8b-instant", "api_key": "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"},
+            {"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY_2", "")},
             {"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY", "")},
-            {"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": "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"}
+            {"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY_2", "")}
         ]
 
         @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60), before_sleep=before_sleep_log(logger, logging.WARNING))
@@ -102,7 +101,8 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                         messages=[
                             {"role": "system", "content": system_msg},
                             {"role": "user", "content": f"Design the agent graph for this goal: {user_prompt}"}
-                        ]
+                        ],
+                        max_tokens=8192
                     )
                     break
                 except Exception as e:
@@ -178,11 +178,14 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 if visited_count != len(valid_nodes):
                     raise ValueError("Graph contains a cycle! Directed Acyclic Graph (DAG) requirement violated.")
                     
-                if len(valid_nodes) < 4:
-                    raise ValueError(f"Graph only has {len(valid_nodes)} nodes. You MUST create at least 4 nodes to form a complex workflow.")
+                if len(valid_nodes) == 0:
+                    raise ValueError(f"Graph has 0 nodes. You MUST create at least 1 node.")
                     
-                if max_width < 2:
-                    raise ValueError(f"Graph is completely linear (max width is 1). You MUST build WIDE parallel pipelines (e.g. multiple agents running at the same time).")
+                if data.get("complexity_analysis") == "complex":
+                    if len(valid_nodes) < 4:
+                        raise ValueError(f"Task is categorized as complex, but graph only has {len(valid_nodes)} nodes. You MUST create at least 4 nodes.")
+                    if max_width < 2:
+                        raise ValueError(f"Task is categorized as complex, but graph is completely linear. You MUST build WIDE parallel pipelines.")
                     
                 if max_depth > 6:
                     raise ValueError(f"Graph is too deep (depth {max_depth}). Keep pipelines reasonably compressed. Max allowed depth is 6.")
