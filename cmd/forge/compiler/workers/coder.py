@@ -391,7 +391,7 @@ def main():
                             }})
                             messages.append({{
                                 "role": "assistant",
-                                "content": f"### Verification Summary\\n{{summary}}\\n\\n**Test Command:** `{test_cmd}`\\n\\n### Test Output\\n```\\n{{test_output}}\\n```"
+                                "content": f"### Verification Summary\\n{{summary}}\\n\\n**Test Command:** `{{test_cmd}}`\\n\\n### Test Output\\n```\\n{{test_output}}\\n```"
                             }})
                             break # Break the inner loop
                         else:
