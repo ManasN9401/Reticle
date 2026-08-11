@@ -55,3 +55,5 @@ git_history*.txt
 orig_*
 # Forge workspaces
 cmd/forge/workspaces/*
+
+cmd/forge/test_workspace/*
