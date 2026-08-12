@@ -49,7 +49,7 @@ nodes:"""
   - id: {node.get('id')}
     agent: {node.get('agent_id')}
     parameters:
-      llm_model: groq/llama-3.1-8b-instant"""
+      llm_model: gemini/gemini-3.5-flash"""
         
         
     workflow_yaml_str += "\nedges:"
@@ -65,7 +65,7 @@ nodes:"""
 
     generated_files["workers/file-writer.py"] = """import sys, json, os, re, logging
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 def main():

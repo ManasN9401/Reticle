@@ -870,44 +870,6 @@
             line-height: 1.5;
         }
 
-        .tabs {
-            display: flex;
-            gap: 8px;
-            border-bottom: 1px solid var(--border-soft);
-            margin-bottom: 12px;
-        }
-
-        .tab-btn {
-            background: none;
-            border: none;
-            color: var(--ink-dim);
-            padding: 6px 12px;
-            cursor: pointer;
-            font-size: 0.76rem;
-            font-family: var(--font-display);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            border-bottom: 2px solid transparent;
-            transition: all 0.2s ease;
-        }
-
-        .tab-btn:hover {
-            color: #fff;
-        }
-
-        .tab-btn.active {
-            color: var(--running);
-            border-bottom-color: var(--running);
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
         /* ============ SCROLLBARS ============ */
         ::-webkit-scrollbar {
             width: 7px;
@@ -955,6 +917,35 @@
             .tb-right {
                 gap: 0.8rem;
             }
+        }
+
+        .details-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-soft);
+            margin-bottom: 1rem;
+            gap: 1rem;
+        }
+        .details-tab {
+            cursor: pointer;
+            padding: 0.5rem 0;
+            color: var(--ink-faint);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 2px solid transparent;
+        }
+        .details-tab:hover {
+            color: #fff;
+        }
+        .details-tab.active {
+            color: var(--completed);
+            border-bottom-color: var(--completed);
+        }
+        .tab-pane {
+            display: none;
+        }
+        .tab-pane.active {
+            display: block;
         }
     </style>
 </head>
@@ -1036,8 +1027,7 @@
             <div class="resizer-horizontal" id="resizerLog"></div>
             <div class="log-panel fs-container panel-frame" id="logContainer">
                 <h3 class="panel-eyebrow" style="padding: 0.85rem 0.95rem 0.55rem; margin: -0.85rem -0.95rem 0.6rem;">
-                    <span class="bracket">[</span>Event Log<span class="bracket">]</span>
-                </h3>
+                    <span class="bracket">[</span>Event Log<span class="bracket">]</span></h3>
                 <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)"
                     title="Toggle Fullscreen">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -1528,34 +1518,46 @@
                 ctx.fillStyle = activeColor;
                 ctx.fill();
 
-                // selection indicator — quiet focus brackets with a slow orbiting accent arc
+                // selection indicator — spinning scouter arrows style
                 if (selectedNodeId === this.globalId) {
                     ctx.save();
                     ctx.translate(this.x, this.y);
-                    const rr = r + 13;
-                    const selColor = '#ffb454';
-
-                    const t = performance.now() / 1000;
+                    
+                    const rr = r + 14;
+                    const selColor = '#c4d300'; // Scouter yellow-green
+                    
+                    const t = performance.now() / 1500; // Spin speed
                     ctx.strokeStyle = selColor;
+                    ctx.fillStyle = selColor;
                     ctx.lineWidth = 1.5;
-                    ctx.shadowBlur = 10;
+                    ctx.shadowBlur = 12;
                     ctx.shadowColor = selColor;
+                    
+                    // Central ring
                     ctx.beginPath();
-                    ctx.arc(0, 0, rr + 7, t * 1.1, t * 1.1 + Math.PI * 0.55);
+                    ctx.arc(0, 0, r + 10, 0, Math.PI * 2);
                     ctx.stroke();
 
-                    ctx.lineWidth = 1.6;
-                    ctx.shadowBlur = 5;
-                    const bracket = 6;
-                    const corners = [
-                        [-rr, -rr, 1, 1], [rr, -rr, -1, 1], [-rr, rr, 1, -1], [rr, rr, -1, -1]
-                    ];
-                    corners.forEach(([x, y, dx, dy]) => {
+                    // 4 inward-pointing triangles
+                    ctx.save();
+                    ctx.rotate(t);
+                    const dist = r + 16; // Distance from center to tip
+                    const baseHalf = 8; // Half-width of the triangle base
+                    const length = 12; // Length of the triangle from tip to base
+                    
+                    for (let i = 0; i < 4; i++) {
+                        ctx.save();
+                        ctx.rotate((Math.PI / 2) * i);
                         ctx.beginPath();
-                        ctx.moveTo(x, y); ctx.lineTo(x + bracket * dx, y);
-                        ctx.moveTo(x, y); ctx.lineTo(x, y + bracket * dy);
-                        ctx.stroke();
-                    });
+                        ctx.moveTo(0, -dist); // Tip pointing inwards
+                        ctx.lineTo(-baseHalf, -(dist + length)); // Left base corner
+                        ctx.lineTo(baseHalf, -(dist + length)); // Right base corner
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.restore();
+                    }
+                    ctx.restore();
+
                     ctx.restore();
                 }
 
@@ -1583,8 +1585,9 @@
 
                 ctx.restore();
             }
+        }
 
-            const knownExecIds = new Set();
+        const knownExecIds = new Set();
         function layoutTree() {
             const execIds = Array.from(new Set(Array.from(stars.values()).map(s => s.execId)));
             let currentXOffset = cw / 2;
@@ -2114,61 +2117,176 @@
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
-        function openDetailsPanel(workerId) {
+        function switchTab(tabId) {
+            document.querySelectorAll('.details-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+            document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+        }
+
+        function openDetailsPanel(nodeId) {
+            selectedNodeId = nodeId;
+            document.querySelectorAll('.node-card').forEach(el => el.classList.remove('selected'));
+            const selectedEl = document.getElementById(`node-${nodeId}`);
+            if (selectedEl) selectedEl.classList.add('selected');
+            
             const panel = document.getElementById('nodeDetailsPanel');
             const title = document.getElementById('detailsTitle');
             const content = document.getElementById('detailsContent');
-
+            
             panel.classList.add('open');
-            title.innerText = workerId;
-
-            content.innerHTML = `
-                <div class="tabs">
-                    <button onclick="switchTab('raw-events', event)" class="tab-btn active">Raw Events</button>
-                    <button onclick="switchTab('llm-output', event)" class="tab-btn">LLM Output</button>
-                    <button onclick="switchTab('tool-calls', event)" class="tab-btn">Tool Calls</button>
+            title.innerText = nodeId;
+            
+            const star = stars.get(nodeId);
+            const data = nodeDataMap.get(nodeId) || [];
+            
+            let html = `
+                <div class="details-tabs">
+                    <div class="details-tab active" data-tab="tab-general" onclick="switchTab('tab-general')">General</div>
+                    <div class="details-tab" data-tab="tab-llm" onclick="switchTab('tab-llm')">LLM Verbose</div>
+                    <div class="details-tab" data-tab="tab-tools" onclick="switchTab('tab-tools')">Tools Used</div>
                 </div>
-                <div id="tab-raw-events" class="tab-content active"></div>
-                <div id="tab-llm-output" class="tab-content" style="white-space: pre-wrap; font-family: monospace; font-size: 0.75rem; color: #fff; overflow-wrap: break-word;"></div>
-                <div id="tab-tool-calls" class="tab-content" style="white-space: pre-wrap; font-family: monospace; font-size: 0.75rem; overflow-wrap: break-word;"></div>
+                <div class="tab-pane active" id="tab-general">
             `;
-
-            const tabRaw = document.getElementById('tab-raw-events');
-            const tabLlm = document.getElementById('tab-llm-output');
-            const tabTools = document.getElementById('tab-tool-calls');
-
-            let globalId = Array.from(nodesMap.keys()).find(k => k === workerId || k.endsWith('|' + workerId));
-            if (!globalId) globalId = workerId;
-
-            const history = nodeDataMap.get(globalId) || [];
-
-            history.forEach(ev => {
-                if (ev.type === 'WorkerLog' && ev.payload.log) {
-                    const log = ev.payload.log;
-                    if (log.startsWith('[LLM]')) {
-                        tabLlm.innerHTML += `<div>${log.substring(6).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
-                    } else if (log.startsWith('[TOOL]')) {
-                        tabTools.innerHTML += `<div style="color: #56d6ff; margin-top: 10px;">${log.substring(7).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
-                    } else if (log.startsWith('[TOOL_RES]')) {
-                        tabTools.innerHTML += `<div style="color: #57e8ab;">${log.substring(11).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
-                    } else {
-                        tabRaw.innerHTML += `<div class="details-section" style="margin-bottom:8px;"><h4>STDERR</h4><div class="details-data">${log.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div></div>`;
+            
+            const execId = star ? star.execId : null;
+            const edges = execId ? (execEdges.get(execId) || []) : [];
+            const parents = edges.filter(e => e.To === (star ? star.id : nodeId)).map(e => e.From);
+            const children = edges.filter(e => e.From === (star ? star.id : nodeId)).map(e => e.To);
+            
+            let receivedArtifacts = [];
+            if (execId) {
+                parents.forEach(pId => {
+                    const pStar = stars.get(`${execId}|${pId}`);
+                    if (pStar && pStar.artifactNames) {
+                        receivedArtifacts.push(...pStar.artifactNames);
                     }
-                } else {
-                    tabRaw.innerHTML += `<div class="details-section" style="margin-bottom:8px;"><h4>${ev.type}</h4><div class="details-data">${JSON.stringify(ev.payload, null, 2)}</div></div>`;
+                });
+            }
+            
+            if (star) {
+                html += `<div class="details-section">
+                    <h4>Status</h4>
+                    <div class="details-data"><span class="status-badge" style="color: ${star.status==='completed'?'var(--completed)':star.status==='failed'?'var(--failed)':'var(--running)'}">${star.status.toUpperCase()}</span></div>
+                </div>`;
+                if (star.duration) {
+                    html += `<div class="details-section">
+                        <h4>Duration</h4>
+                        <div class="details-data">${star.duration.toFixed(2)}s</div>
+                    </div>`;
                 }
-            });
+                if (star.llm) {
+                    html += `<div class="details-section">
+                        <h4>Model</h4>
+                        <div class="details-data">🧠 ${star.llm}</div>
+                    </div>`;
+                }
+                if (parents.length > 0) {
+                    html += `<div class="details-section">
+                        <h4>Parents</h4>
+                        <div class="details-data">${parents.join(', ')}</div>
+                    </div>`;
+                }
+                if (children.length > 0) {
+                    html += `<div class="details-section">
+                        <h4>Children</h4>
+                        <div class="details-data">${children.join(', ')}</div>
+                    </div>`;
+                }
+                if (receivedArtifacts.length > 0) {
+                    html += `<div class="details-section">
+                        <h4>Artifacts Received</h4>
+                        <div class="details-data">${receivedArtifacts.map(n => `📥 ${n}`).join('<br>')}</div>
+                    </div>`;
+                }
+                if (star.artifactNames && star.artifactNames.length > 0) {
+                    html += `<div class="details-section">
+                        <h4>Artifacts Produced</h4>
+                        <div class="details-data">${star.artifactNames.map(n => `📄 ${n}`).join('<br>')}</div>
+                    </div>`;
+                }
+            }
+            
+            if (data.length > 0) {
+                html += `<div class="details-section">
+                    <h4>Event Log</h4>
+                    <div class="details-data" style="max-height: 250px; overflow-y: auto;">`;
+                data.forEach(e => {
+                    const t = new Date().toLocaleTimeString();
+                    html += `<div style="margin-bottom:0.8rem; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:0.5rem">
+                        <strong>[${t}] ${e.type}</strong><br>
+                        <div style="opacity:0.8; margin-top:0.3rem">${JSON.stringify(e.payload, null, 2)}</div>
+                    </div>`;
+                });
+                html += `</div></div>`;
+            }
+            html += `</div>`; // Close tab-general
+            
+            // Build LLM Verbose Tab
+            html += `<div class="tab-pane" id="tab-llm">
+                <div class="details-section" style="border: none; background: transparent; padding: 0;">
+                    <div class="details-data" style="max-height: calc(100vh - 200px); overflow-y: auto; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; line-height: 1.4; color: var(--ink);">`;
+            
+            const llmLogs = data.filter(e => e.type === 'WorkerLog' && e.payload && (e.payload.log || '').includes('[LLM]'));
+            if (llmLogs.length > 0) {
+                llmLogs.forEach(e => {
+                    const cleanLog = (e.payload.log || '').replace('[LLM]', '').trim();
+                    if (cleanLog) {
+                        html += `<div style="margin-bottom:0.4rem; white-space: pre-wrap; opacity: 0.95;">${cleanLog}</div>`;
+                    }
+                });
+            } else {
+                html += `<div style="color: var(--ink-faint); font-style: italic;">No LLM verbose logs available for this agent.</div>`;
+            }
+            html += `</div></div></div>`;
+            
+            // Build Tools Used Tab
+            html += `<div class="tab-pane" id="tab-tools">
+                <div class="details-section" style="border: none; background: transparent; padding: 0;">
+                    <div class="details-data" style="max-height: calc(100vh - 200px); overflow-y: auto;">`;
+            
+            const toolLogs = data.filter(e => e.type === 'ToolCall' || (e.type === 'WorkerLog' && e.payload && (e.payload.log || '').includes('Tool')));
+            if (toolLogs.length > 0) {
+                toolLogs.forEach(e => {
+                    html += `<div style="margin-bottom:1rem; border-left: 2px solid var(--running); padding-left: 0.8rem;">
+                        <strong>${e.type}</strong><br>
+                        <pre style="margin-top:0.4rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--ink-dim); white-space: pre-wrap; background: rgba(0,0,0,0.3); padding: 0.6rem; border-radius: 4px;">${JSON.stringify(e.payload, null, 2)}</pre>
+                    </div>`;
+                });
+            } else {
+                html += `<div style="color: var(--ink-faint); font-style: italic;">No tools were used by this agent.</div>`;
+            }
+            html += `</div></div></div>`;
+
+            if (execId && star && (star.status === 'completed' || star.status === 'failed')) {
+                html += `<div style="margin-top: 1rem; text-align: center;">
+                    <button onclick="clearExecution('${execId}')" style="background: rgba(255,111,111,0.15); color: var(--failed); border: 1px solid var(--failed); padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; transition: all 0.2s;">Clear Execution</button>
+                </div>`;
+            }
+
+            content.innerHTML = html;
         }
 
         function closeDetailsPanel() {
+            selectedNodeId = null;
             document.getElementById('nodeDetailsPanel').classList.remove('open');
+            document.querySelectorAll('.node-card').forEach(el => el.classList.remove('selected'));
         }
 
-        function switchTab(tabId, event) {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-            document.getElementById('tab-' + tabId).classList.add('active');
-            event.target.classList.add('active');
+        function clearExecution(execId) {
+            const keysToRemove = [];
+            for (const [globalId, star] of stars.entries()) {
+                if (star.execId === execId) {
+                    keysToRemove.push(globalId);
+                }
+            }
+            keysToRemove.forEach(k => {
+                stars.delete(k);
+                nodeDataMap.delete(k);
+            });
+            execEdges.delete(execId);
+            closeDetailsPanel();
+            layoutTree();
         }
     </script>
 </body>

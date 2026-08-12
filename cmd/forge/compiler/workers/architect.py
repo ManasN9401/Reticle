@@ -11,7 +11,7 @@ from litellm import completion
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 def main():
@@ -89,10 +89,10 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 """
 
         endpoints = [
-            {"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY", "")},
-            {"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY_2", "")},
-            {"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY", "")},
-            {"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY_2", "")}
+            {"model": "gemini/gemini-3.5-flash", "api_key": os.environ.get("GEMINI_API_KEY", "")},
+            {"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY", "")},
+            {"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY_2", "")},
+            {"model": "openrouter/meta-llama/llama-3.1-8b-instruct:free", "api_key": os.environ.get("OPENROUTER_API_KEY", "")}
         ]
 
         conversation = [
@@ -197,8 +197,6 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 if data.get("complexity_analysis") == "complex":
                     if len(valid_nodes) < 6:
                         raise ValueError(f"Task is categorized as complex, but graph only has {len(valid_nodes)} nodes. You MUST create at least 6 specialized nodes.")
-                    if max_width < 2:
-                        raise ValueError(f"Task is categorized as complex, but graph is completely linear. You MUST build WIDE parallel pipelines.")
                     
                 if max_depth > 6:
                     raise ValueError(f"Graph is too deep (depth {max_depth}). Keep pipelines reasonably compressed. Max allowed depth is 6.")

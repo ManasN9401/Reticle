@@ -77,7 +77,7 @@ def write_file(path, content, workspace_dir, files_modified):
         
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     try:
-        content = content.replace('\\n', '\n') if content else ""
+        content = content.replace('\\\\n', '\\n') if content else ""
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
         return f"Successfully wrote to {path}"
@@ -102,8 +102,8 @@ def replace_file_content(path, target_content, replacement_content, workspace_di
     try:
         with open(full_path, "r", encoding="utf-8") as f:
             content = f.read()
-        target_content = target_content.replace('\\n', '\n') if target_content else ""
-        replacement_content = replacement_content.replace('\\n', '\n') if replacement_content else ""
+        target_content = target_content.replace('\\\\n', '\\n') if target_content else ""
+        replacement_content = replacement_content.replace('\\\\n', '\\n') if replacement_content else ""
         if target_content not in content:
             return "Error: target_content not found in file. Make sure the indentation and whitespace match exactly."
         content = content.replace(target_content, replacement_content, 1)
@@ -271,7 +271,7 @@ def main():
         agent_id = agent.get("id")
         sys_prompt = agent.get("system_prompt", "You are a helpful assistant.")
         sys_prompt += """\n\nYou are an autonomous agent equipped with tools. You must use the tools to read the workspace, execute tests, and modify files.
-You have full root access to a Debian terminal via `execute_terminal_command`. You can test your work by running python scripts to verify them (e.g. `python -m py_compile`). Use `read_url` to look up documentation if you are stuck. Use `list_dir` to explore the workspace instead of guessing file paths.
+You have full root access to a Debian terminal via `execute_terminal_command`. You can test your work by running standard compilation or execution commands for your assigned language (e.g. `node index.js`, `python script.py`, `go build`). Use `read_url` to look up documentation if you are stuck. Use `list_dir` to explore the workspace instead of guessing file paths.
 CRITICAL REQUIREMENT: You MUST write FULLY FUNCTIONAL, complete code. You are strictly FORBIDDEN from using placeholders like `pass`, `TODO`, or `...`. Every function must have real implementation logic!
 CRITICAL BOUNDARY RULE: Do NOT rewrite or overwrite files owned by other components from scratch. If a file exists, use `read_file` to inspect it and ONLY use `replace_file_content` to surgically inject your specific feature. Overwriting existing files with `write_file` will destroy other agents' work and is STRICTLY FORBIDDEN unless you are the original creator of that file.
 When you are finished and have VERIFIED your code works via execute_terminal_command, call the `mark_task_complete` tool with a summary of what you did."""
@@ -287,10 +287,10 @@ litellm.suppress_debug_info = True
 from litellm import completion
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
-from utils import execute_terminal_command, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
+from forge_utils import execute_terminal_command, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
 
 def main():
     line = sys.stdin.readline()
@@ -304,10 +304,10 @@ def main():
         src_dir = os.path.join(workspace_dir, "src")
         
         endpoints = [
-            {{"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY", "")}},
-            {{"model": "groq/llama-3.1-8b-instant", "api_key": os.environ.get("GROQ_API_KEY_2", "")}},
-            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY", "")}},
-            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct", "api_key": os.environ.get("OPENROUTER_API_KEY_2", "")}}
+            {{"model": "gemini/gemini-3.5-flash", "api_key": os.environ.get("GEMINI_API_KEY", "")}},
+            {{"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY", "")}},
+            {{"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY_2", "")}},
+            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct:free", "api_key": os.environ.get("OPENROUTER_API_KEY", "")}}
         ]
         
         @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60), before_sleep=before_sleep_log(logger, logging.WARNING))
@@ -473,7 +473,7 @@ if __name__ == "__main__":
     main()
 """
         generated_files[f"workers/{agent_id}.py"] = code.strip()
-        generated_files["workers/utils.py"] = utils_code.strip()
+        generated_files["workers/forge_utils.py"] = utils_code.strip()
 
     import os
     mem = req.get("memory", {})
