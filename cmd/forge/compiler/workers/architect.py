@@ -43,6 +43,8 @@ Your job is to design a Directed Acyclic Graph (DAG) of agents to achieve this.
 If the global agents can fulfill the task, use them (set `is_new: false`). You MUST ONLY use `is_new: false` for agents that exactly match an ID in the AVAILABLE AGENTS list below.
 If you need new specialized agents (which you almost certainly will), design them (set `is_new: true`).
 
+CRITICAL DAG RULE: Your graph MUST be a Directed Acyclic Graph. Edges must flow strictly in one direction (e.g., from early setup tasks to later integration tasks). NEVER create bi-directional edges (e.g., A -> B and B -> A) and NEVER create loops (e.g., A -> B -> C -> A).
+
 AVAILABLE AGENTS:
 {available_agents_prompt}
 
@@ -186,7 +188,8 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 max_width = max(width_counts.values()) if width_counts else 0
 
                 if visited_count != len(valid_nodes):
-                    raise ValueError("Graph contains a cycle! Directed Acyclic Graph (DAG) requirement violated.")
+                    cyclic_nodes = [n for n in valid_nodes if in_degree[n] > 0]
+                    raise ValueError(f"Graph contains a cycle! Directed Acyclic Graph (DAG) requirement violated. The cycle involves these nodes: {cyclic_nodes}. You MUST remove the bi-directional edges or circular dependencies between them.")
                     
                 if len(valid_nodes) == 0:
                     raise ValueError(f"Graph has 0 nodes. You MUST create at least 1 node.")

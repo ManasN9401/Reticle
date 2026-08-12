@@ -1511,17 +1511,6 @@
                 const activeColor = forceColor || this.statusColor();
                 const r = this.radius + (this.pulse * 3);
 
-                // // outer halo ring
-                // ctx.save();
-                // ctx.globalAlpha = this.status === 'running' ? 0.35 + this.pulse * 0.25 : 0.18;
-                // ctx.beginPath();
-                // ctx.arc(this.x, this.y, r + 9, 0, Math.PI * 2);
-                // ctx.strokeStyle = activeColor;
-                // ctx.lineWidth = 1;
-                // ctx.setLineDash([2, 4]);
-                // ctx.stroke();
-                // ctx.restore();
-
                 // hex body
                 ctx.shadowBlur = this.status === 'idle' || this.status === 'initializing' ? 8 : 18 + this.pulse * 14;
                 ctx.shadowColor = activeColor;
@@ -1546,7 +1535,6 @@
                     const rr = r + 13;
                     const selColor = '#ffb454';
 
-                    // one slim arc slowly orbiting the node, like an active-focus sweep
                     const t = performance.now() / 1000;
                     ctx.strokeStyle = selColor;
                     ctx.lineWidth = 1.5;
@@ -1556,7 +1544,6 @@
                     ctx.arc(0, 0, rr + 7, t * 1.1, t * 1.1 + Math.PI * 0.55);
                     ctx.stroke();
 
-                    // four small corner brackets (camera-focus style, not a full ring)
                     ctx.lineWidth = 1.6;
                     ctx.shadowBlur = 5;
                     const bracket = 6;
@@ -1571,6 +1558,7 @@
                     });
                     ctx.restore();
                 }
+
                 // label
                 ctx.shadowBlur = 0;
                 ctx.fillStyle = forceColor ? forceColor : '#dce9fb';
@@ -1595,9 +1583,8 @@
 
                 ctx.restore();
             }
-        }
 
-        const knownExecIds = new Set();
+            const knownExecIds = new Set();
         function layoutTree() {
             const execIds = Array.from(new Set(Array.from(stars.values()).map(s => s.execId)));
             let currentXOffset = cw / 2;
