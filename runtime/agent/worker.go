@@ -117,12 +117,28 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 		return nil, &WorkerFailure{Reason: WorkerStartFailed, ExitCode: -1, Stderr: err.Error()}
 	}
 
-	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, &WorkerFailure{Reason: WorkerStartFailed, ExitCode: -1, Stderr: err.Error()}
+	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, &WorkerFailure{Reason: WorkerStartFailed, ExitCode: -1, Stderr: err.Error()}
 	}
+
+	var stderrBuf bytes.Buffer
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			stderrBuf.WriteString(line + "\n")
+			w.Bus.Publish(events.EventType("WorkerLog"), events.Component("worker"), map[string]any{
+				"task_id":   req.ID,
+				"worker_id": w.ID,
+				"log":       line,
+			})
+		}
+	}()
 
 	// Send request as JSON
 	reqJSON, _ := json.Marshal(req)

@@ -46,9 +46,9 @@ If you need new specialized agents (which you almost certainly will), design the
 AVAILABLE AGENTS:
 {available_agents_prompt}
 
-CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. If the user's task is highly complex (e.g. building an app or a game), you MUST decompose it into wide, parallel pipelines (multiple agents running simultaneously), and one of your agents MUST explicitly be responsible for creating the main entrypoint (e.g., 'main.py' or 'index.js'). However, if the task is simple, a simple linear 1 or 2-node graph is perfectly acceptable.
+CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. If the user's task is highly complex (e.g. building an app or a game), you MUST decompose it into wide, parallel pipelines with highly specialized, granular agents. You must create AT LEAST 6 agents for complex tasks (e.g., separate agents for UI, logic, config, asset loading, etc.), and one of your agents MUST explicitly be responsible for creating the main entrypoint. However, if the task is simple, a simple linear 1 or 2-node graph is perfectly acceptable.
 
-CRITICAL INSTRUCTION: For code, agents MUST build everything from scratch using ONLY standard libraries (e.g. Python with 'pygame'). Do NOT let them hallucinate or import external imaginary engines. Instruct them to write fully robust code with NO PLACEHOLDERS (no 'pass', 'TODO', or '...'). Do NOT instruct them to "run" the program.
+CRITICAL INSTRUCTION: For code, agents MUST build everything from scratch using ONLY standard libraries (e.g. Python with 'pygame'). Do NOT let them hallucinate or import external imaginary engines. Instruct them to write fully robust code with NO PLACEHOLDERS (no 'pass', 'TODO', or '...').
 
 SYSTEM PROMPT QUALITY REQUIREMENT: Each agent's `system_prompt` MUST be at least 3-5 sentences and MUST include ALL of the following:
 1. The user's EXACT goal (repeat it verbatim so the agent knows what is being built)
@@ -192,8 +192,8 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     raise ValueError(f"Graph has 0 nodes. You MUST create at least 1 node.")
                     
                 if data.get("complexity_analysis") == "complex":
-                    if len(valid_nodes) < 4:
-                        raise ValueError(f"Task is categorized as complex, but graph only has {len(valid_nodes)} nodes. You MUST create at least 4 nodes.")
+                    if len(valid_nodes) < 6:
+                        raise ValueError(f"Task is categorized as complex, but graph only has {len(valid_nodes)} nodes. You MUST create at least 6 specialized nodes.")
                     if max_width < 2:
                         raise ValueError(f"Task is categorized as complex, but graph is completely linear. You MUST build WIDE parallel pipelines.")
                     

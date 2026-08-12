@@ -39,10 +39,10 @@ func loadEnv(rootDir string) {
 func runWorkflowSync(graphEngine *agent.GraphEngine, orch *orchestrator.Orchestrator, wf *agent.WorkflowDefinition, execId string) error {
 	var wg sync.WaitGroup
 	wg.Add(1)
-	
+
 	var execErr error
 	var done sync.Once
-	
+
 	orch.Bus.Subscribe(events.EventType("WorkflowCompleted"), func(e events.RuntimeEvent) {
 		if payload, ok := e.Payload.(map[string]any); ok {
 			if payload["execution"] == execId {
@@ -73,6 +73,7 @@ func main() {
 	batchSize := flag.Int("batch", 1, "Number of concurrent executions for the generated workflow in Phase 2")
 	workspaceFlag := flag.String("workspace", "", "Path to an existing compiled workspace to run (skips compilation Phase 1)")
 	portFlag := flag.Int("port", 8080, "Port to run the UI telemetry server on")
+	legacyFlag := flag.Bool("legacy", false, "Use legacy UI")
 	flag.Parse()
 
 	args := flag.Args()
@@ -117,7 +118,12 @@ func main() {
 
 	telemetryServer := telemetry.NewServer(orch.Bus, fmt.Sprintf(":%d", *portFlag))
 	go telemetryServer.Start()
-	fmt.Printf("[UI] Telemetry running on http://localhost:%d\n", *portFlag)
+
+	if !*legacyFlag {
+		fmt.Printf("[UI] Telemetry running on http://localhost:%d\n", *portFlag)
+	} else {
+		fmt.Printf("[UI] Legacy Telemetry running on http://localhost:%d\n", *portFlag)
+	}
 
 	graphEngine := agent.NewGraphEngine(orch.Logger, orch.Bus)
 	graphEngine.Start()
@@ -127,35 +133,35 @@ func main() {
 
 	registry := agent.NewRegistry()
 	compilerDir, _ := filepath.Abs(filepath.Join("compiler"))
-	
+
 	// Load Global Skills and Agents
 	_ = registry.LoadSkills(filepath.Join(rootDir, "skills"))
 	_ = registry.LoadAgents(filepath.Join(rootDir, "agents"))
-	
+
 	// Build Available Agents prompt dynamically
 	var sb strings.Builder
 	for id, agentDef := range registry.Definitions {
 		sb.WriteString(fmt.Sprintf("- %s (%s)\n", id, agentDef.Description))
 	}
 	availableAgents := sb.String()
-	
+
 	// Load Compiler Agents
 	_ = registry.LoadSkills(filepath.Join(compilerDir, "skills"))
 	_ = registry.LoadAgents(filepath.Join(compilerDir, "agents"))
 	_ = registry.LoadWorkflows(filepath.Join(compilerDir, "workflows"))
-	
+
 	// Load .env keys securely
 	loadEnv(rootDir)
-	
+
 	envManager := agent.NewEnvironmentManager(orch.Logger, rootDir)
 	workers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
-	
+
 	instructionStore := agent.NewInstructionStore()
 	router := routing.NewRouter(orch.Logger, orch.Bus)
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)
-	
+
 	for _, sub := range registry.BuildSubscriptions() {
 		subManager.Register(sub)
 	}
@@ -194,7 +200,7 @@ func main() {
 	if *workspaceFlag == "" {
 		wf := registry.Workflows["forge-compiler"]
 		fmt.Println("\n[PHASE 1] COMPILATION STARTED")
-		
+
 		err := runWorkflowSync(graphEngine, orch, wf, "compile-001")
 		if err != nil {
 			log.Fatalf("Compilation Failed: %v", err)
@@ -226,26 +232,26 @@ func main() {
 	if err := registry.LoadWorkflows(filepath.Join(workspaceDir, "workflows")); err != nil {
 		log.Fatalf("Failed to load workflows: %v", err)
 	}
-	
+
 	newWorkers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
 	for _, w := range newWorkers {
-		dispatcher.RegisterWorker(w) 
+		dispatcher.RegisterWorker(w)
 	}
-	
+
 	for _, sub := range registry.BuildSubscriptions() {
 		subManager.Register(sub) // Manager should ignore duplicates
 	}
 
 	fmt.Println("\n[PHASE 2] EXECUTION STARTED")
-	
+
 	// Change working directory to the workspace so relative paths resolve correctly
 	if err := os.Chdir(workspaceDir); err != nil {
 		log.Fatalf("Failed to chdir to workspace: %v", err)
 	}
-	
+
 	execWf := registry.Workflows["generated-workflow"]
 	wm.SetWorkflow(execWf)
-	
+
 	// Enqueue initial prompt if present
 	if userPrompt != "" {
 		wm.Enqueue(userPrompt, "", ModeParallel)
@@ -262,7 +268,7 @@ func main() {
 	fmt.Println("  @group:NAME [PROMPT]- Queue prompt in a sequential group")
 	fmt.Println("  [PROMPT]            - Queue prompt in default parallel mode")
 	fmt.Print("> ")
-	
+
 	for reader.Scan() {
 		text := strings.TrimSpace(reader.Text())
 		if text == "exit" {
@@ -272,7 +278,7 @@ func main() {
 			fmt.Print("> ")
 			continue
 		}
-	
+
 		if execWf == nil {
 			fmt.Println("[ERROR] No workflow loaded in this workspace. You cannot queue executions.")
 			fmt.Println("[HINT] To compile a new workflow, restart forge with your prompt as an argument: .\\forge.exe \"your prompt here\"")
@@ -292,14 +298,14 @@ func main() {
 			}
 			mode = ModeSequential
 		}
-	
+
 		wm.Enqueue(text, group, mode)
 	}
-	
+
 	if err := reader.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading standard input: %v\n", err)
 	}
-	
+
 	fmt.Println("\n[INFO] Shutting down...")
 	time.Sleep(2 * time.Second) // Let telemetry flush
 }
