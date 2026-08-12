@@ -71,12 +71,13 @@ def write_file(path, content, workspace_dir):
     if path.startswith("src/") or path.startswith("src\\\\"):
         path = path[4:]
     full_path = os.path.join(workspace_dir, "src", path)
-    if os.path.exists(full_path):
-        return f"Error: File {path} already exists! You are working in a shared workspace and cannot blindly overwrite files. You MUST use replace_file_content to surgically insert your logic, or read the file first."
+    overwritten = os.path.exists(full_path)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     try:
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
+        if overwritten:
+            return f"Successfully overwrote {path}. WARNING: This file already existed. Use read_file first to check what was there, and use replace_file_content for surgical edits."
         return f"Successfully wrote to {path}"
     except Exception as e:
         return f"Error writing file: {e}"
@@ -268,9 +269,9 @@ def main():
         agent_id = agent.get("id")
         sys_prompt = agent.get("system_prompt", "You are a helpful assistant.")
         sys_prompt += """\n\nYou are an autonomous agent equipped with tools. You must use the tools to read the workspace, execute tests, and modify files.
-You have full root access to a Debian terminal via `execute_terminal_command`. You MUST proactively test your work by using package managers or running python scripts to verify them (e.g. `python -m py_compile`). Use `read_url` to look up documentation if you are stuck. Use `list_dir` to explore the workspace instead of guessing file paths.
-CRITICAL REQUIREMENT: You MUST write FULLY FUNCTIONAL, complete code. You are strictly FORBIDDEN from using placeholders like `pass`, `TODO`, or `...`. Your code must be robust and implement the actual logic required!
-When you are completely finished and have VERIFIED that your code works without errors, you MUST call the `mark_task_complete` tool to finish. You cannot finish without it."""
+You have full root access to a Debian terminal via `execute_terminal_command`. You can test your work by running python scripts to verify them (e.g. `python -m py_compile`). Use `read_url` to look up documentation if you are stuck. Use `list_dir` to explore the workspace instead of guessing file paths.
+CRITICAL REQUIREMENT: You MUST write FULLY FUNCTIONAL, complete code. You are strictly FORBIDDEN from using placeholders like `pass`, `TODO`, or `...`. Every function must have real implementation logic!
+When you are finished, call the `mark_task_complete` tool with a summary of what you did."""
         
         code = f"""import sys, json, time, logging, os
 
@@ -327,13 +328,29 @@ def main():
                     logger.warning(f"Failed with {{ep['model']}}: {{e}}")
             raise last_err
             
+        # Build clean context from upstream inputs
+        upstream_context = ""
+        for inp in req.get("inputs", []):
+            inp_name = inp.get("name", "Unknown")
+            inp_data = inp.get("data", "")
+            if inp_data:
+                upstream_context += f"### From {{inp_name}}:\\n{{str(inp_data)[:3000]}}\\n\\n"
+        
+        user_prompt = mem.get("user_prompt", "Complete your assigned task.")
+        
+        user_msg = "## User's Goal\\n" + user_prompt + "\\n"
+        if upstream_context:
+            user_msg += "\\n## Context From Previous Agents\\n" + upstream_context
+        user_msg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. File paths must be relative (e.g. 'main.py', 'utils.py') - do NOT prepend 'src/'. Start by using `list_dir` to see what already exists in the workspace before creating files. Use `read_file` to inspect existing files before modifying them."
+        
         messages = [
             {{"role": "system", "content": {json.dumps(sys_prompt)}}},
-            {{"role": "user", "content": f"Process this request: {{json.dumps(req)}}.\\n\\nCRITICAL INSTRUCTION: You are an autonomous agent. You MUST use the `write_file` tool to save your work to the workspace. Your file paths must be relative (e.g. 'main.py' or 'utils.py'), do NOT prepend 'src/' to your paths! DO NOT just output code in your chat response. If you do not use `write_file`, your work will be permanently lost! Furthermore, you MUST use the native JSON tool-calling API. Do NOT output raw strings like `:function=write_file>`."}}
+            {{"role": "user", "content": user_msg}}
         ]
         
         files_modified = {{}}
-        while True:
+        MAX_ITERATIONS = 20
+        for _iteration in range(MAX_ITERATIONS):
             response = do_completion(messages)
             msg = response.choices[0].message
             clean_msg = {{"role": "assistant", "content": msg.content or ""}}
@@ -419,11 +436,8 @@ def main():
                     }})
                     continue
                 else:
-                    messages.append({{
-                        "role": "user",
-                        "content": "ERROR: You cannot just stop calling tools. You must explicitly call the `mark_task_complete` tool once you have fully tested your implementation. If you have not tested your code, run `execute_terminal_command` (e.g. python -m py_compile) to test it first!"
-                    }})
-                    continue
+                    # Agent stopped calling tools — natural exit
+                    break
                 
         result = messages[-1].get("content", "")
         if files_modified:

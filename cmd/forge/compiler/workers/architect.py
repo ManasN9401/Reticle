@@ -42,14 +42,22 @@ Your job is to design a Directed Acyclic Graph (DAG) of agents to achieve this.
 
 If the global agents can fulfill the task, use them (set `is_new: false`). You MUST ONLY use `is_new: false` for agents that exactly match an ID in the AVAILABLE AGENTS list below.
 If you need new specialized agents (which you almost certainly will), design them (set `is_new: true`).
-For ALL new agents, you MUST provide an `id`, `name`, `description`, and a highly detailed `system_prompt`.
 
 AVAILABLE AGENTS:
 {available_agents_prompt}
 
 CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. If the user's task is highly complex (e.g. building an app or a game), you MUST decompose it into wide, parallel pipelines (multiple agents running simultaneously), and one of your agents MUST explicitly be responsible for creating the main entrypoint (e.g., 'main.py' or 'index.js'). However, if the task is simple, a simple linear 1 or 2-node graph is perfectly acceptable.
 
-CRITICAL INSTRUCTION: Your agents MUST be given extremely specific technical constraints. They are free to create non-code assets (e.g. markdown for lore, audio specs, pixel art grids), but for code, they MUST build everything from scratch using standard libraries (e.g. Python and 'pygame'). Do NOT let them hallucinate or import external imaginary engines (like 'import game_engine' or 'import engine'). Instruct them to write fully robust code with NO PLACEHOLDERS (e.g. no 'pass' or 'TODO'). Do NOT instruct them to "run" the game.
+CRITICAL INSTRUCTION: For code, agents MUST build everything from scratch using ONLY standard libraries (e.g. Python with 'pygame'). Do NOT let them hallucinate or import external imaginary engines. Instruct them to write fully robust code with NO PLACEHOLDERS (no 'pass', 'TODO', or '...'). Do NOT instruct them to "run" the program.
+
+SYSTEM PROMPT QUALITY REQUIREMENT: Each agent's `system_prompt` MUST be at least 3-5 sentences and MUST include ALL of the following:
+1. The user's EXACT goal (repeat it verbatim so the agent knows what is being built)
+2. The EXACT file(s) this agent is responsible for creating (e.g. "Create main.py and player.py")
+3. The language and framework to use (e.g. "Use Python 3 with pygame")
+4. What the OTHER agents are building (e.g. "Another agent is building the level loader in levels.py, so import from there")
+5. Specific technical details about what to implement (e.g. "Implement a game loop with 60fps tick rate, keyboard input handling for WASD movement, and sprite rendering using pygame.sprite.Group")
+
+Vague prompts like "Create the main entrypoint" are FORBIDDEN. Every prompt must be specific enough that the agent can write complete, functional code without guessing.
 
 Return the DAG strictly as JSON with the following schema, and NOTHING else (no markdown blocks, just raw JSON):
 {{
@@ -61,7 +69,7 @@ Return the DAG strictly as JSON with the following schema, and NOTHING else (no 
       "name": "Human Readable Name",
       "description": "Short description",
       "is_new": true, 
-      "system_prompt": "Highly detailed prompt explaining their job..."
+      "system_prompt": "Highly detailed prompt with all 5 requirements above..."
     }}
   ],
   "nodes": [

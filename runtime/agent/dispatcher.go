@@ -66,12 +66,28 @@ func (d *Dispatcher) Start() {
 			}
 		}
 
-		// Inject Required Shared Memory
-		if d.RuntimeState != nil && len(worker.RequiredMemory) > 0 {
+		// Inject Implicit Base Context (every agent gets these regardless of YAML)
+		if d.RuntimeState != nil {
 			if task.Memory == nil {
 				task.Memory = make(map[string]any)
 			}
+			baseKeys := []string{"user_prompt", "workspace_dir"}
+			for _, key := range baseKeys {
+				// Execution-scoped first (per-prompt), then global fallback
+				if val, found := d.RuntimeState.Get(memory.ScopeExecution, task.ExecutionID, key); found {
+					task.Memory[key] = val.Value
+				} else if val, found := d.RuntimeState.Get(memory.ScopeGlobal, "global", key); found {
+					task.Memory[key] = val.Value
+				}
+			}
+		}
+
+		// Inject Required Shared Memory (agent-specific keys from YAML)
+		if d.RuntimeState != nil && len(worker.RequiredMemory) > 0 {
 			for _, key := range worker.RequiredMemory {
+				if _, alreadySet := task.Memory[key]; alreadySet {
+					continue // Don't overwrite base context
+				}
 				// Hierarchical resolution: Agent -> Execution -> Workflow -> Global
 				if val, found := d.RuntimeState.Get(memory.ScopeAgent, string(workerID), key); found {
 					task.Memory[key] = val.Value
