@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HyperParallel Telemetry</title>
+    <style>
+        :root {
+            --bg-color: #050a15;
+            --panel-bg: rgba(13, 17, 28, 0.65);
+            --border-color: rgba(255, 255, 255, 0.15);
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --accent-color: #58a6ff;
+            --success-color: #2ea043;
+            --error-color: #f85149;
+            --warning-color: #d29922;
+        }
+
+        @keyframes moveGrid {
+            0% { background-position: 0 0; }
+            100% { background-position: 40px 40px; }
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            animation: moveGrid 3s linear infinite;
+            color: var(--text-primary);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        h1 {
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #ffffff;
+            text-align: center;
+            letter-spacing: -0.5px;
+            flex-shrink: 0;
+            text-shadow: 0 0 20px rgba(88, 166, 255, 0.5);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1600px;
+            display: flex;
+            flex-direction: row;
+            gap: 0.5rem;
+            flex-grow: 1;
+            height: calc(100vh - 120px);
+            min-height: 0;
+        }
+
+        .dashboard-left {
+            width: 35%;
+            min-width: 20%;
+            max-width: 80%;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            z-index: 10;
+            overflow-y: auto;
+        }
+
+        .resizer-vertical {
+            width: 8px;
+            cursor: col-resize;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            transition: background 0.2s;
+            z-index: 20;
+        }
+        .resizer-vertical:hover, .resizer-vertical.active {
+            background: rgba(88, 166, 255, 0.4);
+        }
+
+        .resizer-horizontal {
+            height: 8px;
+            cursor: row-resize;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            transition: background 0.2s;
+            flex-shrink: 0;
+            z-index: 20;
+        }
+        .resizer-horizontal:hover, .resizer-horizontal.active {
+            background: rgba(88, 166, 255, 0.4);
+        }
+
+        .nodes-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            overflow-y: auto;
+            height: 40%;
+            flex-shrink: 1;
+            min-height: 100px;
+        }
+
+        .dashboard-right {
+            flex-grow: 1;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            box-shadow: 
+                0 16px 48px 0 rgba(0, 0, 0, 0.6),
+                inset 0 1px 1px rgba(255,255,255,0.1);
+            position: relative;
+            overflow: hidden;
+            z-index: 10;
+        }
+
+        #starMap {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: grab;
+        }
+        #starMap:active {
+            cursor: grabbing;
+        }
+
+        .node-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.25rem;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 
+                0 8px 32px 0 rgba(0, 0, 0, 0.4),
+                inset 0 1px 1px rgba(255,255,255,0.05);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            transition: all 0.2s ease;
+        }
+
+        .node-card.selected {
+            border: 1px solid rgba(88, 166, 255, 0.8);
+            box-shadow: 0 0 15px rgba(88, 166, 255, 0.4);
+            background: rgba(88, 166, 255, 0.1);
+        }
+
+        .node-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background-color: var(--text-secondary);
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .node-card.status-running {
+            background: linear-gradient(135deg, rgba(88, 166, 255, 0.1) 0%, var(--panel-bg) 100%);
+            border-color: rgba(88, 166, 255, 0.3);
+        }
+        .node-card.status-running::before {
+            background-color: var(--accent-color);
+            box-shadow: 0 0 15px var(--accent-color);
+        }
+
+        .node-card.status-completed {
+            background: linear-gradient(135deg, rgba(46, 160, 67, 0.1) 0%, var(--panel-bg) 100%);
+            border-color: rgba(46, 160, 67, 0.3);
+        }
+        .node-card.status-completed::before {
+            background-color: var(--success-color);
+            box-shadow: 0 0 15px var(--success-color);
+        }
+        
+        .node-card.status-failed {
+            background: linear-gradient(135deg, rgba(248, 81, 73, 0.1) 0%, var(--panel-bg) 100%);
+            border-color: rgba(248, 81, 73, 0.3);
+        }
+        .node-card.status-failed::before {
+            background-color: var(--error-color);
+            box-shadow: 0 0 15px var(--error-color);
+        }
+
+        .node-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .node-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #fff;
+            margin: 0;
+        }
+
+        .node-task {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-family: monospace;
+            word-break: break-all;
+        }
+
+        .chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .chip {
+            background: rgba(88, 166, 255, 0.15);
+            color: var(--accent-color);
+            border: 1px solid rgba(88, 166, 255, 0.4);
+            padding: 0.25rem 0.6rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: inset 0 0 10px rgba(88, 166, 255, 0.1);
+        }
+
+        .chip.artifact {
+            background: rgba(46, 160, 67, 0.15);
+            color: #3fb950;
+            border-color: rgba(46, 160, 67, 0.4);
+            box-shadow: inset 0 0 10px rgba(46, 160, 67, 0.1);
+        }
+
+        .status-badge {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 700;
+            color: var(--text-secondary);
+        }
+        
+        .status-running .status-badge { color: var(--accent-color); text-shadow: 0 0 10px var(--accent-color); }
+        .status-completed .status-badge { color: var(--success-color); text-shadow: 0 0 10px var(--success-color); }
+        .status-failed .status-badge { color: var(--error-color); text-shadow: 0 0 10px var(--error-color); }
+
+        .log-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1rem;
+            height: 200px;
+            min-height: 100px;
+            flex-shrink: 1;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.8rem;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: inset 0 1px 1px rgba(255,255,255,0.05);
+        }
+
+        .log-entry {
+            margin-bottom: 0.3rem;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 0.3rem;
+        }
+
+        .log-time { color: var(--text-secondary); margin-right: 5px; }
+        .log-type { color: var(--accent-color); font-weight: bold; margin-right: 5px; }
+        .log-source { color: var(--warning-color); margin-right: 5px; }
+
+        /* Fullscreen styles */
+        .fs-container {
+            position: relative;
+        }
+        .fs-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            border-radius: 4px;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 50;
+            transition: background 0.2s;
+        }
+        .fs-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .zoom-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(13, 17, 28, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px;
+            z-index: 50;
+            backdrop-filter: blur(20px);
+        }
+        .zoom-controls button {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: #fff;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .zoom-controls button:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        #zoomPercent {
+            font-size: 0.8rem;
+            min-width: 45px;
+            text-align: center;
+            font-family: monospace;
+        }
+        .fullscreen-mode {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 9999 !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+        }
+
+        /* Details Panel */
+        .details-panel {
+            position: absolute;
+            top: 0;
+            right: -400px;
+            width: 400px;
+            height: 100%;
+            background: var(--panel-bg);
+            border-left: 1px solid var(--border-color);
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            z-index: 100;
+            transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+        }
+        .details-panel.open {
+            right: 0;
+        }
+        .details-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .details-header h2 {
+            margin: 0;
+            font-size: 1.2rem;
+            color: #fff;
+        }
+        .details-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .details-close:hover {
+            color: #fff;
+        }
+        .details-content {
+            padding: 1.5rem;
+            overflow-y: auto;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .details-section {
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            padding: 1rem;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .details-section h4 {
+            margin: 0 0 0.5rem 0;
+            color: var(--accent-color);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .details-data {
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: var(--text-primary);
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+
+    </style>
+</head>
+<body>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; padding: 0 1rem;">
+        <h1 style="margin: 0; font-size: 1.5rem; font-weight: 800; background: linear-gradient(90deg, #58a6ff, #a371f7); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">HyperParallel Orchestrator</h1>
+    </div>
+    
+    <div class="container">
+        <!-- Left Dashboard -->
+        <div class="dashboard-left" id="sidebar">
+            <div class="nodes-container fs-container" id="nodesContainer" style="background: var(--panel-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 1rem; box-sizing: border-box; position: relative;">
+                <h3 style="margin-top:0; color:#fff; font-size: 0.9rem; margin-bottom: 10px; flex-shrink: 0; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">Active Agents</h3>
+                <div id="nodesEmptyState" style="color: rgba(255,255,255,0.4); font-size: 0.8rem; text-align: center; margin-top: 2rem;">No agents currently running.</div>
+                <button class="fs-btn" style="z-index: 1000; top: 10px; right: 10px;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                </button>
+            </div>
+            <div class="resizer-horizontal" id="resizerWaitlist"></div>
+            <div class="waitlist-panel fs-container" id="waitlistContainer" style="height: 30%; min-height: 150px; flex-shrink: 1; background: var(--panel-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 1rem; box-sizing: border-box; display: flex; flex-direction: column;">
+                <h3 style="margin-top:0; color:#fff; font-size: 0.9rem; margin-bottom: 10px; flex-shrink: 0;">Queue (Waitlist)</h3>
+                <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-shrink: 0;">
+                    <input type="text" id="waitlistInput" placeholder="Enter prompt..." onkeydown="if(event.key==='Enter') submitWaitlistPrompt()" style="flex-grow: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 6px; font-family: 'Inter', sans-serif; font-size: 0.8rem;">
+                    <button onclick="submitWaitlistPrompt()" style="background: var(--accent-color); color: #000; border: none; border-radius: 4px; padding: 0 12px; font-weight: bold; cursor: pointer; font-size: 0.8rem;">Queue</button>
+                </div>
+                <div id="waitlistItems" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto;"></div>
+                <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                </button>
+            </div>
+            <div class="resizer-horizontal" id="resizerLog"></div>
+            <div class="log-panel fs-container" id="logContainer">
+                <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="resizer-vertical" id="resizerSidebar"></div>
+
+        <!-- Right Star Map Canvas -->
+        <div class="dashboard-right fs-container" id="starMapContainer">
+            <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+            </button>
+            <div class="zoom-controls">
+                <button onclick="setZoom(scale * 1.2)">+</button>
+                <span id="zoomPercent">100%</span>
+                <button onclick="setZoom(scale / 1.2)">-</button>
+                <button onclick="resetZoom()" style="width: auto; padding: 0 8px; font-size: 0.75rem;">Reset</button>
+            </div>
+            <canvas id="starMap"></canvas>
+            
+            <!-- Details Panel -->
+            <div id="nodeDetailsPanel" class="details-panel">
+                <div class="details-header">
+                    <h2 id="detailsTitle">Node Details</h2>
+                    <button class="details-close" onclick="closeDetailsPanel()">×</button>
+                </div>
+                <div class="details-content" id="detailsContent">
+                    <!-- Dynamic Content -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const nodesContainer = document.getElementById('nodesContainer');
+        const logContainer = document.getElementById('logContainer');
+        const nodesMap = new Map(); 
+        const nodeDataMap = new Map(); // Accumulates event history per node
+        let selectedNodeId = null;
+        
+        function toggleFullscreen(elem) {
+            elem.classList.toggle('fullscreen-mode');
+            setTimeout(resizeCanvas, 50); // Give layout time to update
+        }
+        
+        const canvas = document.getElementById('starMap');
+        const ctx = canvas.getContext('2d');
+        let cw, ch;
+        function resizeCanvas() {
+            cw = canvas.width = canvas.parentElement.clientWidth;
+            ch = canvas.height = canvas.parentElement.clientHeight;
+            layoutTree();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        
+        // Sidebar Resizer
+        const sidebar = document.getElementById('sidebar');
+        const resizerSidebar = document.getElementById('resizerSidebar');
+        let isResizingSidebar = false;
+
+        resizerSidebar.addEventListener('mousedown', (e) => {
+            isResizingSidebar = true;
+            resizerSidebar.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isResizingSidebar) {
+                const newWidth = e.clientX - sidebar.getBoundingClientRect().left;
+                if (newWidth > 150 && newWidth < window.innerWidth * 0.8) {
+                    sidebar.style.width = `${newWidth}px`;
+                    resizeCanvas();
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizingSidebar) {
+                isResizingSidebar = false;
+                resizerSidebar.classList.remove('active');
+                document.body.style.cursor = '';
+            }
+        });
+
+        // Waitlist Panel Resizer
+        const waitlistPanel = document.getElementById('waitlistContainer');
+        const resizerWaitlist = document.getElementById('resizerWaitlist');
+        let isResizingWaitlist = false;
+
+        resizerWaitlist.addEventListener('mousedown', (e) => {
+            isResizingWaitlist = true;
+            resizerWaitlist.classList.add('active');
+            document.body.style.cursor = 'row-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isResizingWaitlist) {
+                const sidebarRect = sidebar.getBoundingClientRect();
+                const logRect = document.getElementById('logContainer').getBoundingClientRect();
+                
+                // Calculate height based on cursor position relative to nodesContainer
+                const newHeight = sidebarRect.bottom - logRect.height - e.clientY;
+                if (newHeight > 100 && newHeight < sidebarRect.height - 150) {
+                    waitlistPanel.style.height = `${newHeight}px`;
+                    const nodesHeight = e.clientY - sidebarRect.top - 16;
+                    document.getElementById('nodesContainer').style.height = `${nodesHeight}px`;
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizingWaitlist) {
+                isResizingWaitlist = false;
+                resizerWaitlist.classList.remove('active');
+                document.body.style.cursor = '';
+            }
+        });
+
+        // Log Panel Resizer
+        const logPanel = document.getElementById('logContainer');
+        const resizerLog = document.getElementById('resizerLog');
+        let isResizingLog = false;
+
+        resizerLog.addEventListener('mousedown', (e) => {
+            isResizingLog = true;
+            resizerLog.classList.add('active');
+            document.body.style.cursor = 'row-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isResizingLog) {
+                const sidebarRect = sidebar.getBoundingClientRect();
+                const logHeight = sidebarRect.bottom - e.clientY;
+                if (logHeight > 50 && logHeight < sidebarRect.height - 100) {
+                    logPanel.style.height = `${logHeight}px`;
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizingLog) {
+                isResizingLog = false;
+                resizerLog.classList.remove('active');
+                document.body.style.cursor = '';
+            }
+        });
+        
+        const stars = new Map();
+        let activePulses = [];
+        let execEdges = new Map();
+        let pulseCompleted = false;
+        let execAlpha = new Map();
+        let lastCompletedNode = null; // Stores globalId
+        let timeElapsed = 0;
+        let lastFrameTime = performance.now();
+
+        // High-tech layout constants
+        const VERTICAL_SPACING = 150;
+        const HORIZONTAL_SPACING = 200;
+
+        // Canvas transformations (Panning and Zooming)
+        let panX = 0;
+        let panY = 0;
+        let scale = 1;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let isClick = false;
+        let mousedownX = 0;
+        let mousedownY = 0;
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            isClick = true;
+            mousedownX = e.clientX;
+            mousedownY = e.clientY;
+            dragStartX = e.clientX - panX;
+            dragStartY = e.clientY - panY;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                panX = e.clientX - dragStartX;
+                panY = e.clientY - dragStartY;
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            isDragging = false;
+            if (isClick) {
+                const dist = Math.hypot(e.clientX - mousedownX, e.clientY - mousedownY);
+                if (dist < 5) {
+                    const rect = canvas.getBoundingClientRect();
+                    const mouseX = (e.clientX - rect.left - panX) / scale;
+                    const mouseY = (e.clientY - rect.top - panY) / scale;
+                    
+                    for (const star of stars.values()) {
+                        const d = Math.hypot(star.x - mouseX, star.y - mouseY);
+                        // Scale the hit radius so it's always at least 50 screen pixels
+                        // Add extra padding for running nodes since they might be animating
+                        const extraPadding = star.status === 'running' ? 25 : (star.status === 'failed' ? 20 : 15);
+                        const hitRadius = Math.max(star.radius + extraPadding, 50 / scale);
+                        if (d < hitRadius) {
+                            openDetailsPanel(star.globalId);
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isDragging = false;
+        });
+
+        function openDetailsPanel(nodeId) {
+            selectedNodeId = nodeId;
+            
+            document.querySelectorAll('.node-card').forEach(el => el.classList.remove('selected'));
+            const selectedEl = document.getElementById(`node-${nodeId}`);
+            if (selectedEl) {
+                selectedEl.classList.add('selected');
+                selectedEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+            
+            const panel = document.getElementById('nodeDetailsPanel');
+            const title = document.getElementById('detailsTitle');
+            const content = document.getElementById('detailsContent');
+            
+            panel.classList.add('open');
+            title.innerText = nodeId;
+            
+            const star = stars.get(nodeId);
+            const data = nodeDataMap.get(nodeId) || [];
+            
+            let html = '';
+            
+            const execId = star ? star.execId : null;
+            const edges = execId ? (execEdges.get(execId) || []) : [];
+            const parents = edges.filter(e => e.To === (star ? star.id : nodeId)).map(e => e.From);
+            const children = edges.filter(e => e.From === (star ? star.id : nodeId)).map(e => e.To);
+            
+            let receivedArtifacts = [];
+            if (execId) {
+                parents.forEach(pId => {
+                    const pStar = stars.get(`${execId}|${pId}`);
+                    if (pStar && pStar.artifactNames) {
+                        receivedArtifacts.push(...pStar.artifactNames);
+                    }
+                });
+            }
+            
+            if (star) {
+                html += `<div class="details-section">
+                    <h4>Status</h4>
+                    <div class="details-data"><span class="status-badge" style="color: ${star.status==='completed'?'var(--success-color)':star.status==='failed'?'var(--error-color)':'var(--accent-color)'}">${star.status.toUpperCase()}</span></div>
+                </div>`;
+                if (star.duration) {
+                    html += `<div class="details-section">
+                        <h4>Duration</h4>
+                        <div class="details-data">${star.duration.toFixed(2)}s</div>
+                    </div>`;
+                }
+                if (star.llm) {
+                    html += `<div class="details-section">
+                        <h4>Model</h4>
+                        <div class="details-data">🧠 ${star.llm}</div>
+                    </div>`;
+                }
+                if (parents.length > 0) {
+                    html += `<div class="details-section">
+                        <h4>Parents</h4>
+                        <div class="details-data">${parents.join(', ')}</div>
+                    </div>`;
+                }
+                if (children.length > 0) {
+                    html += `<div class="details-section">
+                        <h4>Children</h4>
+                        <div class="details-data">${children.join(', ')}</div>
+                    </div>`;
+                }
+                if (receivedArtifacts.length > 0) {
+                    html += `<div class="details-section">
+                        <h4>Artifacts Received</h4>
+                        <div class="details-data">${receivedArtifacts.map(n => `📥 ${n}`).join('<br>')}</div>
+                    </div>`;
+                }
+                if (star.artifactNames && star.artifactNames.length > 0) {
+                    html += `<div class="details-section">
+                        <h4>Artifacts Produced</h4>
+                        <div class="details-data">${star.artifactNames.map(n => `📄 ${n}`).join('<br>')}</div>
+                    </div>`;
+                }
+            }
+            
+            if (data.length > 0) {
+                html += `<div class="details-section">
+                    <h4>Event Log</h4>
+                    <div class="details-data" style="max-height: 400px; overflow-y: auto;">`;
+                data.forEach(e => {
+                    const t = new Date().toLocaleTimeString();
+                    html += `<div style="margin-bottom:0.8rem; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:0.5rem">
+                        <strong>[${t}] ${e.type}</strong><br>
+                        <div style="opacity:0.8; margin-top:0.3rem">${JSON.stringify(e.payload, null, 2)}</div>
+                    </div>`;
+                });
+                html += `</div></div>`;
+            } else {
+                html += `<div class="details-section"><div class="details-data">No event data found.</div></div>`;
+            }
+            
+            if (execId && star && (star.status === 'completed' || star.status === 'failed')) {
+                html += `<div style="margin-top: 1rem; text-align: center;">
+                    <button onclick="clearExecution('${execId}')" style="background: var(--error-color); color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">Clear Execution from Map</button>
+                </div>`;
+            }
+
+            content.innerHTML = html;
+        }
+
+        function clearExecution(execId) {
+            // Remove all nodes and edges for this execId
+            const keysToRemove = [];
+            for (const [globalId, star] of stars.entries()) {
+                if (star.execId === execId) {
+                    keysToRemove.push(globalId);
+                }
+            }
+            keysToRemove.forEach(k => {
+                stars.delete(k);
+                nodeDataMap.delete(k);
+            });
+            execEdges.delete(execId);
+            closeDetailsPanel();
+            layoutTree();
+        }
+
+        function closeDetailsPanel() {
+            selectedNodeId = null;
+            document.getElementById('nodeDetailsPanel').classList.remove('open');
+        }
+
+        function updateZoomUI() {
+            const el = document.getElementById('zoomPercent');
+            if (el) el.innerText = Math.round(scale * 100) + '%';
+        }
+
+        function setZoom(newScale) {
+            const rect = canvas.getBoundingClientRect();
+            const centerX = rect.width / 2;
+            const centerY = rect.height / 2;
+            
+            panX = centerX - (centerX - panX) * (newScale / scale);
+            panY = centerY - (centerY - panY) * (newScale / scale);
+            scale = newScale;
+            updateZoomUI();
+        }
+
+        function resetZoom() {
+            scale = 1;
+            panX = 0;
+            panY = 0;
+            updateZoomUI();
+        }
+
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomIntensity = 0.05; // Slightly increased sensitivity
+            const wheel = e.deltaY < 0 ? 1 : -1;
+            const zoomFactor = Math.exp(wheel * zoomIntensity);
+            
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            const newScale = scale * zoomFactor;
+            
+            panX = mouseX - (mouseX - panX) * zoomFactor;
+            panY = mouseY - (mouseY - panY) * zoomFactor;
+            
+            scale = newScale;
+            updateZoomUI();
+        }, { passive: false });
+
+        class Star {
+            constructor(execId, id, depth) {
+                this.execId = execId;
+                this.id = id;
+                this.globalId = `${execId}|${id}`;
+                this.status = 'initializing';
+                this.startTime = Date.now();
+                this.duration = 0;
+                this.color = '#ffffff';
+                this.radius = 12;
+                this.pulse = 0;
+                this.llm = null;
+                this.artifactNames = [];
+                
+                // Tree Layout Properties
+                this.depth = depth;
+                this.targetX = 0;
+                this.targetY = 0;
+                this.x = cw / 2;
+                this.y = 50; // Start at top and animate into position
+                this.pulseTriggered = false;
+            }
+
+            update(dt) {
+                // Smoothly interpolate position to target (Spring physics)
+                this.x += (this.targetX - this.x) * (dt * 5);
+                this.y += (this.targetY - this.y) * (dt * 5);
+
+                if (this.status === 'running') {
+                    // Slower pulse
+                    timeElapsed += dt;
+                    this.pulse = (Math.sin(timeElapsed * 4) + 1) / 2;
+                }
+            }
+
+            draw(ctx, forceColor = null) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius + (this.pulse * 4), 0, Math.PI * 2);
+                
+                ctx.shadowBlur = 20 + (this.pulse * 20);
+                
+                let activeColor = forceColor;
+                if (!activeColor) {
+                    if (this.status === 'running') {
+                        activeColor = '#58a6ff'; // Accent color for running
+                    } else if (this.status === 'completed') {
+                        activeColor = '#2ea043'; // Success color
+                    } else if (this.status === 'failed') {
+                        activeColor = '#f85149'; // Error color
+                    } else {
+                        activeColor = '#8b949e'; // Pending/Idle
+                        ctx.shadowBlur = 10;
+                    }
+                }
+
+                ctx.fillStyle = activeColor;
+                ctx.shadowColor = activeColor;
+                ctx.fill();
+                
+                // Draw selection halo
+                if (selectedNodeId === this.globalId) {
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate((performance.now() / 1000) * 1.5);
+                    
+                    const scouterColor = 'rgba(88, 166, 255, 0.9)'; // Blue color
+                    const r = this.radius + 10; // Smaller halo
+                    
+                    ctx.beginPath();
+                    ctx.arc(0, 0, r, 0, Math.PI * 2);
+                    ctx.strokeStyle = scouterColor;
+                    ctx.lineWidth = 2; // Thinner ring
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = scouterColor;
+                    ctx.stroke();
+                    
+                    ctx.fillStyle = scouterColor;
+                    for(let i=0; i<4; i++) {
+                        ctx.rotate(Math.PI / 2);
+                        ctx.beginPath();
+                        ctx.moveTo(0, -r);
+                        ctx.lineTo(-10, -(r + 15)); // Smaller arrows
+                        ctx.lineTo(10, -(r + 15));
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                    ctx.restore();
+                }
+                
+                // Draw labels
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = forceColor ? forceColor : '#ffffff';
+                ctx.font = 'bold 14px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(this.id, this.x, this.y + 35);
+                
+                if (this.status === 'running' && this.llm) {
+                    ctx.fillStyle = '#58a6ff';
+                    ctx.fillText('🧠 ' + this.llm, this.x, this.y - 25);
+                }
+                
+                if (this.artifactNames && this.artifactNames.length > 0) {
+                    ctx.fillStyle = '#2ea043';
+                    const baseYOffset = (this.status === 'running' && this.llm) ? 45 : 25;
+                    for (let i = 0; i < this.artifactNames.length; i++) {
+                        ctx.fillText('📄 ' + this.artifactNames[i], this.x, this.y - baseYOffset - (i * 15));
+                    }
+                }
+
+                ctx.restore();
+            }
+        }
+
+        const knownExecIds = new Set();
+        function layoutTree() {
+            const execIds = Array.from(new Set(Array.from(stars.values()).map(s => s.execId)));
+            let currentXOffset = cw / 2; // Start from center for the first workflow
+            const ISLAND_PADDING = 200;
+            let newlyDiscoveredExecId = null;
+
+            for (const execId of execIds) {
+                if (!knownExecIds.has(execId)) {
+                    knownExecIds.add(execId);
+                    newlyDiscoveredExecId = execId;
+                }
+
+                const execStars = Array.from(stars.values()).filter(s => s.execId === execId);
+                
+                // Group stars by depth
+                const byDepth = new Map();
+                for (const star of execStars) {
+                    if (!byDepth.has(star.depth)) byDepth.set(star.depth, []);
+                    byDepth.get(star.depth).push(star);
+                }
+
+                // Find max width of this execution's tree
+                let maxLevelWidth = 0;
+                for (const levelStars of byDepth.values()) {
+                    const w = (levelStars.length - 1) * HORIZONTAL_SPACING;
+                    if (w > maxLevelWidth) maxLevelWidth = w;
+                }
+
+                const islandWidth = maxLevelWidth;
+                const islandCenterX = currentXOffset + (islandWidth / 2);
+
+                const totalHeight = (byDepth.size - 1) * VERTICAL_SPACING;
+                const startY = (ch / 2) - (totalHeight / 2);
+
+                for (const [depth, levelStars] of byDepth.entries()) {
+                    levelStars.sort((a, b) => a.id.localeCompare(b.id));
+
+                    const levelWidth = (levelStars.length - 1) * HORIZONTAL_SPACING;
+                    const startX = islandCenterX - (levelWidth / 2);
+
+                    levelStars.forEach((star, index) => {
+                        star.targetX = startX + (index * HORIZONTAL_SPACING);
+                        star.targetY = startY + (depth * VERTICAL_SPACING);
+                    });
+                }
+                
+                // Advance x offset for next island
+                currentXOffset += islandWidth + ISLAND_PADDING;
+            }
+            
+            // Auto-pan to the new workflow if one was just discovered
+            if (newlyDiscoveredExecId) {
+                const newStars = Array.from(stars.values()).filter(s => s.execId === newlyDiscoveredExecId && s.depth === 0);
+                if (newStars.length > 0) {
+                    // Calculate pan to center the root node of the new workflow
+                    const rootNode = newStars[0];
+                    // We want rootNode.targetX * scale + panX = cw/2  => panX = cw/2 - rootNode.targetX * scale
+                    panX = (cw / 2) - (rootNode.targetX * scale);
+                    panY = (ch / 2) - (rootNode.targetY * scale) + 150; // slightly above center
+                }
+            }
+        }
+
+        function renderCanvas(timestamp) {
+            const dt = (timestamp - lastFrameTime) / 1000;
+            lastFrameTime = timestamp;
+            
+            ctx.clearRect(0, 0, cw, ch);
+            ctx.save();
+            ctx.translate(panX, panY);
+            ctx.scale(scale, scale);
+            
+            const starArr = Array.from(stars.values());
+            
+            // Draw connecting structural lines (directed from depth to depth+1)
+            ctx.save();
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            for (let i = 0; i < starArr.length; i++) {
+                for (let j = 0; j < starArr.length; j++) {
+                    const parent = starArr[i];
+                    const child = starArr[j];
+                    
+                    // Check if an explicit edge exists
+                    const edges = execEdges.get(parent.execId) || [];
+                    const hasEdge = (parent.execId === child.execId) && edges.some(e => e.From === parent.id && e.To === child.id);
+                    
+                    if (hasEdge) {
+                        ctx.beginPath();
+                        ctx.moveTo(parent.x, parent.y);
+                        // Draw curved structural lines like a circuit board
+                        ctx.bezierCurveTo(parent.x, parent.y + 50, child.x, child.y - 50, child.x, child.y);
+                        
+                        ctx.strokeStyle = `rgba(255, 255, 255, 0.15)`;
+                        ctx.stroke();
+                        
+                        // Fade to green on completion
+                        const alphaObj = execAlpha.get(parent.execId);
+                        if (alphaObj && alphaObj.current > 0) {
+                            ctx.strokeStyle = `rgba(46, 160, 67, ${alphaObj.current * 0.8})`;
+                            ctx.stroke();
+                        }
+                    }
+                }
+            }
+            ctx.restore();
+            
+            // Process active high-tech pulses travelling UP the tree
+            let nextPulses = [];
+            for (let i = activePulses.length - 1; i >= 0; i--) {
+                const pulse = activePulses[i];
+                // Approximate distance for speed calculation
+                const dist = Math.hypot(pulse.from.x - pulse.to.x, pulse.from.y - pulse.to.y);
+                pulse.progress += 800 * dt;
+                
+                if (pulse.progress < dist) {
+                    ctx.save();
+                    const currentDist = Math.min(dist, pulse.progress);
+                    const tailDist = Math.max(0, pulse.progress - 150);
+                    
+                    // Bezier t goes from 0 (parent) to 1 (child)
+                    // We are traveling from 'from' (child) to 'to' (parent), so t goes 1 -> 0
+                    const startT = 1 - (tailDist / dist);
+                    const endT = 1 - (currentDist / dist);
+                    
+                    const getBezierPoint = (t) => {
+                        const u = 1 - t;
+                        const tt = t * t;
+                        const uu = u * u;
+                        const uuu = uu * u;
+                        const ttt = tt * t;
+                        let x = uuu * pulse.to.x;
+                        let y = uuu * pulse.to.y;
+                        x += 3 * uu * t * pulse.to.x;
+                        y += 3 * uu * t * (pulse.to.y + 50);
+                        x += 3 * u * tt * pulse.from.x;
+                        y += 3 * u * tt * (pulse.from.y - 50);
+                        x += ttt * pulse.from.x;
+                        y += ttt * pulse.from.y;
+                        return {x, y};
+                    };
+                    
+                    // Draw tail
+                    ctx.strokeStyle = '#2ea043';
+                    ctx.lineWidth = 6;
+                    ctx.shadowColor = '#2ea043';
+                    ctx.shadowBlur = 20;
+                    ctx.beginPath();
+                    const steps = 10;
+                    for (let step = 0; step <= steps; step++) {
+                        const t = startT + (endT - startT) * (step / steps);
+                        const pt = getBezierPoint(t);
+                        if (step === 0) ctx.moveTo(pt.x, pt.y);
+                        else ctx.lineTo(pt.x, pt.y);
+                    }
+                    ctx.stroke();
+                    
+                    // Draw head
+                    const headPt = getBezierPoint(endT);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.shadowColor = '#ffffff';
+                    ctx.shadowBlur = 30;
+                    ctx.beginPath();
+                    ctx.arc(headPt.x, headPt.y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.restore();
+                } else {
+                    // Reached parent node
+                    pulse.to.draw(ctx, '#2ea043');
+                    if (!pulse.to.pulseTriggered) {
+                        pulse.to.pulseTriggered = true;
+                        let hasParents = false;
+                        for (const parent of starArr) {
+                            const edges = execEdges.get(parent.execId) || [];
+                            const hasEdge = (parent.execId === pulse.to.execId) && edges.some(e => e.From === parent.id && e.To === pulse.to.id);
+                            if (hasEdge) {
+                                nextPulses.push({ from: pulse.to, to: parent, progress: 0 });
+                                hasParents = true;
+                            }
+                        }
+                        if (!hasParents && pulse.to.depth === 0) {
+                            pulseCompleted = true; // Reached the top node!
+                        }
+                    }
+                    activePulses.splice(i, 1);
+                }
+            }
+            activePulses.push(...nextPulses);
+            
+            // Update alphas
+            for (const [eId, alphaObj] of execAlpha.entries()) {
+                if (alphaObj.current < alphaObj.target) {
+                    alphaObj.current = Math.min(alphaObj.target, alphaObj.current + dt * 0.5);
+                }
+            }
+
+            // Draw stars normally
+            for (const star of starArr) {
+                star.update(dt);
+                star.draw(ctx);
+            }
+            
+            ctx.restore();
+            
+            requestAnimationFrame(renderCanvas);
+        }
+
+        resizeCanvas();
+        requestAnimationFrame(renderCanvas);
+
+        // Connect to WebSocket with Auto-Reconnect
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        let ws = null;
+        let isReconnecting = false;
+
+        function connectWS() {
+            ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
+
+            ws.onopen = () => {
+                appendLog('SYSTEM', 'frontend', 'Connected to Telemetry Server');
+                isReconnecting = false;
+            };
+
+            ws.onclose = () => {
+                if (!isReconnecting) {
+                    appendLog('SYSTEM', 'frontend', 'Disconnected. Auto-reconnecting...');
+                }
+                isReconnecting = true;
+                setTimeout(connectWS, 1000);
+            };
+
+            ws.onerror = (e) => {};
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                processEvent(data);
+            };
+        }
+
+        connectWS();
+
+        function submitWaitlistPrompt() {
+            const input = document.getElementById('waitlistInput');
+            const prompt = input.value.trim();
+            if (prompt) {
+                ws.send(JSON.stringify({ action: "enqueue", prompt: prompt, group: "" }));
+                input.value = '';
+            }
+        }
+
+        function removeWaitlistItem(id) {
+            ws.send(JSON.stringify({ action: "remove", id: id }));
+        }
+
+        function renderWaitlist(items) {
+            const container = document.getElementById('waitlistItems');
+            if (!container) return;
+            container.innerHTML = '';
+            
+            items.forEach(item => {
+                const el = document.createElement('div');
+                el.style.cssText = `
+                    background: rgba(255,255,255,0.05); 
+                    border: 1px solid rgba(255,255,255,0.1); 
+                    border-radius: 6px; 
+                    padding: 8px; 
+                    display: flex; 
+                    flex-direction: column; 
+                    gap: 4px;
+                `;
+                
+                let color = '#8b949e';
+                if (item.status === 'RUNNING') color = '#58a6ff';
+                if (item.status === 'COMPLETED') color = '#2ea043';
+                if (item.status === 'FAILED') color = '#f85149';
+                
+                el.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong style="color: ${color}; font-size: 0.8rem;">${item.status}</strong>
+                        <span style="color: #8b949e; font-size: 0.7rem; font-family: monospace;">${item.id}</span>
+                    </div>
+                    <div style="font-size: 0.85rem; color: #fff;">${item.prompt}</div>
+                    <div style="display: flex; gap: 8px; margin-top: 4px;">
+                        <button onclick="removeWaitlistItem('${item.id}')" style="background: rgba(248,81,73,0.2); color: #f85149; border: 1px solid rgba(248,81,73,0.4); border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 0.7rem;">Remove</button>
+                    </div>
+                `;
+                container.appendChild(el);
+            });
+        }
+
+        function processEvent(e) {
+            const type = e.Type;
+            const payload = e.Payload;
+
+            // Sanitize payload for logging
+            const logPayload = JSON.parse(JSON.stringify(payload));
+            if (logPayload.inputs) {
+                logPayload.inputs.forEach(i => { if (i.data) i.data = '<TRUNCATED>'; });
+            }
+            if (logPayload.data) logPayload.data = '<TRUNCATED>';
+            
+            appendLog(type, e.Source, JSON.stringify(logPayload));
+
+            let execId = payload.execution || payload.exec_id;
+            if (!execId && (payload.task_id || payload.id)) {
+                let tid = payload.task_id || payload.id;
+                if (tid.includes('|')) execId = tid.split('|')[0];
+                else execId = tid;
+            }
+            execId = execId || 'default-exec';
+
+            // Listen for WorkflowStarted to get the explicit edges
+            if (type === 'WorkflowStarted' && payload.edges) {
+                execEdges.set(execId, payload.edges);
+                
+                const nodes = new Set();
+                payload.edges.forEach(e => { nodes.add(e.From); nodes.add(e.To); });
+                
+                const depths = new Map();
+                const getDepth = (nId) => {
+                    if (depths.has(nId)) return depths.get(nId);
+                    const parents = payload.edges.filter(e => e.To === nId).map(e => e.From);
+                    if (parents.length === 0) {
+                        depths.set(nId, 0);
+                        return 0;
+                    }
+                    let maxD = 0;
+                    for (const p of parents) {
+                        if (p === nId) continue; 
+                        maxD = Math.max(maxD, getDepth(p));
+                    }
+                    depths.set(nId, maxD + 1);
+                    return maxD + 1;
+                };
+                
+                for (const nId of nodes) {
+                    const globalId = `${execId}|${nId}`;
+                    if (!stars.has(globalId)) {
+                        stars.set(globalId, new Star(execId, nId, getDepth(nId)));
+                    }
+                }
+                layoutTree();
+            }
+
+            // Trigger Comet Pulse on workflow complete
+            if (type === 'WorkflowCompleted') {
+                execAlpha.set(execId, { target: 1, current: 0 });
+                if (lastCompletedNode && stars.has(lastCompletedNode)) {
+                    const origin = stars.get(lastCompletedNode);
+                    let hasParents = false;
+                    for (const parent of stars.values()) {
+                        const edges = execEdges.get(parent.execId) || [];
+                        const hasEdge = (parent.execId === origin.execId) && edges.some(e => e.From === parent.id && e.To === origin.id);
+                        if (hasEdge) {
+                            activePulses.push({ from: origin, to: parent, progress: 0 });
+                            hasParents = true;
+                        }
+                    }
+                    if (!hasParents && origin.depth === 0) {
+                        pulseCompleted = true; // Top node already
+                    }
+                }
+            }
+
+            let workerId = payload.worker_id || payload.producer || payload.agent_id;
+            let taskId = payload.task_id || payload.id; 
+            
+            let nodeId = workerId;
+            if (taskId && taskId.includes('|')) {
+                nodeId = taskId.split('|')[1];
+            } else if (payload.node_id) {
+                nodeId = payload.node_id;
+            }
+
+            if (!nodeId && type !== 'TaskCreated' && type !== 'WorkflowStarted' && type !== 'WaitlistUpdated') return;
+            
+            if (type === 'WaitlistUpdated') {
+                renderWaitlist(payload);
+                return;
+            }
+
+            if (!nodeId) return;
+
+            const globalId = `${execId}|${nodeId}`;
+            
+            if (globalId) {
+                if (!nodeDataMap.has(globalId)) nodeDataMap.set(globalId, []);
+                nodeDataMap.get(globalId).push({ type, payload: logPayload });
+            }
+
+            if (type === 'WorkerStarted' || type === 'TaskDispatched') {
+                createOrUpdateDOMNode(globalId, taskId, 'running');
+                
+                if (!stars.has(globalId)) {
+                    let depth = 0;
+                    stars.set(globalId, new Star(execId, nodeId, depth));
+                    layoutTree();
+                }
+                const s = stars.get(globalId);
+                s.status = 'running';
+                s.startTime = Date.now();
+                
+                if (payload.llm_model) {
+                    addDOMChip(globalId, `🧠 ${payload.llm_model}`);
+                    s.llm = payload.llm_model;
+                }
+            }
+            else if (type === 'WorkerCompleted') {
+                createOrUpdateDOMNode(globalId, taskId, 'completed');
+                lastCompletedNode = globalId;
+                
+                const s = stars.get(globalId);
+                if (s) {
+                    s.status = 'completed';
+                    s.pulse = 0;
+                    s.duration = (Date.now() - s.startTime) / 1000;
+                    
+                    if (s.duration < 1.0) {
+                        s.color = '#58a6ff'; // Blue
+                    } else if (s.duration < 5.0) {
+                        s.color = '#ffffff'; // White
+                    } else {
+                        s.color = '#8b949e'; // Grey
+                    }
+                }
+            }
+            else if (type === 'WorkerFailed') {
+                createOrUpdateDOMNode(globalId, taskId, 'failed');
+                const s = stars.get(globalId);
+                if (s) {
+                    s.status = 'failed';
+                    s.pulse = 0;
+                }
+            }
+            else if (type === 'ArtifactsProduced') {
+                let targetNode = lastCompletedNode || globalId;
+                if (targetNode && stars.has(targetNode)) {
+                    const artifactName = payload.name || 'Artifact Created';
+                    addDOMChip(targetNode, `📄 ${artifactName}`, 'artifact');
+                    const star = stars.get(targetNode);
+                    if (!star.artifactNames) star.artifactNames = [];
+                    if (!star.artifactNames.includes(artifactName)) {
+                        star.artifactNames.push(artifactName);
+                    }
+                }
+            }
+            else if (type === 'WaitlistUpdated') {
+                renderWaitlist(payload);
+            }
+        }
+
+        function createOrUpdateDOMNode(workerId, taskId, status) {
+            let nodeEl = document.getElementById(`node-${workerId}`);
+            
+            if (!nodeEl) {
+                const emptyState = document.getElementById('nodesEmptyState');
+                if (emptyState) emptyState.style.display = 'none';
+
+                nodeEl = document.createElement('div');
+                nodeEl.id = `node-${workerId}`;
+                nodeEl.className = 'node-card';
+                
+                nodeEl.innerHTML = `
+                    <div class="node-header">
+                        <h3 class="node-title">${workerId}</h3>
+                        <span class="status-badge" id="badge-${workerId}">INITIALIZING</span>
+                    </div>
+                    <div class="node-task" id="task-${workerId}">${taskId || ''}</div>
+                    <div class="chips" id="chips-${workerId}"></div>
+                `;
+                nodeEl.style.cursor = 'pointer';
+                nodeEl.onclick = () => openDetailsPanel(workerId);
+                
+                document.getElementById('nodesContainer').appendChild(nodeEl);
+                nodesMap.set(workerId, nodeEl);
+            }
+
+            const isSelected = nodeEl.classList.contains('selected');
+            nodeEl.className = `node-card status-${status}${isSelected ? ' selected' : ''}`;
+            document.getElementById(`badge-${workerId}`).innerText = status.toUpperCase();
+            if (taskId && !document.getElementById(`task-${workerId}`).innerText) {
+                document.getElementById(`task-${workerId}`).innerText = taskId;
+            }
+        }
+
+        function addDOMChip(workerId, text, typeClass = '') {
+            const chipsContainer = document.getElementById(`chips-${workerId}`);
+            if (!chipsContainer) return;
+
+            if (Array.from(chipsContainer.children).some(c => c.innerText === text)) {
+                return;
+            }
+
+            const chip = document.createElement('span');
+            chip.className = `chip ${typeClass}`;
+            chip.innerText = text;
+            chipsContainer.appendChild(chip);
+        }
+
+        function appendLog(type, source, content) {
+            const el = document.createElement('div');
+            el.className = 'log-entry';
+            const time = new Date().toLocaleTimeString();
+            el.innerHTML = `
+                <span class="log-time">[${time}]</span>
+                <span class="log-type">${type}</span>
+                <span class="log-source">(${source})</span>
+                <span class="log-content">${content}</span>
+            `;
+            logContainer.appendChild(el);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
