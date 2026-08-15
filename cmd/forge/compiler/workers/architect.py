@@ -11,7 +11,7 @@ from litellm import completion
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 import logging
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
 def main():
@@ -91,8 +91,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         endpoints = [
             {"model": "gemini/gemini-3.5-flash", "api_key": os.environ.get("GEMINI_API_KEY", "")},
             {"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY", "")},
-            {"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY_2", "")},
-            {"model": "openrouter/meta-llama/llama-3.1-8b-instruct:free", "api_key": os.environ.get("OPENROUTER_API_KEY", "")}
+            {"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY_2", "")}
         ]
 
         conversation = [
@@ -100,7 +99,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
             {"role": "user", "content": f"Design the agent graph for this goal: {user_prompt}"}
         ]
 
-        @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60), before_sleep=before_sleep_log(logger, logging.WARNING))
+        @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60))
         def get_architect_response():
             import random
             random.shuffle(endpoints)
@@ -114,12 +113,12 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                         api_key=ep["api_key"],
                         response_format={ "type": "json_object" },
                         messages=conversation,
-                        max_tokens=8192
+                        max_tokens=3000
                     )
                     break
                 except Exception as e:
                     last_err = e
-                    logger.warning(f"Failed with {ep['model']}: {e}")
+                    # logger.warning(f"Failed with {ep['model']}: {e}")
                     
             if resp is None:
                 raise last_err

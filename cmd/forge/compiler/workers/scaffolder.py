@@ -65,7 +65,7 @@ nodes:"""
 
     generated_files["workers/file-writer.py"] = """import sys, json, os, re, logging
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
 def main():

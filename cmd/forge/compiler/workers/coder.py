@@ -287,7 +287,7 @@ litellm.suppress_debug_info = True
 from litellm import completion
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
 from forge_utils import execute_terminal_command, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
@@ -306,11 +306,10 @@ def main():
         endpoints = [
             {{"model": "gemini/gemini-3.5-flash", "api_key": os.environ.get("GEMINI_API_KEY", "")}},
             {{"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY", "")}},
-            {{"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY_2", "")}},
-            {{"model": "openrouter/meta-llama/llama-3.1-8b-instruct:free", "api_key": os.environ.get("OPENROUTER_API_KEY", "")}}
+            {{"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY_2", "")}}
         ]
         
-        @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60), before_sleep=before_sleep_log(logger, logging.WARNING))
+        @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60))
         def do_completion(messages):
             import random
             random.shuffle(endpoints)
@@ -323,12 +322,12 @@ def main():
                         messages=messages,
                         tools=tools,
                         parallel_tool_calls=False,
-                        max_tokens=8192
+                        max_tokens=3000
                     )
                     return resp
                 except Exception as e:
                     last_err = e
-                    logger.warning(f"Failed with {{ep['model']}}: {{e}}")
+                    # logger.warning(f"Failed with {{ep['model']}}: {{e}}")
             raise last_err
             
         # Build clean context from upstream inputs
