@@ -477,6 +477,18 @@ Defines the "Zero-Boilerplate Orchestrator" where natural language dynamically c
 Defines the strict fault-tolerance constraints, mock fallback patterns, and line-by-line JSON payload extraction logic required for `Worker Protocol (v1)`.
 *(See `docs/rfc/RFC-026-Worker-Stdout-Protocol.md` for official specification)*
 
+## RFC-033 — Isolated Session Workspaces
+Defines the separation of Global Project Scope from isolated Session Sandboxes, allowing `forge.exe` to execute multiple concurrent DAG workflows (prompts) without state clashing.
+*(See `docs/rfc/RFC-033-Isolated-Session-Workspaces.md` for official specification)*
+
+## RFC-034 — Complex Agentic Workflows via ReAct
+Defines the upgrade of static Python workers into stateful ReAct agents capable of iterative tool execution and persistent memory tracking via the Go Event Bus.
+*(See `docs/rfc/RFC-034-Complex-Agentic-Workflows.md` for official specification)*
+
+## RFC-035 — Agent Evolution (The Meta-Scaffolder)
+Defines the background telemetry loop where brittle `.yaml` and `worker.py` agent scripts are autonomously rewritten and hot-reloaded by a top-level meta-agent based on empirical failure rates.
+*(See `docs/rfc/RFC-035-Agent-Evolution-Meta-Scaffolder.md` for official specification)*
+
 ---
 
 # Roadmap Philosophy
