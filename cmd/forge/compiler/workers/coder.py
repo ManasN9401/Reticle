@@ -339,8 +339,13 @@ def main():
                 upstream_context += f"### From {{inp_name}}:\\n{{str(inp_data)[:3000]}}\\n\\n"
         
         user_prompt = mem.get("user_prompt", "Complete your assigned task.")
+        ide_context = mem.get("ide_context", "")
         
-        user_msg = "## User's Goal\\n" + user_prompt + "\\n"
+        user_msg = ""
+        if ide_context:
+            user_msg += f"## IDE Context\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\n{{ide_context}}\n\n"
+        
+        user_msg += "## User's Goal\\n" + user_prompt + "\\n"
         if upstream_context:
             user_msg += "\\n## Context From Previous Agents\\n" + upstream_context
         user_msg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. File paths must be relative (e.g. 'main.py', 'utils.py') - do NOT prepend 'src/'. Start by using `list_dir` to see what already exists in the workspace before creating files. Use `read_file` to inspect existing files before modifying them."

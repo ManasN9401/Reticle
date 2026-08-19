@@ -1,18 +1,34 @@
 # RFC-033: Isolated Session Workspaces for Concurrent Node Maps
 
 ## Status
-Proposed (Future Roadmap)
+Accepted
 
 ## Context
-In the current architecture, a "Workspace" represents both the physical project directory and the execution environment for an orchestrated workflow. When a user submits a prompt, `forge.exe` generates a `workflow.yaml` DAG. However, if a user submits *multiple* concurrent prompts (or queues them), they overwrite the single node map for the workspace, causing race conditions, state clashing, and cross-contamination of execution logic.
+In the current architecture, a "Workspace" represents both the physical project directory and the execution environment for an orchestrated workflow. When a user submits a prompt, `forge.exe` generates a `workflow.yaml` DAG. However, if a user submits *multiple* concurrent prompts (or queues them via the Waitlist), they overwrite the single node map for the workspace, causing race conditions, state clashing, and cross-contamination of execution logic.
 
 ## Proposal
-Decouple the "Project Directory" from the "Workflow Session":
-1. **Global Project Scope:** The underlying codebase remains a single shared context.
-2. **Isolated Session Sandboxes:** Every prompt triggers a unique `session_id`.
-3. **Namespaced Workflows:** Instead of a global `workflow.yaml`, `scaffolder.py` generates `workflows/workflow_{session_id}.yaml`.
-4. **Execution Isolation:** `executor.go` filters and executes sub-processes purely scoped to their `session_id`. The Event Bus will tag all events (like `AgentFinished`) with the corresponding session ID so the Telemetry UI can render multiple concurrent graph visualizations.
+We will decouple the "Project Directory" from the "Workflow Session Sandboxes".
+
+### 1. Directory Structure Overhaul
+We will transition from a singular global `.hyperparallel` workspace to a nested, session-based execution environment. 
+- **Global Project Scope:** The underlying codebase (`src/`, `cmd/`, etc.) remains a single shared context.
+- **Isolated Session Sandboxes:** Every execution triggered by the Waitlist generates a unique `session_id` (e.g., `exec-001`). 
+- **Namespaced Metadata:** `scaffolder.py` will no longer generate a global `workflow.yaml`. Instead, it will write to `.hyperparallel/sessions/{session_id}/workflow.yaml`. All artifacts and transient memory states will be strictly bound to this directory.
+
+### 2. Event Bus & Memory Segregation
+- The `WaitlistItem` ID (e.g., `exec-001`) becomes the universal `session_id`.
+- Every event published to the Go Event Bus (`NodeStarted`, `AgentFinished`, `MemoryWriteRequested`) MUST include this `session_id` in its payload.
+- The `MemoryStore`'s `ScopeExecution` namespace will enforce strict boundaries. An agent running in `exec-001` cannot read the dynamic memory keys or intermediate artifacts of `exec-002`.
+
+### 3. Concurrency Safety: Pessimistic File Locking
+If two isolated sessions (e.g., Prompt A: "Refactor auth" and Prompt B: "Add rate limiting") run concurrently, they may attempt to modify the same source file (`middleware.go`) simultaneously. If Agent B generates a line-replacement patch based on a stale read of `middleware.go` (before Agent A applied its changes), the patch will corrupt the file.
+
+To prevent "messy merges" or stale patches, we introduce **Pessimistic File Locking**:
+1. **Lock Request:** When an agent decides it needs to edit a file, it must emit a `FileLockRequested` JSON payload to the Go Orchestrator via `stdout`.
+2. **Orchestrator Mutex:** The Go Event Bus maintains an in-memory `sync.Mutex` map keyed by absolute file paths.
+3. **Blocking Execution:** If Agent B requests a lock on `middleware.go` while Agent A holds it, the Orchestrator pauses Agent B's execution stream.
+4. **Fresh Context:** Once Agent A releases the lock, Agent B acquires it. Crucially, Agent B must now read the *fresh* state of the file from disk before attempting to write any code, ensuring its context is completely up-to-date.
 
 ## Consequences
-- **Pros:** Users can spawn highly complex, parallel coding instructions (e.g. "Build the UI" while simultaneously "Setup the database") without the node maps destroying each other.
-- **Cons:** Shared file modification conflicts will emerge if two isolated sessions attempt to edit the same file simultaneously. Requires a File Locking or CRDT mechanism (Future RFC).
+- **Pros:** Users can spawn highly complex, parallel coding instructions continuously. The orchestrator guarantees that node maps never clash and file modifications are safely serialized without resorting to thousands of temporary Git branches.
+- **Cons:** High-contention files (e.g., `main.go`) may cause localized bottlenecks where multiple agents sit idle waiting for locks.

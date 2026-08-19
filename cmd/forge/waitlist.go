@@ -32,12 +32,13 @@ const (
 )
 
 type WaitlistItem struct {
-	ID        string          `json:"id"`
-	Prompt    string          `json:"prompt"`
-	Status    ExecutionStatus `json:"status"`
-	Group     string          `json:"group"`
-	Mode      ExecutionMode   `json:"mode"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID         string          `json:"id"`
+	Prompt     string          `json:"prompt"`
+	Status     ExecutionStatus `json:"status"`
+	Group      string          `json:"group"`
+	Mode       ExecutionMode   `json:"mode"`
+	IDEContext string          `json:"ide_context,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
 }
 
 type WaitlistManager struct {
@@ -140,11 +141,12 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 				prompt, _ := payload["prompt"].(string)
 				group, _ := payload["group"].(string)
 				modeStr, _ := payload["mode"].(string)
+				ideContext, _ := payload["ide_context"].(string)
 				mode := ModeParallel
 				if modeStr == "sequential" {
 					mode = ModeSequential
 				}
-				wm.Enqueue(prompt, group, mode)
+				wm.Enqueue(prompt, group, mode, ideContext)
 			case "remove":
 				id, _ := payload["id"].(string)
 				wm.Remove(id)
@@ -163,7 +165,7 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 	return wm
 }
 
-func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMode) {
+func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMode, ideContext string) {
 	wm.mu.Lock()
 	
 	id := fmt.Sprintf("exec-%03d", wm.nextID)
@@ -173,13 +175,19 @@ func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMo
 		mode = ModeParallel
 	}
 	
+	// Truncate IDE context to prevent massive payloads crashing the bus
+	if len(ideContext) > 5000 {
+		ideContext = ideContext[:5000] + "\n\n[WARNING: IDE Context Truncated. Some lines omitted. Use read_file tool to view full file contents if needed!]"
+	}
+	
 	item := &WaitlistItem{
-		ID:        id,
-		Prompt:    prompt,
-		Status:    StatusPending,
-		Group:     group,
-		Mode:      mode,
-		CreatedAt: time.Now(),
+		ID:         id,
+		Prompt:     prompt,
+		Status:     StatusPending,
+		Group:      group,
+		Mode:       mode,
+		IDEContext: ideContext,
+		CreatedAt:  time.Now(),
 	}
 	wm.items = append(wm.items, item)
 	wm.save()
@@ -305,6 +313,16 @@ func (wm *WaitlistManager) Pump() {
 				Value:   item.Prompt,
 				Owner:   "waitlist",
 			})
+			
+			if item.IDEContext != "" {
+				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+					Scope:   memory.ScopeExecution,
+					ScopeID: item.ID,
+					Key:     "ide_context",
+					Value:   item.IDEContext,
+					Owner:   "waitlist",
+				})
+			}
 			
 			// Launch workflow
 			go func(i *WaitlistItem) {

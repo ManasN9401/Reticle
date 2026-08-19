@@ -94,9 +94,14 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
             {"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY_2", "")}
         ]
 
+        ide_context = mem.get("ide_context", "")
+        ide_prefix = ""
+        if ide_context:
+            ide_prefix = f"## IDE Context\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\n{ide_context}\n\n"
+
         conversation = [
             {"role": "system", "content": system_msg},
-            {"role": "user", "content": f"Design the agent graph for this goal: {user_prompt}"}
+            {"role": "user", "content": f"{ide_prefix}Design the agent graph for this goal: {user_prompt}"}
         ]
 
         @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60))
