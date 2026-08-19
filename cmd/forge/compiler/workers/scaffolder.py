@@ -10,6 +10,9 @@ def main():
     
     req = json.loads(line)
     req_id = req.get("id")
+    session_id = req.get("execution", req_id)
+    if session_id.startswith("compile-"):
+        session_id = session_id[8:]
     inputs = req.get("inputs", [])
     
     dag_json_str = ""
@@ -38,9 +41,52 @@ entrypoint: workers/{agent_id}.py
 """
         generated_files[f"agents/{agent_id}.yaml"] = agent_yaml_str
         
+        system_prompt = agent.get("system_prompt", "You are an AI assistant.")
+        
+        # Generate the Python script for the agent
+        agent_py_str = f"""import sys, json, os, subprocess
+
+def main():
+    line = sys.stdin.readline()
+    if not line: return
+    
+    req = json.loads(line)
+    req_id = req.get("id", "unknown")
+    inputs = req.get("inputs", [])
+    
+    system_prompt = {repr(system_prompt)}
+    
+    user_prompt = ""
+    for inp in inputs:
+        user_prompt += f"Input '{{inp.get('name')}}':\\n{{inp.get('data')}}\\n\\n"
+        
+    prompt = system_prompt + "\\n\\n" + user_prompt
+    
+    # We use a simple subprocess call to invoke the LLM via node or another CLI, or we can just mock it for this prototype
+    # For now, we will just echo a placeholder response since we don't have the LLM bindings injected in this script
+    # Wait, the Runtime injects 'llm_model' in parameters!
+    
+    # For this prototype, we'll just mock the LLM response to avoid complex binding setup.
+    result_text = f"Mock response from {agent_id} for task {{req_id}}"
+    
+    artifact = {{
+        "id": f"{{req_id}}_output",
+        "name": "{agent_id} Output",
+        "type": "text/plain",
+        "data": result_text
+    }}
+    
+    print(json.dumps({{"id": req_id, "artifact": artifact}}))
+
+if __name__ == "__main__":
+    main()
+"""
+        generated_files[f"workers/{agent_id}.py"] = agent_py_str
+        
     # Generate Workflow YAML
     
-    workflow_yaml_str = f"""id: workflow_{req_id}
+    workflow_id = f"workflow_{session_id}" if req.get("execution", "").startswith("compile-exec-") else "generated-workflow"
+    workflow_yaml_str = f"""id: {workflow_id}
 name: {dag.get('workflow_name', 'Generated Workflow')}
 version: 1.0.0
 nodes:"""
@@ -59,7 +105,7 @@ nodes:"""
     to: {edge.get('to')}"""
     
         
-    generated_files[f"workflows/workflow_{req_id}.yaml"] = workflow_yaml_str
+    generated_files[f"workflows/{workflow_id}.yaml"] = workflow_yaml_str
     
 
 
@@ -74,9 +120,10 @@ def main():
     
     req = json.loads(line)
     req_id = req.get("id", "unknown")
+    exec_id = req.get("execution", "unknown")
     inputs = req.get("inputs", [])
     mem = req.get("memory", {})
-    workspace_dir = mem.get("workspace_dir", f"./.hyperparallel/sessions/{req_id}")
+    workspace_dir = mem.get("workspace_dir", f"./.hyperparallel/sessions/{exec_id}")
     src_dir = os.path.join(workspace_dir, "src")
     os.makedirs(src_dir, exist_ok=True)
     
@@ -172,7 +219,11 @@ if __name__ == "__main__":
     
     import os
     mem = req.get("memory", {})
-    workspace_dir = mem.get("workspace_dir", f"./.hyperparallel/sessions/{req_id}")
+    workspace_dir = mem.get("workspace_dir", f"./.hyperparallel/sessions/{session_id}")
+    
+    # Force isolated path if it's an isolated compile step (Waitlist dynamically injects 'compile-exec-XXX')
+    if req.get("execution", "").startswith("compile-exec-"):
+        workspace_dir = f"./.hyperparallel/sessions/{session_id}"
     for path, content in generated_files.items():
         full_path = os.path.join(workspace_dir, path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)

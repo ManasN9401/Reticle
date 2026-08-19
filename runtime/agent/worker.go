@@ -191,7 +191,7 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 			}
 
 			// Try parsing final response
-			if err := json.Unmarshal([]byte(line), &resp); err == nil && resp.Artifact.ID != "" {
+			if err := json.Unmarshal([]byte(line), &resp); err == nil && resp.Artifact != nil && resp.Artifact.ID != "" {
 				foundJson = true
 				parseErr = nil
 				break // Artifact received, task is done

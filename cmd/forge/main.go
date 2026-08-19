@@ -68,6 +68,8 @@ func runWorkflowSync(graphEngine *agent.GraphEngine, orch *orchestrator.Orchestr
 }
 
 func main() {
+	isolatedFlag := flag.Bool("isolated", true, "Use isolated session workspaces (dynamic compilation per prompt)")
+	freshFlag := flag.Bool("fresh", false, "Clear all previous isolated sessions on boot")
 	batchSize := flag.Int("batch", 5, "Number of concurrent workflows to run in a batch")
 	workspaceFlag := flag.String("workspace", "", "Path to an existing compiled workspace to run (skips compilation Phase 1)")
 	portFlag := flag.Int("port", 8080, "Port to run the UI telemetry server on")
@@ -91,6 +93,11 @@ func main() {
 
 	// Clean up old workspaces
 	cleanupWorkspaces("workspaces", 3)
+
+	if *freshFlag {
+		fmt.Println("[INFO] Wiping all previous isolated sessions...")
+		os.RemoveAll(".hyperparallel/sessions")
+	}
 
 	timestamp := time.Now().Format("20060102_150405")
 	var workspaceDir string
@@ -126,9 +133,7 @@ func main() {
 	graphEngine := agent.NewGraphEngine(orch.Logger, orch.Bus)
 	graphEngine.Start()
 
-	waitlistPath := filepath.Join(workspaceDir, "waitlist.json")
 	registry := agent.NewRegistry()
-	wm := NewWaitlistManager(waitlistPath, *batchSize, graphEngine, orch, registry)
 	compilerDir, _ := filepath.Abs(filepath.Join("compiler"))
 
 	// Load Global Skills and Agents
@@ -158,6 +163,9 @@ func main() {
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)
+	
+	waitlistPath := filepath.Join(workspaceDir, "waitlist.json")
+	wm := NewWaitlistManager(waitlistPath, *batchSize, graphEngine, orch, registry, dispatcher, envManager)
 
 	for _, sub := range registry.BuildSubscriptions() {
 		subManager.Register(sub)
@@ -197,8 +205,48 @@ func main() {
 	compilerWf := registry.Workflows["forge-compiler"]
 	wm.SetCompilerDef(compilerWf)
 
-	fmt.Println("\n[INFO] Orchestrator running in Session Isolation Mode")
-	fmt.Println("[INFO] Workspaces will be dynamically generated in .hyperparallel/sessions/")
+	if *isolatedFlag {
+		fmt.Println("\n[INFO] Orchestrator running in Session Isolation Mode")
+		fmt.Println("[INFO] Workspaces will be dynamically generated in .hyperparallel/sessions/")
+	} else {
+		// Legacy Mode (Global Workspace)
+		fmt.Println("\n[INFO] Orchestrator running in Global Workspace Mode")
+		
+		if *workspaceFlag == "" {
+			fmt.Println("\n[PHASE 1] COMPILATION STARTED")
+			err := runWorkflowSync(graphEngine, orch, compilerWf, "compile-001")
+			if err != nil {
+				fmt.Printf("Compilation Failed: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("\n[PHASE 1] COMPILATION SUCCESSFUL")
+		} else {
+			fmt.Println("\n[PHASE 1] SKIPPED (Loading existing workspace)")
+		}
+
+		// Load generated agents and workflows
+		registry.LoadAgents(filepath.Join(workspaceDir, "agents"))
+		registry.LoadWorkflows(filepath.Join(workspaceDir, "workflows"))
+
+		newWorkers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
+		for _, w := range newWorkers {
+			dispatcher.RegisterWorker(w)
+		}
+
+		for _, sub := range registry.BuildSubscriptions() {
+			subManager.Register(sub) 
+		}
+
+		// Change working directory to the workspace
+		if err := os.Chdir(workspaceDir); err != nil {
+			fmt.Printf("Failed to chdir to workspace: %v\n", err)
+			os.Exit(1)
+		}
+
+		execWf := registry.Workflows["generated-workflow"]
+		wm.SetGlobalWorkflow(execWf)
+		wm.SetCompilerDef(nil)
+	}
 
 	// Enqueue initial prompt if present
 	if userPrompt != "" {

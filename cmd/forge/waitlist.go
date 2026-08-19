@@ -48,18 +48,23 @@ type WaitlistManager struct {
 	filePath     string
 	maxWorkers   int
 	graphEngine  *agent.GraphEngine
-	orchestrator *orchestrator.Orchestrator
-	registry     *agent.Registry
-	compilerDef  *agent.WorkflowDefinition
+	orchestrator   *orchestrator.Orchestrator
+	registry       *agent.Registry
+	dispatcher     *agent.Dispatcher
+	envManager     *agent.EnvironmentManager
+	compilerDef    *agent.WorkflowDefinition
+	globalWorkflow *agent.WorkflowDefinition
 }
 
-func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngine, orch *orchestrator.Orchestrator, reg *agent.Registry) *WaitlistManager {
+func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngine, orch *orchestrator.Orchestrator, reg *agent.Registry, disp *agent.Dispatcher, env *agent.EnvironmentManager) *WaitlistManager {
 	wm := &WaitlistManager{
 		filePath:     filePath,
 		maxWorkers:   maxWorkers,
 		graphEngine:  engine,
 		orchestrator: orch,
 		registry:     reg,
+		dispatcher:   disp,
+		envManager:   env,
 		items:        make([]*WaitlistItem, 0),
 		nextID:       1,
 	}
@@ -72,17 +77,27 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 			if ok {
 				if strings.HasPrefix(execID, "compile-") {
 					sessionID := strings.TrimPrefix(execID, "compile-")
-					wfDir := filepath.Join(".hyperparallel", "sessions", sessionID, "workflows")
 					
+					// Load any dynamically generated agents first
+					agentDir := filepath.Join(".hyperparallel", "sessions", sessionID, "agents")
+					wm.registry.LoadAgents(agentDir)
+					newWorkers := wm.registry.BuildWorkers(wm.orchestrator.Logger, wm.orchestrator.Bus, wm.envManager)
+					for _, w := range newWorkers {
+						wm.dispatcher.RegisterWorker(w)
+					}
+					
+					wfDir := filepath.Join(".hyperparallel", "sessions", sessionID, "workflows")
 					loadErr := wm.registry.LoadWorkflows(wfDir)
 					if loadErr == nil {
 						wfName := "workflow_" + sessionID
 						if wf, exists := wm.registry.Workflows[wfName]; exists {
 							wm.graphEngine.SubmitWorkflow(wf, sessionID)
 						} else {
+							wm.orchestrator.Logger.Error("[Waitlist] Missing workflow ID in registry", "wfName", wfName, "wfDir", wfDir)
 							wm.updateStatus(sessionID, StatusFailed) 
 						}
 					} else {
+						wm.orchestrator.Logger.Error("[Waitlist] Failed to load workflow", "loadErr", loadErr, "wfDir", wfDir)
 						wm.updateStatus(sessionID, StatusFailed) // Compilation failed or missing workflow
 					}
 				} else {
@@ -197,6 +212,11 @@ func (wm *WaitlistManager) updateStatus(id string, status ExecutionStatus) {
 }
 
 
+func (wm *WaitlistManager) SetGlobalWorkflow(wf *agent.WorkflowDefinition) {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	wm.globalWorkflow = wf
+}
 
 func (wm *WaitlistManager) SetCompilerDef(def *agent.WorkflowDefinition) {
 	wm.mu.Lock()
@@ -294,12 +314,24 @@ func (wm *WaitlistManager) Pump() {
 				})
 			}
 			
+			// Inject workspace_dir for this execution
+			isolatedWorkspacePath, _ := filepath.Abs(filepath.Join(".hyperparallel", "sessions", item.ID))
+			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+				Scope:   memory.ScopeExecution,
+				ScopeID: item.ID,
+				Key:     "workspace_dir",
+				Value:   isolatedWorkspacePath,
+				Owner:   "waitlist",
+			})
+			
 			// Launch workflow
 			go func(i *WaitlistItem) {
 				// give memory a split second to propagate
 				time.Sleep(500 * time.Millisecond)
 				
-				if wm.compilerDef != nil {
+				if wm.globalWorkflow != nil {
+					wm.graphEngine.SubmitWorkflow(wm.globalWorkflow, i.ID)
+				} else if wm.compilerDef != nil {
 					wm.graphEngine.SubmitWorkflow(wm.compilerDef, "compile-"+i.ID)
 				}
 			}(item)
