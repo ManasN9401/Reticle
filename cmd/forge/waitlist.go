@@ -49,86 +49,60 @@ type WaitlistManager struct {
 	maxWorkers   int
 	graphEngine  *agent.GraphEngine
 	orchestrator *orchestrator.Orchestrator
-	workflowDef  *agent.WorkflowDefinition
+	registry     *agent.Registry
+	compilerDef  *agent.WorkflowDefinition
 }
 
-func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngine, orch *orchestrator.Orchestrator) *WaitlistManager {
+func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngine, orch *orchestrator.Orchestrator, reg *agent.Registry) *WaitlistManager {
 	wm := &WaitlistManager{
 		filePath:     filePath,
 		maxWorkers:   maxWorkers,
 		graphEngine:  engine,
 		orchestrator: orch,
+		registry:     reg,
 		items:        make([]*WaitlistItem, 0),
 		nextID:       1,
 	}
 	wm.load()
 	
 	// Subscribe to events
-	orch.Bus.Subscribe(events.EventType("WorkflowCompleted"), func(e events.RuntimeEvent) {
-		if payload, ok := e.Payload.(map[string]any); ok {
-			if execId, ok := payload["execution"].(string); ok {
-				wm.updateStatus(execId, StatusCompleted)
-				wm.Pump()
-				
-				// Dump Artifacts
-				artifacts := orch.Artifacts.GetByExecution(execId)
-				if len(artifacts) > 0 {
-					outDir := filepath.Join(filepath.Dir(filePath), "outputs", execId)
-					os.MkdirAll(outDir, 0755)
+	orch.Bus.Subscribe(events.EventType("WorkflowCompleted"), func(event events.RuntimeEvent) {
+		if payload, ok := event.Payload.(map[string]any); ok {
+			execID, ok := payload["execution"].(string)
+			if ok {
+				if strings.HasPrefix(execID, "compile-") {
+					sessionID := strings.TrimPrefix(execID, "compile-")
+					wfDir := filepath.Join(".hyperparallel", "sessions", sessionID, "workflows")
 					
-					var readmeContent string
-					readmeContent += fmt.Sprintf("# Execution %s Outputs\n\n", execId)
-					
-					for _, art := range artifacts {
-						if art.Data != nil {
-							// Try to cast to string or bytes
-							var content []byte
-							switch v := art.Data.(type) {
-							case string:
-								content = []byte(v)
-							case []byte:
-								content = v
-							default:
-								b, _ := json.MarshalIndent(v, "", "  ")
-								content = b
-							}
-							
-							fileName := string(art.ID)
-							fileName = strings.ReplaceAll(fileName, "|", "_")
-							
-							// Add extension if not present in ID
-							if !strings.Contains(fileName, ".") {
-								if strings.Contains(string(art.Type), "code") || strings.Contains(string(art.Type), "python") {
-									fileName += ".py"
-								} else if strings.Contains(string(art.Type), "text") || strings.Contains(string(art.Type), "markdown") {
-									fileName += ".md"
-								} else {
-									fileName += ".json"
-								}
-							}
-							
-							// Just write it out
-							artPath := filepath.Join(outDir, fileName)
-							err := os.WriteFile(artPath, content, 0644)
-							if err != nil {
-								readmeContent += fmt.Sprintf("- `%s` (Producer: %s, Type: %s) - FAILED TO WRITE: %v\n", fileName, art.Producer, art.Type, err)
-							} else {
-								readmeContent += fmt.Sprintf("- `%s` (Producer: %s, Type: %s)\n", fileName, art.Producer, art.Type)
-							}
+					loadErr := wm.registry.LoadWorkflows(wfDir)
+					if loadErr == nil {
+						wfName := "workflow_" + sessionID
+						if wf, exists := wm.registry.Workflows[wfName]; exists {
+							wm.graphEngine.SubmitWorkflow(wf, sessionID)
+						} else {
+							wm.updateStatus(sessionID, StatusFailed) 
 						}
+					} else {
+						wm.updateStatus(sessionID, StatusFailed) // Compilation failed or missing workflow
 					}
-					os.WriteFile(filepath.Join(outDir, "README.md"), []byte(readmeContent), 0644)
-					fmt.Printf("\n[INFO] Dumped %d artifacts to %s\n> ", len(artifacts), outDir)
+				} else {
+					wm.updateStatus(execID, StatusCompleted)
+					wm.Pump()
 				}
 			}
 		}
 	})
 	
-	orch.Bus.Subscribe(events.EventType("WorkflowFailed"), func(e events.RuntimeEvent) {
-		if payload, ok := e.Payload.(map[string]any); ok {
-			if execId, ok := payload["execution"].(string); ok {
-				wm.updateStatus(execId, StatusFailed)
-				wm.Pump()
+	orch.Bus.Subscribe(events.EventType("WorkflowFailed"), func(event events.RuntimeEvent) {
+		if payload, ok := event.Payload.(map[string]any); ok {
+			execID, ok := payload["execution"].(string)
+			if ok {
+				if strings.HasPrefix(execID, "compile-") {
+					sessionID := strings.TrimPrefix(execID, "compile-")
+					wm.updateStatus(sessionID, StatusFailed)
+				} else {
+					wm.updateStatus(execID, StatusFailed)
+				}
 			}
 		}
 	})
@@ -222,11 +196,12 @@ func (wm *WaitlistManager) updateStatus(id string, status ExecutionStatus) {
 	}
 }
 
-func (wm *WaitlistManager) SetWorkflow(wf *agent.WorkflowDefinition) {
+
+
+func (wm *WaitlistManager) SetCompilerDef(def *agent.WorkflowDefinition) {
 	wm.mu.Lock()
-	wm.workflowDef = wf
-	wm.mu.Unlock()
-	wm.Pump() // Start processing if we have pending items
+	defer wm.mu.Unlock()
+	wm.compilerDef = def
 }
 
 func (wm *WaitlistManager) load() {
@@ -263,12 +238,7 @@ func (wm *WaitlistManager) save() {
 
 func (wm *WaitlistManager) Pump() {
 	wm.mu.Lock()
-	defer wm.mu.Unlock()
 	
-	if wm.workflowDef == nil {
-		return // Do not process queue until workflow is loaded
-	}
-
 	// Count running total and running per group
 	runningTotal := 0
 	runningGroups := make(map[string]int)
@@ -327,13 +297,13 @@ func (wm *WaitlistManager) Pump() {
 			// Launch workflow
 			go func(i *WaitlistItem) {
 				// give memory a split second to propagate
-				time.Sleep(100 * time.Millisecond) 
-				err := wm.graphEngine.SubmitWorkflow(wm.workflowDef, i.ID)
-				if err != nil {
-					wm.updateStatus(i.ID, StatusFailed)
-					wm.Pump()
+				time.Sleep(500 * time.Millisecond)
+				
+				if wm.compilerDef != nil {
+					wm.graphEngine.SubmitWorkflow(wm.compilerDef, "compile-"+i.ID)
 				}
 			}(item)
 		}
 	}
+	wm.mu.Unlock()
 }

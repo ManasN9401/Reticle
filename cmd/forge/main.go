@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,11 +68,10 @@ func runWorkflowSync(graphEngine *agent.GraphEngine, orch *orchestrator.Orchestr
 }
 
 func main() {
-	autoApprove := flag.Bool("auto-approve", false, "Execute the compiled workflow automatically without prompting")
-	batchSize := flag.Int("batch", 1, "Number of concurrent executions for the generated workflow in Phase 2")
+	batchSize := flag.Int("batch", 5, "Number of concurrent workflows to run in a batch")
 	workspaceFlag := flag.String("workspace", "", "Path to an existing compiled workspace to run (skips compilation Phase 1)")
 	portFlag := flag.Int("port", 8080, "Port to run the UI telemetry server on")
-	legacyFlag := flag.Bool("legacy", false, "Use legacy UI")
+	legacyFlag := flag.Bool("legacy", false, "Use legacy terminal UI (no web UI)")
 	flag.Parse()
 
 	args := flag.Args()
@@ -129,9 +127,8 @@ func main() {
 	graphEngine.Start()
 
 	waitlistPath := filepath.Join(workspaceDir, "waitlist.json")
-	wm := NewWaitlistManager(waitlistPath, *batchSize, graphEngine, orch)
-
 	registry := agent.NewRegistry()
+	wm := NewWaitlistManager(waitlistPath, *batchSize, graphEngine, orch, registry)
 	compilerDir, _ := filepath.Abs(filepath.Join("compiler"))
 
 	// Load Global Skills and Agents
@@ -196,61 +193,12 @@ func main() {
 	})
 	time.Sleep(500 * time.Millisecond) // Let memory propagate
 
-	// PHASE 1
-	if *workspaceFlag == "" {
-		wf := registry.Workflows["forge-compiler"]
-		fmt.Println("\n[PHASE 1] COMPILATION STARTED")
+	// Pass the Compiler DAG to the Waitlist Manager so it can build sessions dynamically
+	compilerWf := registry.Workflows["forge-compiler"]
+	wm.SetCompilerDef(compilerWf)
 
-		err := runWorkflowSync(graphEngine, orch, wf, "compile-001")
-		if err != nil {
-			log.Fatalf("Compilation Failed: %v", err)
-		}
-		fmt.Println("\n[PHASE 1] COMPILATION SUCCESSFUL")
-
-		// 4. Ask for Approval
-		if !*autoApprove {
-			fmt.Printf("\nForge has compiled the workspace to: %s\n", workspaceDir)
-			fmt.Print("Do you want to execute it now? (y/n): ")
-			reader := bufio.NewReader(os.Stdin)
-			response, _ := reader.ReadString('\n')
-			response = strings.TrimSpace(strings.ToLower(response))
-			if response != "y" && response != "yes" {
-				fmt.Println("Execution of initial prompt skipped. Entering Execution Shell...")
-				userPrompt = "" // Prevent it from being enqueued
-			}
-		} else {
-			fmt.Println("\n[INFO] Auto-Approve enabled. Proceeding to execution immediately.")
-		}
-	} else {
-		fmt.Println("\n[PHASE 1] SKIPPED (Loading existing workspace)")
-	}
-
-	// 5. Hot-Load new agents
-	if err := registry.LoadAgents(filepath.Join(workspaceDir, "agents")); err != nil {
-		log.Fatalf("Failed to load agents: %v", err)
-	}
-	if err := registry.LoadWorkflows(filepath.Join(workspaceDir, "workflows")); err != nil {
-		log.Fatalf("Failed to load workflows: %v", err)
-	}
-
-	newWorkers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
-	for _, w := range newWorkers {
-		dispatcher.RegisterWorker(w)
-	}
-
-	for _, sub := range registry.BuildSubscriptions() {
-		subManager.Register(sub) // Manager should ignore duplicates
-	}
-
-	fmt.Println("\n[PHASE 2] EXECUTION STARTED")
-
-	// Change working directory to the workspace so relative paths resolve correctly
-	if err := os.Chdir(workspaceDir); err != nil {
-		log.Fatalf("Failed to chdir to workspace: %v", err)
-	}
-
-	execWf := registry.Workflows["generated-workflow"]
-	wm.SetWorkflow(execWf)
+	fmt.Println("\n[INFO] Orchestrator running in Session Isolation Mode")
+	fmt.Println("[INFO] Workspaces will be dynamically generated in .hyperparallel/sessions/")
 
 	// Enqueue initial prompt if present
 	if userPrompt != "" {
@@ -275,13 +223,6 @@ func main() {
 			break
 		}
 		if text == "" {
-			fmt.Print("> ")
-			continue
-		}
-
-		if execWf == nil {
-			fmt.Println("[ERROR] No workflow loaded in this workspace. You cannot queue executions.")
-			fmt.Println("[HINT] To compile a new workflow, restart forge with your prompt as an argument: .\\forge.exe \"your prompt here\"")
 			fmt.Print("> ")
 			continue
 		}

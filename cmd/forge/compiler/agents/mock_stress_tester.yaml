@@ -1,0 +1,6 @@
+id: mock_stress_tester
+name: "Mock Stress Tester"
+description: "A specialized test agent that aggressively acquires locks via IPC to test pessimistic file locking."
+version: 1.0.0
+runtime: python
+entrypoint: workers/mock_stress_tester.py

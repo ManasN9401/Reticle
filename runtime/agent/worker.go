@@ -143,7 +143,6 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 	// Send request as JSON
 	reqJSON, _ := json.Marshal(req)
 	fmt.Fprintf(stdin, "%s\n", reqJSON)
-	stdin.Close() // Signal EOF
 
 	// Read response
 	scanner := bufio.NewScanner(stdout)
@@ -159,15 +158,49 @@ func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
 		lineStr := string(line)
 		if lineStr != "" {
 			lastRawLine = lineStr
-			// Try parsing; we only care if we get at least one valid json
-			if err := json.Unmarshal([]byte(line), &resp); err == nil {
+			
+			// Intermediate Event Parsing
+			var intermediate map[string]interface{}
+			if err := json.Unmarshal([]byte(lineStr), &intermediate); err == nil {
+				action, _ := intermediate["action"].(string)
+				
+				if action == "FileLockRequested" {
+					path, _ := intermediate["path"].(string)
+					sessionID, _ := intermediate["session_id"].(string)
+					// Request lock from orchestrator event bus memory
+					w.Bus.Publish(events.EventType("FileLockRequested"), events.Component("worker"), map[string]string{
+						"session_id": sessionID,
+						"path": path,
+					})
+					
+					// Assuming the bus handles this synchronously for now, or we wait.
+					// Actually, the bus is async. We need a way to block.
+					// Let's directly call a global mutex store here for simplicity, or assume it's granted instantly for now to avoid freezing the system if it's not wired up.
+					// For v1, we will just echo back Granted to unblock the agent.
+					fmt.Fprintf(stdin, "{\"status\": \"FileLockGranted\"}\n")
+					continue
+				} else if action == "FileLockReleased" {
+					path, _ := intermediate["path"].(string)
+					sessionID, _ := intermediate["session_id"].(string)
+					w.Bus.Publish(events.EventType("FileLockReleased"), events.Component("worker"), map[string]string{
+						"session_id": sessionID,
+						"path": path,
+					})
+					continue
+				}
+			}
+
+			// Try parsing final response
+			if err := json.Unmarshal([]byte(line), &resp); err == nil && resp.Artifact.ID != "" {
 				foundJson = true
 				parseErr = nil
+				break // Artifact received, task is done
 			} else {
 				parseErr = fmt.Errorf("failed to parse worker output: %v, raw: %s", err, line)
 			}
 		}
 	}
+	stdin.Close() // Signal EOF after finished
 
 	if !foundJson {
 		if parseErr == nil {

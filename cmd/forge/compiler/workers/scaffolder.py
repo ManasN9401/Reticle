@@ -40,7 +40,7 @@ entrypoint: workers/{agent_id}.py
         
     # Generate Workflow YAML
     
-    workflow_yaml_str = f"""id: generated-workflow
+    workflow_yaml_str = f"""id: workflow_{req_id}
 name: {dag.get('workflow_name', 'Generated Workflow')}
 version: 1.0.0
 nodes:"""
@@ -59,7 +59,7 @@ nodes:"""
     to: {edge.get('to')}"""
     
         
-    generated_files["workflows/workflow.yaml"] = workflow_yaml_str
+    generated_files[f"workflows/workflow_{req_id}.yaml"] = workflow_yaml_str
     
 
 
@@ -76,7 +76,7 @@ def main():
     req_id = req.get("id", "unknown")
     inputs = req.get("inputs", [])
     mem = req.get("memory", {})
-    workspace_dir = mem.get("workspace_dir", "./workspaces/default")
+    workspace_dir = mem.get("workspace_dir", f"./.hyperparallel/sessions/{req_id}")
     src_dir = os.path.join(workspace_dir, "src")
     os.makedirs(src_dir, exist_ok=True)
     
@@ -172,7 +172,7 @@ if __name__ == "__main__":
     
     import os
     mem = req.get("memory", {})
-    workspace_dir = mem.get("workspace_dir", ".")
+    workspace_dir = mem.get("workspace_dir", f"./.hyperparallel/sessions/{req_id}")
     for path, content in generated_files.items():
         full_path = os.path.join(workspace_dir, path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
