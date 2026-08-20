@@ -93,10 +93,12 @@ func main() {
 
 	// Clean up old workspaces
 	cleanupWorkspaces("workspaces", 3)
+	
+	rootDir, _ := filepath.Abs("../../")
 
 	if *freshFlag {
 		fmt.Println("[INFO] Wiping all previous isolated sessions...")
-		os.RemoveAll(".hyperparallel/sessions")
+		os.RemoveAll(filepath.Join(rootDir, ".hyperparallel", "sessions"))
 	}
 
 	timestamp := time.Now().Format("20060102_150405")
@@ -113,7 +115,6 @@ func main() {
 			*workspaceFlag = workspaceDir // Trick Phase 1 into skipping
 		}
 	}
-	rootDir, _ := filepath.Abs("../../")
 	loadEnv(rootDir)
 
 	// 1. Boot Runtime
@@ -121,7 +122,7 @@ func main() {
 	orch.Start()
 	defer orch.Shutdown()
 
-	telemetryServer := telemetry.NewServer(orch.Bus, fmt.Sprintf(":%d", *portFlag))
+	telemetryServer := telemetry.NewServer(orch.Bus, fmt.Sprintf(":%d", *portFlag), rootDir)
 	go telemetryServer.Start()
 
 	if !*legacyFlag {

@@ -303,32 +303,29 @@ def main():
         workspace_dir = mem.get("workspace_dir", ".")
         src_dir = os.path.join(workspace_dir, "src")
         
-        endpoints = [
-            {{"model": "gemini/gemini-3.5-flash", "api_key": os.environ.get("GEMINI_API_KEY", "")}},
-            {{"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY", "")}},
-            {{"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY_2", "")}}
-        ]
+        model = req.get("parameters", {{}}).get("llm_model", "gemini/gemini-3.5-flash")
         
-        @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60))
+        # We can configure fallbacks natively in litellm
+        fallbacks = ["groq/llama-3.3-70b-versatile", "gemini/gemini-3.5-flash"]
+        # Ensure we don't put the primary model in the fallbacks list
+        if model in fallbacks:
+            fallbacks.remove(model)
+        
+        @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=30))
         def do_completion(messages):
-            import random
-            random.shuffle(endpoints)
-            last_err = None
-            for ep in endpoints:
-                try:
-                    resp = completion(
-                        model=ep["model"],
-                        api_key=ep["api_key"],
-                        messages=messages,
-                        tools=tools,
-                        parallel_tool_calls=False,
-                        max_tokens=3000
-                    )
-                    return resp
-                except Exception as e:
-                    last_err = e
-                    # logger.warning(f"Failed with {{ep['model']}}: {{e}}")
-            raise last_err
+            try:
+                resp = completion(
+                    model=model,
+                    messages=messages,
+                    tools=tools,
+                    parallel_tool_calls=False,
+                    max_tokens=3000,
+                    fallbacks=fallbacks
+                )
+                return resp
+            except Exception as e:
+                print(f"[LLM] Error: {{e}}", file=sys.stderr)
+                raise e
             
         # Build clean context from upstream inputs
         upstream_context = ""
@@ -343,7 +340,7 @@ def main():
         
         user_msg = ""
         if ide_context:
-            user_msg += f"## IDE Context\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\n{{ide_context}}\n\n"
+            user_msg += f"## IDE Context\\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\\n{{ide_context}}\\n\\n"
         
         user_msg += "## User's Goal\\n" + user_prompt + "\\n"
         if upstream_context:

@@ -88,45 +88,38 @@ CRITICAL: Every edge in the `edges` array MUST reference `from` and `to` nodes t
 Output ONLY the raw JSON. Do not output markdown code blocks.
 """
 
-        endpoints = [
-            {"model": "gemini/gemini-3.5-flash", "api_key": os.environ.get("GEMINI_API_KEY", "")},
-            {"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY", "")},
-            {"model": "groq/llama-3.3-70b-versatile", "api_key": os.environ.get("GROQ_API_KEY_2", "")}
-        ]
-
+        model = req.get("parameters", {{}}).get("llm_model", "gemini/gemini-3.5-flash")
+        
         ide_context = mem.get("ide_context", "")
         ide_prefix = ""
         if ide_context:
-            ide_prefix = f"## IDE Context\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\n{ide_context}\n\n"
+            ide_prefix = f"## IDE Context\\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\\n{{ide_context}}\\n\\n"
 
         conversation = [
-            {"role": "system", "content": system_msg},
-            {"role": "user", "content": f"{ide_prefix}Design the agent graph for this goal: {user_prompt}"}
+            {{"role": "system", "content": system_msg}},
+            {{"role": "user", "content": f"{{ide_prefix}}Design the agent graph for this goal: {{user_prompt}}"}}
         ]
+        
+        # We can configure fallbacks natively in litellm
+        fallbacks = ["groq/llama-3.3-70b-versatile", "gemini/gemini-3.5-flash"]
+        # Ensure we don't put the primary model in the fallbacks list
+        if model in fallbacks:
+            fallbacks.remove(model)
 
-        @retry(stop=stop_after_attempt(10), wait=wait_exponential(multiplier=2, min=4, max=60))
+        @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=30))
         def get_architect_response():
-            import random
-            random.shuffle(endpoints)
-            last_err = Exception("No endpoints available")
-            
-            resp = None
-            for ep in endpoints:
-                try:
-                    resp = completion(
-                        model=ep["model"],
-                        api_key=ep["api_key"],
-                        response_format={ "type": "json_object" },
-                        messages=conversation,
-                        max_tokens=3000
-                    )
-                    break
-                except Exception as e:
-                    last_err = e
-                    # logger.warning(f"Failed with {ep['model']}: {e}")
-                    
-            if resp is None:
-                raise last_err
+            try:
+                resp = completion(
+                    model=model,
+                    response_format={{ "type": "json_object" }},
+                    messages=conversation,
+                    max_tokens=3000,
+                    fallbacks=fallbacks
+                )
+                return resp
+            except Exception as e:
+                print(f"[LLM] Error: {{e}}", file=sys.stderr)
+                raise e
             
             # Programmatic Validation to enforce the strict constraints
             try:

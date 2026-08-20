@@ -79,14 +79,14 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 					sessionID := strings.TrimPrefix(execID, "compile-")
 					
 					// Load any dynamically generated agents first
-					agentDir := filepath.Join(".hyperparallel", "sessions", sessionID, "agents")
+					agentDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", sessionID, "agents"))
 					wm.registry.LoadAgents(agentDir)
 					newWorkers := wm.registry.BuildWorkers(wm.orchestrator.Logger, wm.orchestrator.Bus, wm.envManager)
 					for _, w := range newWorkers {
 						wm.dispatcher.RegisterWorker(w)
 					}
 					
-					wfDir := filepath.Join(".hyperparallel", "sessions", sessionID, "workflows")
+					wfDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", sessionID, "workflows"))
 					loadErr := wm.registry.LoadWorkflows(wfDir)
 					if loadErr == nil {
 						wfName := "workflow_" + sessionID
@@ -303,6 +303,13 @@ func (wm *WaitlistManager) Pump() {
 				Value:   item.Prompt,
 				Owner:   "waitlist",
 			})
+			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+				Scope:   memory.ScopeExecution,
+				ScopeID: "compile-" + item.ID,
+				Key:     "user_prompt",
+				Value:   item.Prompt,
+				Owner:   "waitlist",
+			})
 			
 			if item.IDEContext != "" {
 				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
@@ -312,13 +319,27 @@ func (wm *WaitlistManager) Pump() {
 					Value:   item.IDEContext,
 					Owner:   "waitlist",
 				})
+				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+					Scope:   memory.ScopeExecution,
+					ScopeID: "compile-" + item.ID,
+					Key:     "ide_context",
+					Value:   item.IDEContext,
+					Owner:   "waitlist",
+				})
 			}
 			
-			// Inject workspace_dir for this execution
-			isolatedWorkspacePath, _ := filepath.Abs(filepath.Join(".hyperparallel", "sessions", item.ID))
+			// Inject workspace_dir for this execution (and its compiler phase)
+			isolatedWorkspacePath, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", item.ID))
 			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
 				Scope:   memory.ScopeExecution,
 				ScopeID: item.ID,
+				Key:     "workspace_dir",
+				Value:   isolatedWorkspacePath,
+				Owner:   "waitlist",
+			})
+			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+				Scope:   memory.ScopeExecution,
+				ScopeID: "compile-" + item.ID,
 				Key:     "workspace_dir",
 				Value:   isolatedWorkspacePath,
 				Owner:   "waitlist",

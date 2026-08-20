@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -24,16 +27,18 @@ var upgrader = websocket.Upgrader{
 type Server struct {
 	bus       *events.Bus
 	addr      string
+	rootDir   string
 	clients   map[*websocket.Conn]bool
 	mu        sync.Mutex
 	connected chan struct{}
 	once      sync.Once
 }
 
-func NewServer(bus *events.Bus, addr string) *Server {
+func NewServer(bus *events.Bus, addr string, rootDir string) *Server {
 	return &Server{
 		bus:       bus,
 		addr:      addr,
+		rootDir:   rootDir,
 		clients:   make(map[*websocket.Conn]bool),
 		connected: make(chan struct{}),
 	}
@@ -51,6 +56,52 @@ func (s *Server) Start() error {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		fsHandler.ServeHTTP(w, r)
 	})
+	
+	// Serve artifacts from the isolated sessions via generic HTTP
+	hyperFS := http.FileServer(http.Dir(filepath.Join(s.rootDir, ".hyperparallel", "sessions")))
+	http.HandleFunc("/artifacts/", func(w http.ResponseWriter, r *http.Request) {
+		http.StripPrefix("/artifacts/", hyperFS).ServeHTTP(w, r)
+	})
+
+	// JSON API to fetch the outputs (the content of src/)
+	http.HandleFunc("/api/outputs/", func(w http.ResponseWriter, r *http.Request) {
+		execID := strings.TrimPrefix(r.URL.Path, "/api/outputs/")
+		if execID == "" {
+			http.Error(w, "missing execID", http.StatusBadRequest)
+			return
+		}
+
+		srcDir := filepath.Join(s.rootDir, ".hyperparallel", "sessions", execID, "src")
+		
+		type OutputFile struct {
+			Path    string `json:"path"`
+			Content string `json:"content"`
+		}
+		
+		var files []OutputFile
+		_ = filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil // Ignore missing directory or unreadable files for now, return empty array
+			}
+			if !d.IsDir() {
+				rel, _ := filepath.Rel(srcDir, path)
+				content, _ := os.ReadFile(path)
+				files = append(files, OutputFile{
+					Path:    filepath.ToSlash(rel),
+					Content: string(content),
+				})
+			}
+			return nil
+		})
+		
+		if files == nil {
+			files = []OutputFile{} // Ensure we return [] instead of null
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(files)
+	})
+	
 	http.HandleFunc("/ws", s.wsHandler)
 
 	// Subscribe to all events and broadcast

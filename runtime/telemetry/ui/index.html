@@ -947,6 +947,111 @@
         .tab-pane.active {
             display: block;
         }
+        /* ============ OUTPUTS MODAL ============ */
+        .outputs-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .outputs-modal.open {
+            display: flex;
+            opacity: 1;
+        }
+
+        .outputs-container {
+            width: 90%;
+            height: 90%;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .outputs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border-soft);
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .outputs-header h2 {
+            margin: 0;
+            font-family: var(--font-display);
+            font-size: 1.2rem;
+            color: #fff;
+        }
+
+        .outputs-close {
+            background: none;
+            border: none;
+            color: var(--ink-dim);
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .outputs-close:hover { color: #fff; }
+
+        .outputs-body {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden;
+        }
+
+        .outputs-sidebar {
+            width: 250px;
+            border-right: 1px solid var(--border-soft);
+            background: rgba(0, 0, 0, 0.15);
+            overflow-y: auto;
+            padding: 1rem 0;
+        }
+
+        .outputs-file-item {
+            padding: 0.5rem 1.5rem;
+            cursor: pointer;
+            color: var(--ink-dim);
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            word-break: break-all;
+        }
+
+        .outputs-file-item:hover, .outputs-file-item.active {
+            color: var(--running);
+            background: rgba(86, 214, 255, 0.08);
+            border-left: 3px solid var(--running);
+        }
+        .outputs-file-item.active {
+            font-weight: 600;
+        }
+
+        .outputs-content {
+            flex-grow: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+            background: var(--bg-2);
+        }
+
+        .outputs-content pre {
+            margin: 0;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--ink);
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
     </style>
 </head>
 
@@ -969,6 +1074,10 @@
             </div>
         </div>
         <div class="tb-right">
+            <a href="/artifacts/" target="_blank" style="margin-right: 15px; background: rgba(86, 214, 255, 0.15); border: 1px solid var(--border); padding: 5px 12px; border-radius: 6px; color: var(--running); text-decoration: none; font-size: 0.85rem; font-family: var(--font-display); letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: background 0.2s;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                VIEW ARTIFACTS
+            </a>
             <div class="tb-field">
                 <span class="tb-label">Link</span>
                 <span class="tb-value"><span id="connDot" class="conn-dot"></span><span
@@ -1889,7 +1998,8 @@
                         <span class="wl-id">${item.id}</span>
                     </div>
                     <div class="wl-prompt">${item.prompt}</div>
-                    <div style="display: flex; gap: 8px;">
+                    <div style="display: flex; gap: 8px; margin-top: 10px;">
+                        ${item.status === 'COMPLETED' ? `<button class="wl-remove" style="color: var(--completed); border-color: var(--completed);" onclick="openSessionOutputs('${item.id}')">View Outputs</button>` : ''}
                         <button class="wl-remove" onclick="removeWaitlistItem('${item.id}')">Remove</button>
                     </div>
                 `;
@@ -2287,6 +2397,70 @@
             execEdges.delete(execId);
             closeDetailsPanel();
             layoutTree();
+        }
+    </script>
+    <!-- Outputs Modal -->
+    <div id="outputsModal" class="outputs-modal">
+        <div class="outputs-container">
+            <div class="outputs-header">
+                <h2 id="outputsTitle">Session Outputs</h2>
+                <button class="outputs-close" onclick="closeOutputsModal()">&times;</button>
+            </div>
+            <div class="outputs-body">
+                <div class="outputs-sidebar" id="outputsSidebar"></div>
+                <div class="outputs-content">
+                    <pre id="outputsCodeViewer">Select a file to view its contents.</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentOutputs = [];
+
+        async function openSessionOutputs(execId) {
+            const modal = document.getElementById('outputsModal');
+            const title = document.getElementById('outputsTitle');
+            const sidebar = document.getElementById('outputsSidebar');
+            const viewer = document.getElementById('outputsCodeViewer');
+
+            title.innerText = `Outputs: ${execId}`;
+            sidebar.innerHTML = '<div style="padding: 1.5rem; color: var(--ink-dim);">Loading...</div>';
+            viewer.innerText = '';
+            modal.classList.add('open');
+
+            try {
+                const res = await fetch(`/api/outputs/${execId}`);
+                if (!res.ok) throw new Error(await res.text());
+                currentOutputs = await res.json();
+                
+                sidebar.innerHTML = '';
+                if (currentOutputs.length === 0) {
+                    sidebar.innerHTML = '<div style="padding: 1.5rem; color: var(--ink-dim);">No output files found.</div>';
+                    return;
+                }
+
+                currentOutputs.forEach((file, idx) => {
+                    const el = document.createElement('div');
+                    el.className = 'outputs-file-item';
+                    el.innerText = file.path;
+                    el.onclick = () => {
+                        document.querySelectorAll('.outputs-file-item').forEach(e => e.classList.remove('active'));
+                        el.classList.add('active');
+                        viewer.innerText = file.content;
+                    };
+                    sidebar.appendChild(el);
+                    
+                    // Auto-select first file
+                    if (idx === 0) el.click();
+                });
+            } catch (e) {
+                sidebar.innerHTML = `<div style="padding: 1.5rem; color: var(--failed);">Error: ${e.message}</div>`;
+            }
+        }
+
+        function closeOutputsModal() {
+            document.getElementById('outputsModal').classList.remove('open');
         }
     </script>
 </body>
