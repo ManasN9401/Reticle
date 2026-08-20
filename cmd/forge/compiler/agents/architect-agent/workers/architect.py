@@ -39,7 +39,7 @@ def main():
         
         available_agents_prompt = available_agents if available_agents and available_agents.strip() != "None" else "None. You MUST create all new specialized agents (set is_new: true for ALL agents)."
 
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", ".."))
         rfc_008 = ""
         rfc_027 = ""
         agent_std = ""
@@ -66,7 +66,8 @@ CRITICAL DAG RULE: Your graph MUST be a Directed Acyclic Graph. Edges must flow 
 AVAILABLE AGENTS:
 {available_agents_prompt}
 
-CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. HyperParallel is designed for massive parallelism. You MUST decompose EVERY task into a WIDE, MULTI-BRANCH DAG. Do NOT create purely linear pipelines (e.g. A -> B -> C). Even simple tasks must be broken down into at least 3-4 specialized agents that can work in parallel where possible (e.g. A -> B, A -> C, then B,C -> D). Single-node or purely linear workflows are STRICTLY FORBIDDEN. One of your agents MUST explicitly be responsible for creating the main entrypoint or final assembly.
+CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. HyperParallel is designed for massive parallelism. You MUST decompose EVERY task into a WIDE, MULTI-BRANCH DAG. Do NOT create purely linear pipelines (e.g. A -> B -> C). Even simple tasks must be broken down into at least 3-4 specialized agents. 
+For complex applications, you MUST generate a massively parallel graph with 10, 20, or even 50+ specialized nodes (e.g., one agent per file, one agent per class, one agent per API endpoint). DO NOT anchor to the small 4-node example below; that is just a schema demonstration. Scale the number of agents and nodes to be as large as necessary to achieve extreme modularity. Single-node or purely linear workflows are STRICTLY FORBIDDEN. One of your agents MUST explicitly be responsible for creating the main entrypoint or final assembly.
 
 CRITICAL INSTRUCTION: For code, agents MUST build everything from scratch using ONLY standard libraries (e.g. Python with 'pygame'). Do NOT let them hallucinate or import external imaginary engines. Instruct them to write fully robust code with NO PLACEHOLDERS (no 'pass', 'TODO', or '...').
 
@@ -134,9 +135,14 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         if ide_context:
             ide_prefix = f"## IDE Context\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\n{ide_context}\n\n"
 
+        prompt_history = mem.get("prompt_history", "")
+        hist_prefix = ""
+        if prompt_history:
+            hist_prefix = f"## Previous Iterations History\nThis is a continuation of previous work. Here is the history of previous prompts in this group:\n{prompt_history}\n\n"
+
         conversation = [
             {"role": "system", "content": system_msg},
-            {"role": "user", "content": f"{ide_prefix}Design the agent graph for this goal: {user_prompt}"}
+            {"role": "user", "content": f"{ide_prefix}{hist_prefix}Design the agent graph for this goal: {user_prompt}"}
         ]
         
         # We can configure fallbacks natively in litellm
@@ -145,18 +151,22 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         if model in fallbacks:
             fallbacks.remove(model)
 
-        @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=30))
+        @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=2, min=5, max=120))
         def get_architect_response():
             try:
                 resp = completion(
                     model=model,
                     response_format={ "type": "json_object" },
                     messages=conversation,
-                    max_tokens=3000,
+                    max_tokens=8192,
                     fallbacks=fallbacks
                 )
             except Exception as e:
-                print(f"[LLM] Error: {e}", file=sys.stderr)
+                err_str = str(e)
+                if "RateLimitError" in err_str:
+                    print(f"[LLM] Error: RateLimitError: API rate limit exceeded. Retrying...", file=sys.stderr)
+                else:
+                    print(f"[LLM] Error: {err_str[:300]}{'...' if len(err_str) > 300 else ''}", file=sys.stderr)
                 raise e
             
             # Programmatic Validation to enforce the strict constraints
@@ -228,19 +238,13 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     
                 if len(valid_nodes) == 0:
                     raise ValueError(f"Graph has 0 nodes. You MUST create at least 1 node.")
-                    
-                if data.get("complexity_analysis") == "complex":
-                    if len(valid_nodes) < 6:
-                        raise ValueError(f"Task is categorized as complex, but graph only has {len(valid_nodes)} nodes. You MUST create at least 6 specialized nodes.")
-                    
-                if max_depth > 6:
-                    raise ValueError(f"Graph is too deep (depth {max_depth}). Keep pipelines reasonably compressed. Max allowed depth is 6.")
 
             except Exception as e:
                 err_msg = f"Validation failed: {str(e)}"
                 if resp and resp.choices and len(resp.choices) > 0:
                     conversation.append({"role": "assistant", "content": resp.choices[0].message.content})
                     conversation.append({"role": "user", "content": f"{err_msg}\nFix this and output the raw JSON again."})
+                print(f"[ARCHITECT] {err_msg}", file=sys.stderr)
                 raise Exception(err_msg) # This triggers the @retry
                 
             return resp

@@ -74,6 +74,7 @@ func main() {
 	workspaceFlag := flag.String("workspace", "", "Path to an existing compiled workspace to run (skips compilation Phase 1)")
 	portFlag := flag.Int("port", 8080, "Port to run the UI telemetry server on")
 	legacyFlag := flag.Bool("legacy", false, "Use legacy terminal UI (no web UI)")
+	nativeFlag := flag.Bool("native", false, "Run worker terminal commands natively on the host instead of in a Docker container")
 	flag.Parse()
 
 	args := flag.Args()
@@ -200,6 +201,19 @@ func main() {
 		Value:   workspaceDir,
 		Owner:   "forge",
 	})
+	
+	allowNative := "false"
+	if *nativeFlag {
+		allowNative = "true"
+	}
+	orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+		Scope:   memory.ScopeGlobal,
+		ScopeID: "global",
+		Key:     "allow_native_execution",
+		Value:   allowNative,
+		Owner:   "forge",
+	})
+	
 	time.Sleep(500 * time.Millisecond) // Let memory propagate
 
 	// Pass the Compiler DAG to the Waitlist Manager so it can build sessions dynamically

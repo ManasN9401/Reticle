@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -40,6 +41,12 @@ type WaitlistItem struct {
 	Mode       ExecutionMode   `json:"mode"`
 	IDEContext string          `json:"ide_context,omitempty"`
 	CreatedAt  time.Time       `json:"created_at"`
+}
+
+type WaitlistPayload struct {
+	Items          []*WaitlistItem `json:"items"`
+	MaxWorkers     int             `json:"maxWorkers"`
+	RunningWorkers int             `json:"runningWorkers"`
 }
 
 type WaitlistManager struct {
@@ -104,6 +111,10 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 				} else {
 					wm.updateStatus(execID, StatusCompleted)
 					
+					// Cleanup Docker container
+					containerName := "forge_" + strings.ReplaceAll(strings.ReplaceAll(execID, ".", "_"), "-", "_")
+					exec.Command("docker", "rm", "-f", containerName).Run()
+					
 					// Dump artifacts to output dir per RFC-031
 					srcDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", execID, "src"))
 					dstDir, _ := filepath.Abs(filepath.Join("../../", "outputs", execID))
@@ -131,7 +142,11 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 					wm.updateStatus(sessionID, StatusFailed)
 				} else {
 					wm.updateStatus(execID, StatusFailed)
+					// Cleanup Docker container
+					containerName := "forge_" + strings.ReplaceAll(strings.ReplaceAll(execID, ".", "_"), "-", "_")
+					exec.Command("docker", "rm", "-f", containerName).Run()
 				}
+				wm.Pump()
 			}
 		}
 	})
@@ -264,9 +279,22 @@ func (wm *WaitlistManager) save() {
 	data, _ := json.MarshalIndent(wm.items, "", "  ")
 	os.WriteFile(wm.filePath, data, 0644)
 	
+	runningTotal := 0
+	for _, item := range wm.items {
+		if item.Status == StatusRunning {
+			runningTotal++
+		}
+	}
+	
+	payload := WaitlistPayload{
+		Items:          wm.items,
+		MaxWorkers:     wm.maxWorkers,
+		RunningWorkers: runningTotal,
+	}
+	
 	// Broadcast waitlist to UI
 	if wm.orchestrator != nil && wm.orchestrator.Bus != nil {
-		wm.orchestrator.Bus.Publish(events.EventType("WaitlistUpdated"), events.Component("waitlist"), wm.items)
+		wm.orchestrator.Bus.Publish(events.EventType("WaitlistUpdated"), events.Component("waitlist"), payload)
 	}
 }
 
@@ -309,6 +337,36 @@ func (wm *WaitlistManager) Pump() {
 			
 			wm.save()
 			
+			// Build prompt history and find previous execution for file inheritance
+			var promptHistory string
+			var prevExecID string
+			if item.Group != "" {
+				historyLines := []string{}
+				for i := 0; i < len(wm.items); i++ {
+					prev := wm.items[i]
+					if prev.ID == item.ID {
+						break
+					}
+					if prev.Group == item.Group && (prev.Status == StatusCompleted || prev.Status == StatusFailed) {
+						historyLines = append(historyLines, fmt.Sprintf("- Iteration %s: %s", prev.ID, prev.Prompt))
+						prevExecID = prev.ID
+					}
+				}
+				if len(historyLines) > 0 {
+					promptHistory = strings.Join(historyLines, "\\n")
+				}
+			}
+			
+			// If we found a previous execution, copy its src dir to inherit code
+			if prevExecID != "" {
+				prevSrcDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", prevExecID, "src"))
+				newSrcDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", item.ID, "src"))
+				if _, err := os.Stat(prevSrcDir); err == nil {
+					os.MkdirAll(newSrcDir, 0755)
+					copyDir(prevSrcDir, newSrcDir)
+				}
+			}
+			
 			// Inject memory for this execution
 			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
 				Scope:   memory.ScopeExecution,
@@ -338,6 +396,23 @@ func (wm *WaitlistManager) Pump() {
 					ScopeID: "compile-" + item.ID,
 					Key:     "ide_context",
 					Value:   item.IDEContext,
+					Owner:   "waitlist",
+				})
+			}
+			
+			if promptHistory != "" {
+				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+					Scope:   memory.ScopeExecution,
+					ScopeID: item.ID,
+					Key:     "prompt_history",
+					Value:   promptHistory,
+					Owner:   "waitlist",
+				})
+				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+					Scope:   memory.ScopeExecution,
+					ScopeID: "compile-" + item.ID,
+					Key:     "prompt_history",
+					Value:   promptHistory,
 					Owner:   "waitlist",
 				})
 			}

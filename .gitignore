@@ -57,3 +57,6 @@ orig_*
 cmd/forge/workspaces/*
 
 cmd/forge/test_workspace/*
+
+# Outputs
+outputs/

@@ -1115,7 +1115,7 @@
             <div class="waitlist-panel fs-container panel-frame" id="waitlistContainer"
                 style="height: 30%; min-height: 150px; flex-shrink: 1;">
                 <h3 class="panel-eyebrow"><span class="bracket">[</span>Queue &mdash; Waitlist<span
-                        class="bracket">]</span></h3>
+                        class="bracket">]</span><span class="count" id="waitlistCount">0/5 Active</span></h3>
                 <div class="waitlist-input-row">
                     <input type="text" id="waitlistInput" placeholder="Enter prompt..."
                         onkeydown="if(event.key==='Enter') submitWaitlistPrompt()">
@@ -1977,10 +1977,15 @@
             ws.send(JSON.stringify({ action: "remove", id: id }));
         }
 
-        function renderWaitlist(items) {
+        function renderWaitlist(items, running, max) {
             const container = document.getElementById('waitlistItems');
             if (!container) return;
             container.innerHTML = '';
+            
+            const countEl = document.getElementById('waitlistCount');
+            if (countEl && max !== undefined) {
+                countEl.textContent = `${running}/${max} Active`;
+            }
 
             items.forEach(item => {
                 const el = document.createElement('div');
@@ -2091,7 +2096,11 @@
             if (!nodeId && type !== 'TaskCreated' && type !== 'WorkflowStarted' && type !== 'WaitlistUpdated') return;
 
             if (type === 'WaitlistUpdated') {
-                renderWaitlist(payload);
+                if (Array.isArray(payload)) {
+                    renderWaitlist(payload);
+                } else {
+                    renderWaitlist(payload.items || [], payload.runningWorkers || 0, payload.maxWorkers || 5);
+                }
                 return;
             }
 
@@ -2161,7 +2170,11 @@
                 }
             }
             else if (type === 'WaitlistUpdated') {
-                renderWaitlist(payload);
+                if (Array.isArray(payload)) {
+                    renderWaitlist(payload);
+                } else {
+                    renderWaitlist(payload.items || [], payload.runningWorkers || 0, payload.maxWorkers || 5);
+                }
             }
         }
 

@@ -6,31 +6,40 @@ import json
 
 utils_code = """import os, subprocess, re
 
-def execute_terminal_command(command, workspace_dir):
+def execute_terminal_command(command, workspace_dir, allow_native=False):
     try:
-        container_name = "forge_" + os.path.basename(os.path.abspath(workspace_dir)).replace(".", "_").replace("-", "_")
-        
-        # Check if container is running
-        check = subprocess.run(["docker", "ps", "-q", "-f", f"name=^{container_name}$"], capture_output=True, text=True)
-        if not check.stdout.strip():
-            # Start it in background
-            subprocess.run([
-                "docker", "run", "-d", "--rm", "--name", container_name,
-                "-v", f"{os.path.abspath(workspace_dir)}:/workspace",
-                "-w", "/workspace/src",
-                "python:3.10-slim",
-                "sleep", "infinity"
-            ], capture_output=True)
+        src_dir = os.path.join(workspace_dir, "src")
+        if allow_native:
+            # Run natively instead of Docker
+            result = subprocess.run(command, shell=True, cwd=src_dir, capture_output=True, text=True, timeout=120)
+            output = result.stdout + "\\n" + result.stderr
+            if result.returncode != 0:
+                output = f"Command failed with exit code {result.returncode}:\\n" + output
+            return output[:10000]
+        else:
+            container_name = "forge_" + os.path.basename(os.path.abspath(workspace_dir)).replace(".", "_").replace("-", "_")
             
-        docker_cmd = [
-            "docker", "exec", container_name,
-            "bash", "-c", command
-        ]
-        result = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=120)
-        output = result.stdout + "\\n" + result.stderr
-        if result.returncode != 0:
-            output = f"Command failed with exit code {result.returncode}:\\n" + output
-        return output[:10000]
+            # Check if container is running
+            check = subprocess.run(["docker", "ps", "-q", "-f", f"name=^{container_name}$"], capture_output=True, text=True)
+            if not check.stdout.strip():
+                # Start it in background
+                subprocess.run([
+                    "docker", "run", "-d", "--rm", "--name", container_name,
+                    "-v", f"{os.path.abspath(workspace_dir)}:/workspace",
+                    "-w", "/workspace/src",
+                    "python:3.10-slim",
+                    "sleep", "infinity"
+                ], capture_output=True)
+                
+            docker_cmd = [
+                "docker", "exec", container_name,
+                "bash", "-c", command
+            ]
+            result = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=120)
+            output = result.stdout + "\\n" + result.stderr
+            if result.returncode != 0:
+                output = f"Command failed with exit code {result.returncode}:\\n" + output
+            return output[:10000]
     except Exception as e:
         return f"Error executing command: {e}"
 
@@ -131,11 +140,11 @@ tools = [
         "type": "function",
         "function": {
             "name": "execute_terminal_command",
-            "description": "Execute a bash command in a secure Docker container inside the workspace/src directory.",
+            "description": "Execute a terminal command directly in the workspace/src directory.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string", "description": "The bash command to execute (e.g. 'pytest', 'python main.py', 'ls -la')"}
+                    "command": {"type": "string", "description": "The command to execute (e.g. 'pytest', 'python main.py', 'dir')"}
                 },
                 "required": ["command"]
             }
@@ -351,6 +360,7 @@ def main():
         
         mem = req.get("memory", {{}})
         workspace_dir = mem.get("workspace_dir", ".")
+        allow_native_execution = mem.get("allow_native_execution", "false").lower() == "true"
         src_dir = os.path.join(workspace_dir, "src")
         os.makedirs(src_dir, exist_ok=True)
         
@@ -362,7 +372,7 @@ def main():
         if model in fallbacks:
             fallbacks.remove(model)
         
-        @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=30))
+        @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=2, min=5, max=120))
         def do_completion(messages):
             try:
                 resp = completion(
@@ -370,12 +380,16 @@ def main():
                     messages=messages,
                     tools=tools,
                     parallel_tool_calls=False,
-                    max_tokens=3000,
+                    max_tokens=8192,
                     fallbacks=fallbacks
                 )
                 return resp
             except Exception as e:
-                print(f"[LLM] Error: {{e}}", file=sys.stderr)
+                err_str = str(e)
+                if "RateLimitError" in err_str:
+                    print(f"[LLM] Error: RateLimitError: API rate limit exceeded. Retrying...", file=sys.stderr)
+                else:
+                    print(f"[LLM] Error: {{err_str[:300]}}{{'...' if len(err_str) > 300 else ''}}", file=sys.stderr)
                 raise e
             
         # Build clean context from upstream inputs
@@ -388,15 +402,19 @@ def main():
         
         user_prompt = mem.get("user_prompt", "Complete your assigned task.")
         ide_context = mem.get("ide_context", "")
+        prompt_history = mem.get("prompt_history", "")
         
         user_msg = ""
         if ide_context:
             user_msg += f"## IDE Context\\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\\n{{ide_context}}\\n\\n"
         
+        if prompt_history:
+            user_msg += f"## Previous Iterations History\\nThis task is a continuation of previous work. Here is the history of previous prompts in this group:\\n{{prompt_history}}\\n\\n"
+            
         user_msg += "## User's Goal\\n" + user_prompt + "\\n"
         if upstream_context:
             user_msg += "\\n## Context From Previous Agents\\n" + upstream_context
-        user_msg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. File paths must be relative (e.g. 'main.py', 'utils.py') - do NOT prepend 'src/'. Start by using `list_dir` to see what already exists in the workspace before creating files. Use `read_file` to inspect existing files before modifying them."
+        user_msg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. File paths must be relative (e.g. 'main.py', 'utils.py') - do NOT prepend 'src/'. Start by using `list_dir` to see what already exists in the workspace before creating files. Use `read_file` to inspect existing files before modifying them. If you need to test your code using external libraries (like pygame or pytest), you MUST run 'pip install <library>' using the 'execute_terminal_command' tool BEFORE running your script! Do not assume third-party packages are pre-installed in the environment."
         
         messages = [
             {{"role": "system", "content": {json.dumps(sys_prompt)}}},
@@ -406,7 +424,8 @@ def main():
         files_modified = {{}}
         memory_mutations = []
         graph_mutation = None
-        MAX_ITERATIONS = 20
+        task_completed = False
+        MAX_ITERATIONS = 50
         for _iteration in range(MAX_ITERATIONS):
             response = do_completion(messages)
             msg = response.choices[0].message
@@ -430,7 +449,6 @@ def main():
                     print(f"[LLM] {{line}}", file=sys.stderr)
             
             if msg.tool_calls:
-                task_completed = False
                 for tool_call in msg.tool_calls:
                     func_name = tool_call.function.name
                     print(f"[TOOL] Executing {{func_name}}", file=sys.stderr)
@@ -442,7 +460,7 @@ def main():
                         args = json.loads(tool_call.function.arguments)
                         
                         if func_name == "execute_terminal_command":
-                            res = execute_terminal_command(args.get("command"), workspace_dir)
+                            res = execute_terminal_command(args.get("command"), workspace_dir, allow_native_execution)
                         elif func_name == "read_file":
                             res = read_file(args.get("path"), workspace_dir)
                         elif func_name == "search_codebase":
@@ -527,16 +545,20 @@ def main():
                     }})
                     continue
                 else:
-                    # Agent stopped calling tools — natural exit
-                    break
+                    # Agent stopped calling tools without marking task complete
+                    messages.append({
+                        "role": "user",
+                        "content": "ERROR: You stopped calling tools without calling 'mark_task_complete'. If you are finished, you MUST call 'mark_task_complete'. If you are not finished, continue using tools to write code."
+                    })
+                    continue
                 
+        if not task_completed:
+            raise Exception("Agent failed to complete the task within the maximum number of iterations.")
+            
         result = messages[-1].get("content", "")
         if files_modified:
-            result += "\\n\\n### Files Modified By This Agent:\\n"
+            result += "\n\n### Files Modified By This Agent:\n"
             for p, c in files_modified.items():
-                result += f"#### {{p}}\\n```\\n{{c}}\\n```\\n"
-        
-        artifact = {{
             "id": f"{{req_id}}_output",
             "name": f"{agent_id} Output",
             "type": "document/markdown",
