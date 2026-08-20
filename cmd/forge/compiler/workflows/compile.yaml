@@ -5,15 +5,15 @@ nodes:
   - id: arch-1
     agent: architect-agent
     parameters:
-      llm_model: "groq/llama-3.1-8b-instant"
+      llm_model: "groq/qwen/qwen3.6-27b"
   - id: scaff-1
     agent: scaffolder-agent
     parameters:
-      llm_model: "groq/llama-3.1-8b-instant"
+      llm_model: "groq/qwen/qwen3.6-27b"
   - id: code-1
     agent: coder-agent
     parameters:
-      llm_model: "groq/llama-3.1-8b-instant"
+      llm_model: "groq/qwen/qwen3.6-27b"
   - id: write-1
     agent: writer-agent
     parameters: {}

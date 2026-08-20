@@ -231,6 +231,52 @@ tools = [
     {
         "type": "function",
         "function": {
+            "name": "write_memory",
+            "description": "Write a value to Shared Memory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "The key to write"},
+                    "value": {"type": "string", "description": "The value to store"},
+                    "scope": {"type": "string", "enum": ["global", "workflow", "execution", "agent"], "description": "The scope of the memory (defaults to execution)"}
+                },
+                "required": ["key", "value"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_memory",
+            "description": "Read a value from Shared Memory that was injected by the orchestrator at startup.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "The key to read"}
+                },
+                "required": ["key"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mutate_graph",
+            "description": "Dynamically rewrite the DAG to trigger another agent.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["delegate"], "description": "The mutation action"},
+                    "target_agent": {"type": "string", "description": "The ID of the agent to delegate to"},
+                    "return_to_supervisor": {"type": "boolean", "description": "Whether control should return to the supervisor afterwards"}
+                },
+                "required": ["action", "target_agent"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "mark_task_complete",
             "description": "Call this tool to indicate you have fully completed and tested your assigned task. You MUST test your code using execute_terminal_command BEFORE calling this.",
             "parameters": {
@@ -287,12 +333,16 @@ litellm.suppress_debug_info = True
 from litellm import completion
 from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 
-logging.basicConfig(level=logging.ERROR)
+logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 from forge_utils import execute_terminal_command, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
 
 def main():
+    sys.stdin.reconfigure(encoding='utf-8')
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
     line = sys.stdin.readline()
     if not line: return
     try:
@@ -302,11 +352,12 @@ def main():
         mem = req.get("memory", {{}})
         workspace_dir = mem.get("workspace_dir", ".")
         src_dir = os.path.join(workspace_dir, "src")
+        os.makedirs(src_dir, exist_ok=True)
         
-        model = req.get("parameters", {{}}).get("llm_model", "gemini/gemini-3.5-flash")
+        model = req.get("parameters", {{}}).get("llm_model", "groq/qwen/qwen3.6-27b")
         
         # We can configure fallbacks natively in litellm
-        fallbacks = ["groq/llama-3.3-70b-versatile", "gemini/gemini-3.5-flash"]
+        fallbacks = ["groq/groq/compound-mini", "gemini/gemini-3.5-flash-lite"]
         # Ensure we don't put the primary model in the fallbacks list
         if model in fallbacks:
             fallbacks.remove(model)
@@ -353,6 +404,8 @@ def main():
         ]
         
         files_modified = {{}}
+        memory_mutations = []
+        graph_mutation = None
         MAX_ITERATIONS = 20
         for _iteration in range(MAX_ITERATIONS):
             response = do_completion(messages)
@@ -380,9 +433,11 @@ def main():
                 task_completed = False
                 for tool_call in msg.tool_calls:
                     func_name = tool_call.function.name
-                    print(f"[TOOL] Executing {{func_name}} with args:", file=sys.stderr)
-                    for line in tool_call.function.arguments.split('\\n'):
-                        print(f"[TOOL] {{line}}", file=sys.stderr)
+                    print(f"[TOOL] Executing {{func_name}}", file=sys.stderr)
+                    args_str = tool_call.function.arguments
+                    if len(args_str) > 150:
+                        args_str = args_str[:150] + "... [TRUNCATED]"
+                    print(f"[TOOL] Args: {{args_str}}", file=sys.stderr)
                     try:
                         args = json.loads(tool_call.function.arguments)
                         
@@ -406,6 +461,28 @@ def main():
                                     files_modified[args.get("path")] = f.read()
                         elif func_name == "read_url":
                             res = read_url(args.get("url"), workspace_dir)
+                        elif func_name == "write_memory":
+                            scope = args.get("scope", "execution")
+                            memory_mutations.append({{
+                                "key": args.get("key"),
+                                "value": args.get("value"),
+                                "scope": scope
+                            }})
+                            mem[args.get("key")] = args.get("value")
+                            res = f"Successfully wrote {{args.get('key')}} to {{scope}} memory."
+                        elif func_name == "read_memory":
+                            key = args.get("key")
+                            if key in mem:
+                                res = mem[key]
+                            else:
+                                res = f"Key '{{key}}' not found in injected shared memory."
+                        elif func_name == "mutate_graph":
+                            graph_mutation = {{
+                                "action": args.get("action"),
+                                "target_agent": args.get("target_agent"),
+                                "return_to_supervisor": args.get("return_to_supervisor", False)
+                            }}
+                            res = f"Graph mutation registered. Control will transfer to {{args.get('target_agent')}} upon exit."
                         elif func_name == "mark_task_complete":
                             task_completed = True
                             summary = args.get("summary", "")
@@ -465,7 +542,17 @@ def main():
             "type": "document/markdown",
             "data": result
         }}
-        real_stdout.write(json.dumps({{"id": req_id, "artifact": artifact}}) + "\\n")
+        
+        resp_obj = {{
+            "id": req_id,
+            "artifact": artifact
+        }}
+        if memory_mutations:
+            resp_obj["memory"] = memory_mutations
+        if graph_mutation:
+            resp_obj["graph_mutation"] = graph_mutation
+            
+        real_stdout.write(json.dumps(resp_obj) + "\\n")
     except Exception as e:
         print(f"ERROR: {{e}}", file=sys.stderr)
         sys.exit(1)
@@ -473,12 +560,14 @@ def main():
 if __name__ == "__main__":
     main()
 """
-        generated_files[f"workers/{agent_id}.py"] = code.strip()
-        generated_files["workers/forge_utils.py"] = utils_code.strip()
+        generated_files[f"agents/{agent_id}/workers/{agent_id}.py"] = code.strip()
+        generated_files[f"agents/{agent_id}/workers/forge_utils.py"] = utils_code.strip()
 
     import os
     mem = req.get("memory", {})
     workspace_dir = mem.get("workspace_dir", ".")
+    
+    os.makedirs(os.path.join(workspace_dir, "src"), exist_ok=True)
     for path, content in generated_files.items():
         full_path = os.path.join(workspace_dir, path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)

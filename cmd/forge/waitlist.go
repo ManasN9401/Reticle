@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,6 +103,19 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 					}
 				} else {
 					wm.updateStatus(execID, StatusCompleted)
+					
+					// Dump artifacts to output dir per RFC-031
+					srcDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", execID, "src"))
+					dstDir, _ := filepath.Abs(filepath.Join("../../", "outputs", execID))
+					if _, err := os.Stat(srcDir); err == nil {
+						os.MkdirAll(dstDir, 0755)
+						if err := copyDir(srcDir, dstDir); err != nil {
+							wm.orchestrator.Logger.Error("[Waitlist] Failed to copy outputs", "execID", execID, "error", err)
+						} else {
+							wm.orchestrator.Logger.Info("[Waitlist] Successfully dumped artifacts to outputs/", "execID", execID)
+						}
+					}
+					
 					wm.Pump()
 				}
 			}
@@ -359,4 +373,32 @@ func (wm *WaitlistManager) Pump() {
 		}
 	}
 	wm.mu.Unlock()
+}
+
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		outPath := filepath.Join(dst, relPath)
+		if info.IsDir() {
+			return os.MkdirAll(outPath, info.Mode())
+		}
+		srcFile, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer srcFile.Close()
+		dstFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+		if err != nil {
+			return err
+		}
+		defer dstFile.Close()
+		_, err = io.Copy(dstFile, srcFile)
+		return err
+	})
 }

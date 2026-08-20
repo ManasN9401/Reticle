@@ -65,17 +65,15 @@ func NewRegistry() *Registry {
 }
 
 func (r *Registry) LoadAgents(directory string) error {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
-			continue
+	return filepath.WalkDir(directory, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		
+		if d.IsDir() || filepath.Ext(d.Name()) != ".yaml" {
+			return nil
 		}
 
-		path := filepath.Join(directory, entry.Name())
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("failed to read %s: %w", path, err)
@@ -91,14 +89,14 @@ func (r *Registry) LoadAgents(directory string) error {
 		}
 
 		if def.Entrypoint != "" && !filepath.IsAbs(def.Entrypoint) {
-			workspaceRoot := filepath.Dir(directory)
-			def.Entrypoint = filepath.Join(workspaceRoot, def.Entrypoint)
+			// Resolve relative to the directory containing the YAML file
+			yamlDir := filepath.Dir(path)
+			def.Entrypoint = filepath.Join(yamlDir, def.Entrypoint)
 		}
 
 		r.Definitions[def.ID] = def
-	}
-
-	return nil
+		return nil
+	})
 }
 
 func (r *Registry) LoadSkills(directory string) error {
