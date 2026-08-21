@@ -2,6 +2,8 @@ package routing
 
 import (
 	"math"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/hyperparallel/runtime/events"
@@ -23,6 +25,8 @@ type ModelRouter struct {
 }
 
 func NewRouter(l *logger.Logger, b *events.Bus) *ModelRouter {
+	FetchAvailableModels(l)
+
 	r := &ModelRouter{
 		Logger:   l,
 		Bus:      b,
@@ -101,8 +105,8 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 	r.Logger.Info("Model utility updated", "agent_id", agentID, "model_key", modelID, "success", success, "new_prob", newProb)
 }
 
-// SelectModel returns the cheapest model whose expected success rate exceeds the required confidence.
-func (r *ModelRouter) SelectModel(taskID string, agentID string, requiredConfidence float64) *Model {
+// SelectModel returns a model based on the requested effort tier, constrained by confidence.
+func (r *ModelRouter) SelectModel(taskID string, agentID string, effortStr string, requiredConfidence float64) *Model {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -110,11 +114,8 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, requiredConfide
 		r.Matrix[agentID] = make(map[string]float64)
 	}
 
-	var bestModel *Model
-	minCost := math.MaxFloat64
-
+	var capable []Model
 	for _, m := range AvailableModels {
-		// Use a local copy of m to take its address safely
 		mCopy := m
 		prob, exists := r.Matrix[agentID][mCopy.Key()]
 		if !exists {
@@ -122,29 +123,51 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, requiredConfide
 			r.Matrix[agentID][mCopy.Key()] = prob
 		}
 
-		if prob >= requiredConfidence && mCopy.Cost < minCost {
-			minCost = mCopy.Cost
-			bestModel = &mCopy
+		if prob >= requiredConfidence {
+			capable = append(capable, mCopy)
 		}
 	}
 
-	// Fallback to most capable (assumed to be highest cost if threshold not met)
-	if bestModel == nil {
-		maxCost := -1.0
-		for _, m := range AvailableModels {
-			mCopy := m
-			if mCopy.Cost > maxCost {
-				maxCost = mCopy.Cost
-				bestModel = &mCopy
-			}
-		}
+	// Fallback to all models if none meet the strict required confidence
+	if len(capable) == 0 {
+		capable = AvailableModels
 	}
 
-	if bestModel != nil {
-		// Track this task so we can update telemetry later
-		r.inFlight[taskID] = bestModel.Key()
-		r.Logger.Info("Model routed", "agent_id", agentID, "model_key", bestModel.Key())
+	// Sort capable models by Capability ascending, then Cost ascending
+	sort.Slice(capable, func(i, j int) bool {
+		if capable[i].Capability == capable[j].Capability {
+			return capable[i].Cost < capable[j].Cost
+		}
+		return capable[i].Capability < capable[j].Capability
+	})
+
+	effortMap := map[string]float64{
+		"minimal":  0.0,
+		"low":      0.2,
+		"standard": 0.4,
+		"elevated": 0.6,
+		"high":     0.8,
+		"absolute": 1.0,
 	}
+
+	percentile, exists := effortMap[strings.ToLower(effortStr)]
+	if !exists {
+		percentile = 0.4 // standard default
+		effortStr = "standard"
+	}
+
+	idx := int(math.Round(percentile * float64(len(capable)-1)))
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(capable) {
+		idx = len(capable) - 1
+	}
+
+	bestModel := &capable[idx]
+
+	r.inFlight[taskID] = bestModel.Key()
+	r.Logger.Info("Model routed", "agent_id", agentID, "model_key", bestModel.Key(), "effort", effortStr, "capability", bestModel.Capability)
 	return bestModel
 }
 

@@ -97,10 +97,16 @@ func (d *Dispatcher) Start() {
 			var lastFailure *WorkerFailure
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
+				// Extract effort
+				effortStr := "standard"
+				if e, ok := t.Parameters["effort"].(string); ok && e != "" {
+					effortStr = e
+				}
+
 				// Dynamically select model if not forced
 				if d.Router != nil {
 					if !forced {
-						selectedModel := d.Router.SelectModel(string(t.ID), t.AgentID, 0.90)
+						selectedModel := d.Router.SelectModel(string(t.ID), string(w.ID), effortStr, 0.90)
 						if selectedModel != nil {
 							t.Parameters["llm_model"] = selectedModel.ID
 							if selectedModel.APIKeyEnv != "" {
