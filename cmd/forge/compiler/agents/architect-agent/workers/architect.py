@@ -128,7 +128,7 @@ CRITICAL: Every edge in the `edges` array MUST reference `from` and `to` nodes t
 Output ONLY the raw JSON. Do not output markdown code blocks.
 """
 
-        model = req.get("parameters", {}).get("llm_model", "groq/qwen/qwen3.6-27b")
+
         
         ide_context = mem.get("ide_context", "")
         ide_prefix = ""
@@ -145,7 +145,10 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
             {"role": "user", "content": f"{ide_prefix}{hist_prefix}Design the agent graph for this goal: {user_prompt}"}
         ]
         
-        model = req.get("parameters", {}).get("llm_model", "openrouter/anthropic/claude-3-5-sonnet-20241022")
+        model = req.get("parameters", {}).get("llm_model")
+        if not model:
+            print("[ARCHITECT] Fatal Error: No llm_model provided by dispatcher!", file=sys.stderr)
+            sys.exit(1)
         api_key_env = req.get("parameters", {}).get("api_key")
         api_key = os.environ.get(api_key_env) if api_key_env else None
 

@@ -410,7 +410,33 @@ def main():
         user_msg += "## User's Goal\\n" + user_prompt + "\\n"
         if upstream_context:
             user_msg += "\\n## Context From Previous Agents\\n" + upstream_context
-        user_msg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. You must maintain a standard project directory structure. Place source code inside a `src/` directory (e.g. `src/main.py`, `src/utils.py`) and top-level configs in the root (e.g. `requirements.txt`, `package.json`). Start by using `list_dir` to see what already exists in the workspace before creating files. Use `read_file` to inspect existing files before modifying them. If you need to test your code using external libraries (like pygame or pytest), you MUST run 'uv pip install --system <library>' using the 'execute_terminal_command' tool BEFORE running your script! Do not assume third-party packages are pre-installed in the environment."
+            
+        def build_tree(dir_path, prefix=""):
+            if not os.path.exists(dir_path):
+                return ""
+            tree_str = ""
+            try:
+                entries = sorted(os.listdir(dir_path))
+                for i, entry in enumerate(entries):
+                    if entry.startswith(".") and entry != ".env": continue
+                    path = os.path.join(dir_path, entry)
+                    is_last = (i == len(entries) - 1)
+                    connector = "└── " if is_last else "├── "
+                    tree_str += f"{prefix}{connector}{entry}\\n"
+                    if os.path.isdir(path):
+                        extension = "    " if is_last else "│   "
+                        tree_str += build_tree(path, prefix=prefix + extension)
+            except Exception as e:
+                pass
+            return tree_str
+            
+        tree_txt = build_tree(os.path.join(workspace_dir, "src"))
+        if tree_txt.strip():
+            user_msg += "\\n## Workspace State\\nThe `src/` directory is automatically managed for you. Do not worry about creating it. Here is the current file tree of `src/`:\\n" + tree_txt + "\\n"
+        else:
+            user_msg += "\\n## Workspace State\\nThe `src/` directory is automatically managed for you. Do not worry about creating it. It is currently empty.\\n"
+            
+        user_msg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. You must maintain a standard project directory structure. Place source code inside the `src/` directory (e.g. `src/main.py`, `src/utils.py`) and top-level configs in the root. Use `read_file` to inspect existing files before modifying them. If you need to test your code using external libraries, you MUST run 'uv pip install --system <library>' using the 'execute_terminal_command' tool BEFORE running your script! Do not assume third-party packages are pre-installed."
         
         messages = [
             {{"role": "system", "content": {json.dumps(sys_prompt)}}},

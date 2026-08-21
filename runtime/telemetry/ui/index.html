@@ -2121,7 +2121,7 @@
             }
 
             if (type === 'WorkerStarted' || type === 'TaskDispatched') {
-                createOrUpdateDOMNode(globalId, taskId, 'running');
+                createOrUpdateDOMNode(globalId, taskId, 'running', workerId);
 
                 if (!stars.has(globalId)) {
                     let depth = 0;
@@ -2138,7 +2138,7 @@
                 }
             }
             else if (type === 'WorkerCompleted') {
-                createOrUpdateDOMNode(globalId, taskId, 'completed');
+                createOrUpdateDOMNode(globalId, taskId, 'completed', workerId);
                 lastCompletedNode = globalId;
 
                 const s = stars.get(globalId);
@@ -2157,7 +2157,7 @@
                 }
             }
             else if (type === 'WorkerFailed') {
-                createOrUpdateDOMNode(globalId, taskId, 'failed');
+                createOrUpdateDOMNode(globalId, taskId, 'failed', workerId);
                 const s = stars.get(globalId);
                 if (s) {
                     s.status = 'failed';
@@ -2185,37 +2185,39 @@
             }
         }
 
-        function createOrUpdateDOMNode(workerId, taskId, status) {
-            let nodeEl = document.getElementById(`node-${workerId}`);
+        function createOrUpdateDOMNode(globalId, taskId, status, title) {
+            let nodeEl = document.getElementById(`node-${globalId}`);
 
             if (!nodeEl) {
                 const emptyState = document.getElementById('nodesEmptyState');
                 if (emptyState) emptyState.style.display = 'none';
 
                 nodeEl = document.createElement('div');
-                nodeEl.id = `node-${workerId}`;
+                nodeEl.id = `node-${globalId}`;
                 nodeEl.className = 'node-card';
+                
+                const displayTitle = title && title !== globalId.split('|')[1] ? title : globalId.split('|')[1];
 
                 nodeEl.innerHTML = `
                     <div class="node-header">
-                        <h3 class="node-title">${workerId}</h3>
-                        <span class="status-badge" id="badge-${workerId}">INITIALIZING</span>
+                        <h3 class="node-title">${displayTitle}</h3>
+                        <span class="status-badge" id="badge-${globalId}">INITIALIZING</span>
                     </div>
-                    <div class="node-task" id="task-${workerId}">${taskId || ''}</div>
-                    <div class="chips" id="chips-${workerId}"></div>
+                    <div class="node-task" id="task-${globalId}">${taskId || ''}</div>
+                    <div class="chips" id="chips-${globalId}"></div>
                 `;
-                nodeEl.onclick = () => openDetailsPanel(workerId);
+                nodeEl.onclick = () => openDetailsPanel(globalId);
 
                 document.getElementById('nodesContainer').appendChild(nodeEl);
-                nodesMap.set(workerId, nodeEl);
+                nodesMap.set(globalId, nodeEl);
                 updateAgentCount();
             }
 
             const isSelected = nodeEl.classList.contains('selected');
             nodeEl.className = `node-card status-${status}${isSelected ? ' selected' : ''}`;
-            document.getElementById(`badge-${workerId}`).innerText = status.toUpperCase();
-            if (taskId && !document.getElementById(`task-${workerId}`).innerText) {
-                document.getElementById(`task-${workerId}`).innerText = taskId;
+            document.getElementById(`badge-${globalId}`).innerText = status.toUpperCase();
+            if (taskId && !document.getElementById(`task-${globalId}`).innerText) {
+                document.getElementById(`task-${globalId}`).innerText = taskId;
             }
         }
 
@@ -2388,11 +2390,50 @@
             
             const toolLogs = data.filter(e => e.type === 'ToolCall' || (e.type === 'WorkerLog' && e.payload && (e.payload.log || '').toUpperCase().includes('[TOOL')));
             if (toolLogs.length > 0) {
+                let currentTool = '';
+                
                 toolLogs.forEach(e => {
-                    html += `<div style="margin-bottom:1rem; border-left: 2px solid var(--running); padding-left: 0.8rem;">
-                        <strong>${e.type}</strong><br>
-                        <pre style="margin-top:0.4rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--ink-dim); white-space: pre-wrap; background: rgba(0,0,0,0.3); padding: 0.6rem; border-radius: 4px;">${JSON.stringify(e.payload, null, 2)}</pre>
-                    </div>`;
+                    if (e.type === 'WorkerLog' && e.payload && e.payload.log) {
+                        const log = e.payload.log;
+                        if (log.includes('[TOOL] Executing')) {
+                            currentTool = log.split('[TOOL] Executing')[1].trim();
+                        } else if (log.includes('[TOOL] Args:')) {
+                            let currentArgs = log.split('[TOOL] Args:')[1].trim();
+                            let actionDesc = currentArgs; // fallback
+                            
+                            try {
+                                // Try to parse if not truncated
+                                let parseableArgs = currentArgs;
+                                if (parseableArgs.endsWith('... [TRUNCATED]')) {
+                                    parseableArgs = parseableArgs.replace('... [TRUNCATED]', '') + '"}'; // rough attempt
+                                }
+                                const argsObj = JSON.parse(parseableArgs);
+                                
+                                if (currentTool === 'execute_terminal_command') {
+                                    actionDesc = `Ran command: <code style="color: var(--accent);">${argsObj.command || ''}</code>`;
+                                } else if (currentTool === 'write_file') {
+                                    actionDesc = `Wrote to file: <code style="color: var(--accent);">${argsObj.path || ''}</code>`;
+                                } else if (currentTool === 'read_file') {
+                                    actionDesc = `Read file: <code style="color: var(--accent);">${argsObj.path || ''}</code>`;
+                                } else if (currentTool === 'search_codebase') {
+                                    actionDesc = `Searched for: <code style="color: var(--accent);">${argsObj.regex_pattern || ''}</code>`;
+                                } else if (currentTool === 'list_dir') {
+                                    actionDesc = `Listed directory: <code style="color: var(--accent);">${argsObj.path || ''}</code>`;
+                                }
+                            } catch (err) {}
+                            
+                            html += `<div style="margin-bottom:0.8rem; border-left: 2px solid var(--running); padding-left: 0.8rem;">
+                                <strong style="color: #fff;">${currentTool || 'Tool Used'}</strong><br>
+                                <div style="margin-top:0.2rem; font-size: 0.85rem; color: var(--ink-dim);">${actionDesc}</div>
+                            </div>`;
+                            currentTool = '';
+                        }
+                    } else if (e.type === 'ToolCall') {
+                        html += `<div style="margin-bottom:1rem; border-left: 2px solid var(--running); padding-left: 0.8rem;">
+                            <strong>Tool Call</strong><br>
+                            <pre style="margin-top:0.4rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--ink-dim); white-space: pre-wrap; background: rgba(0,0,0,0.3); padding: 0.6rem; border-radius: 4px;">${JSON.stringify(e.payload, null, 2)}</pre>
+                        </div>`;
+                    }
                 });
             } else {
                 html += `<div style="color: var(--ink-faint); font-style: italic;">No tools were used by this agent.</div>`;

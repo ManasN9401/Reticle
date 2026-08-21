@@ -78,8 +78,7 @@ nodes:"""
         workflow_yaml_str += f"""
   - id: {node.get('id')}
     agent: {node.get('agent_id')}
-    parameters:
-      llm_model: groq/qwen/qwen3.6-27b"""
+    parameters: {{}}"""
         
         
     workflow_yaml_str += "\nedges:"
