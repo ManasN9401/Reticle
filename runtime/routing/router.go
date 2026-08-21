@@ -61,6 +61,12 @@ func (r *ModelRouter) subscribe() {
 	})
 }
 
+// UpdateProbability allows external components (like Dispatcher) to manually report success/failure
+func (r *ModelRouter) UpdateProbability(agentID, taskID string, success bool) {
+	r.updateProbability(agentID, taskID, success)
+}
+
+
 func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -92,11 +98,11 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 	// Cleanup inflight
 	delete(r.inFlight, taskID)
 	
-	r.Logger.Info("Model utility updated", "agent_id", agentID, "model", modelID, "success", success, "new_prob", newProb)
+	r.Logger.Info("Model utility updated", "agent_id", agentID, "model_key", modelID, "success", success, "new_prob", newProb)
 }
 
 // SelectModel returns the cheapest model whose expected success rate exceeds the required confidence.
-func (r *ModelRouter) SelectModel(taskID string, agentID string, requiredConfidence float64) string {
+func (r *ModelRouter) SelectModel(taskID string, agentID string, requiredConfidence float64) *Model {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -104,42 +110,47 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, requiredConfide
 		r.Matrix[agentID] = make(map[string]float64)
 	}
 
-	var bestModel string
+	var bestModel *Model
 	minCost := math.MaxFloat64
 
 	for _, m := range AvailableModels {
-		prob, exists := r.Matrix[agentID][m.ID]
+		// Use a local copy of m to take its address safely
+		mCopy := m
+		prob, exists := r.Matrix[agentID][mCopy.Key()]
 		if !exists {
 			prob = 0.90 // Optimistic prior for cold starts
-			r.Matrix[agentID][m.ID] = prob
+			r.Matrix[agentID][mCopy.Key()] = prob
 		}
 
-		if prob >= requiredConfidence && m.Cost < minCost {
-			minCost = m.Cost
-			bestModel = m.ID
+		if prob >= requiredConfidence && mCopy.Cost < minCost {
+			minCost = mCopy.Cost
+			bestModel = &mCopy
 		}
 	}
 
 	// Fallback to most capable (assumed to be highest cost if threshold not met)
-	if bestModel == "" {
+	if bestModel == nil {
 		maxCost := -1.0
 		for _, m := range AvailableModels {
-			if m.Cost > maxCost {
-				maxCost = m.Cost
-				bestModel = m.ID
+			mCopy := m
+			if mCopy.Cost > maxCost {
+				maxCost = mCopy.Cost
+				bestModel = &mCopy
 			}
 		}
 	}
 
-	// Track this task so we can update telemetry later
-	r.inFlight[taskID] = bestModel
-	r.Logger.Info("Model routed", "agent_id", agentID, "model", bestModel)
+	if bestModel != nil {
+		// Track this task so we can update telemetry later
+		r.inFlight[taskID] = bestModel.Key()
+		r.Logger.Info("Model routed", "agent_id", agentID, "model_key", bestModel.Key())
+	}
 	return bestModel
 }
 
 // TrackForcedModel registers a task against a specific model, bypassing SelectModel but enabling telemetry.
-func (r *ModelRouter) TrackForcedModel(taskID string, modelID string) {
+func (r *ModelRouter) TrackForcedModel(taskID string, modelKey string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.inFlight[taskID] = modelID
+	r.inFlight[taskID] = modelKey
 }

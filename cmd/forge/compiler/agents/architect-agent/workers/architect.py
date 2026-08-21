@@ -145,26 +145,26 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
             {"role": "user", "content": f"{ide_prefix}{hist_prefix}Design the agent graph for this goal: {user_prompt}"}
         ]
         
-        # We can configure fallbacks natively in litellm
-        fallbacks = ["groq/groq/compound-mini", "gemini/gemini-3.5-flash-lite"]
-        # Ensure we don't put the primary model in the fallbacks list
-        if model in fallbacks:
-            fallbacks.remove(model)
+        model = req.get("parameters", {}).get("llm_model", "openrouter/anthropic/claude-3-5-sonnet-20241022")
+        api_key_env = req.get("parameters", {}).get("api_key")
+        api_key = os.environ.get(api_key_env) if api_key_env else None
 
         @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=2, min=5, max=120))
         def get_architect_response():
             try:
                 resp = completion(
                     model=model,
+                    api_key=api_key,
                     response_format={ "type": "json_object" },
                     messages=conversation,
-                    max_tokens=8192,
-                    fallbacks=fallbacks
+                    max_tokens=8192
                 )
             except Exception as e:
                 err_str = str(e)
-                if "RateLimitError" in err_str:
-                    print(f"[LLM] Error: RateLimitError: API rate limit exceeded. Retrying...", file=sys.stderr)
+                if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str:
+                    # We fail FAST on hard limits so the Go orchestrator can catch it and route to a new model
+                    print(f"[LLM] Hard limit reached on {model}: {err_str[:150]}", file=sys.stderr)
+                    sys.exit(1)
                 else:
                     print(f"[LLM] Error: {err_str[:300]}{'...' if len(err_str) > 300 else ''}", file=sys.stderr)
                 raise e

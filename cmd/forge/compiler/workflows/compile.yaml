@@ -4,16 +4,13 @@ version: 1.0.0
 nodes:
   - id: arch-1
     agent: architect-agent
-    parameters:
-      llm_model: "groq/qwen/qwen3.6-27b"
+    parameters: {}
   - id: scaff-1
     agent: scaffolder-agent
-    parameters:
-      llm_model: "groq/qwen/qwen3.6-27b"
+    parameters: {}
   - id: code-1
     agent: coder-agent
-    parameters:
-      llm_model: "groq/qwen/qwen3.6-27b"
+    parameters: {}
   - id: write-1
     agent: writer-agent
     parameters: {}

@@ -1013,6 +1013,7 @@
 
         .outputs-sidebar {
             width: 250px;
+            flex-shrink: 0;
             border-right: 1px solid var(--border-soft);
             background: rgba(0, 0, 0, 0.15);
             overflow-y: auto;
@@ -2110,7 +2111,13 @@
 
             if (globalId) {
                 if (!nodeDataMap.has(globalId)) nodeDataMap.set(globalId, []);
-                nodeDataMap.get(globalId).push({ type, payload: logPayload });
+                const eventsList = nodeDataMap.get(globalId);
+                eventsList.push({ type, payload: logPayload });
+                
+                // Prevent extreme UI lag by capping in-memory events per node to 400
+                if (eventsList.length > 400) {
+                    eventsList.shift();
+                }
             }
 
             if (type === 'WorkerStarted' || type === 'TaskDispatched') {
@@ -2126,7 +2133,7 @@
                 s.startTime = Date.now();
 
                 if (payload.llm_model) {
-                    addDOMChip(globalId, `🧠 ${payload.llm_model}`);
+                    addDOMChip(globalId, `🧠 ${payload.llm_model}`, 'llm-model');
                     s.llm = payload.llm_model;
                 }
             }
@@ -2220,6 +2227,11 @@
                 return;
             }
 
+            if (typeClass === 'llm-model') {
+                const existingLlm = Array.from(chipsContainer.children).find(c => c.classList.contains('llm-model'));
+                if (existingLlm) existingLlm.remove();
+            }
+
             const chip = document.createElement('span');
             chip.className = `chip ${typeClass}`;
             chip.innerText = text;
@@ -2237,6 +2249,12 @@
                 <span class="log-content">${content}</span>
             `;
             logContainer.appendChild(el);
+            
+            // Protect DOM performance by popping old logs
+            while (logContainer.children.length > 300) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+            
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
@@ -2421,6 +2439,7 @@
             </div>
             <div class="outputs-body">
                 <div class="outputs-sidebar" id="outputsSidebar"></div>
+                <div class="resizer-vertical" id="outputsResizer"></div>
                 <div class="outputs-content">
                     <pre id="outputsCodeViewer">Select a file to view its contents.</pre>
                 </div>
@@ -2475,6 +2494,35 @@
         function closeOutputsModal() {
             document.getElementById('outputsModal').classList.remove('open');
         }
+
+        // Outputs Resizer Logic
+        const outputsResizer = document.getElementById('outputsResizer');
+        const outputsSidebar = document.getElementById('outputsSidebar');
+        let isResizingOutputs = false;
+
+        outputsResizer.addEventListener('mousedown', (e) => {
+            isResizingOutputs = true;
+            outputsResizer.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizingOutputs) return;
+            const containerOffset = document.querySelector('.outputs-body').getBoundingClientRect().left;
+            const newWidth = e.clientX - containerOffset;
+            if (newWidth > 150 && newWidth < 800) {
+                outputsSidebar.style.width = `${newWidth}px`;
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizingOutputs) {
+                isResizingOutputs = false;
+                outputsResizer.classList.remove('active');
+                document.body.style.cursor = '';
+            }
+        });
     </script>
 </body>
 

@@ -51,20 +51,10 @@ func (d *Dispatcher) Start() {
 		if d.Instructions != nil {
 			task.Instructions = d.Instructions.GetForTask(task.AgentID, task.Workflow)
 		}
-
-		// Inject Model Routing
-		if d.Router != nil {
-			if task.Parameters == nil {
-				task.Parameters = make(map[string]any)
-			}
-			if _, exists := task.Parameters["llm_model"]; !exists {
-				selectedModel := d.Router.SelectModel(string(task.ID), task.AgentID, 0.90) // 90% confidence threshold
-				task.Parameters["llm_model"] = selectedModel
-			} else {
-				// Tell the router to track this forced model so it can learn from it
-				d.Router.TrackForcedModel(string(task.ID), task.Parameters["llm_model"].(string))
-			}
+		if task.Parameters == nil {
+			task.Parameters = make(map[string]any)
 		}
+		_, isForced := task.Parameters["llm_model"]
 
 		// Inject Implicit Base Context (every agent gets these regardless of YAML)
 		if d.RuntimeState != nil {
@@ -102,33 +92,69 @@ func (d *Dispatcher) Start() {
 		}
 
 		// Asynchronously invoke the worker directly
-		go func(w *Worker, t Task) {
-			payload := map[string]any{
-				"task_id":   t.ID,
-				"worker_id": w.ID,
-			}
-			if t.Parameters != nil {
-				if m, ok := t.Parameters["llm_model"]; ok {
-					payload["llm_model"] = m
+		go func(w *Worker, t Task, forced bool) {
+			maxRetries := 5
+			var lastFailure *WorkerFailure
+
+			for attempt := 1; attempt <= maxRetries; attempt++ {
+				// Dynamically select model if not forced
+				if d.Router != nil {
+					if !forced {
+						selectedModel := d.Router.SelectModel(string(t.ID), t.AgentID, 0.90)
+						if selectedModel != nil {
+							t.Parameters["llm_model"] = selectedModel.ID
+							if selectedModel.APIKeyEnv != "" {
+								t.Parameters["api_key"] = selectedModel.APIKeyEnv
+							}
+						}
+					} else if attempt == 1 {
+						d.Router.TrackForcedModel(string(t.ID), t.Parameters["llm_model"].(string))
+					}
+				}
+
+				payload := map[string]any{
+					"task_id":   string(t.ID),
+					"worker_id": w.ID,
+				}
+				if t.Parameters != nil {
+					if m, ok := t.Parameters["llm_model"]; ok {
+						payload["llm_model"] = m
+					}
+				}
+
+				d.Bus.Publish(events.EventType("TaskDispatched"), events.Component("dispatcher"), payload)
+				
+				_, failure := w.Execute(t)
+				if failure == nil {
+					if d.Router != nil {
+						d.Router.UpdateProbability(string(w.ID), string(t.ID), true)
+					}
+					return // Success
+				}
+
+				// Failed attempt
+				d.Logger.Error("Worker execution failed (attempt)", "worker_id", w.ID, "attempt", attempt, "reason", failure.Reason, "stderr", failure.Stderr)
+				lastFailure = failure
+
+				if d.Router != nil {
+					d.Router.UpdateProbability(string(w.ID), string(t.ID), false)
+				}
+				
+				// Don't retry if we forced the model
+				if forced {
+					break
 				}
 			}
 
-			d.Bus.Publish(events.EventType("TaskDispatched"), events.Component("dispatcher"), payload)
-			
-			_, failure := w.Execute(t)
-			if failure != nil {
-				d.Logger.Error("Worker execution failed", "worker_id", w.ID, "reason", failure.Reason, "stderr", failure.Stderr)
-				
-				d.Bus.Publish(events.EventType("WorkerFailed"), events.Component("dispatcher"), map[string]any{
-					"task_id":   t.ID,
-					"worker_id": w.ID,
-					"reason":    failure.Reason,
-					"exit_code": failure.ExitCode,
-					"stderr":    failure.Stderr,
-				})
-				return
-			}
-
-		}(worker, task)
+			// All attempts exhausted
+			d.Logger.Error("Worker execution finally failed", "worker_id", w.ID, "reason", lastFailure.Reason, "stderr", lastFailure.Stderr)
+			d.Bus.Publish(events.EventType("WorkerFailed"), events.Component("dispatcher"), map[string]any{
+				"task_id":   string(t.ID),
+				"worker_id": w.ID,
+				"reason":    lastFailure.Reason,
+				"exit_code": lastFailure.ExitCode,
+				"stderr":    lastFailure.Stderr,
+			})
+		}(worker, task, isForced)
 	})
 }
