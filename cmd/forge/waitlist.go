@@ -115,15 +115,46 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 					containerName := "forge_" + strings.ReplaceAll(strings.ReplaceAll(execID, ".", "_"), "-", "_")
 					exec.Command("docker", "rm", "-f", containerName).Run()
 					
-					// Dump artifacts to output dir per RFC-031
-					srcDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", execID, "src"))
-					dstDir, _ := filepath.Abs(filepath.Join("../../", "outputs", execID))
-					if _, err := os.Stat(srcDir); err == nil {
+					// Dump artifacts to the workspace directory
+					srcDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", execID))
+					workspaceDir := filepath.Dir(wm.filePath)
+					dstDir := filepath.Join(workspaceDir, execID)
+					if entries, err := os.ReadDir(srcDir); err == nil {
 						os.MkdirAll(dstDir, 0755)
-						if err := copyDir(srcDir, dstDir); err != nil {
-							wm.orchestrator.Logger.Error("[Waitlist] Failed to copy outputs", "execID", execID, "error", err)
+						copySuccess := true
+						for _, entry := range entries {
+							name := entry.Name()
+							if name == "agents" || name == "workflows" || name == "workers" || name == ".tmpenv" || name == "waitlist.json" {
+								continue
+							}
+							srcPath := filepath.Join(srcDir, name)
+							dstPath := filepath.Join(dstDir, name)
+							if entry.IsDir() {
+								os.MkdirAll(dstPath, 0755)
+								if err := copyDir(srcPath, dstPath); err != nil {
+									copySuccess = false
+								}
+							} else {
+								srcF, err := os.Open(srcPath)
+								if err == nil {
+									dstF, err := os.Create(dstPath)
+									if err == nil {
+										io.Copy(dstF, srcF)
+										dstF.Close()
+									} else {
+										copySuccess = false
+									}
+									srcF.Close()
+								} else {
+									copySuccess = false
+								}
+							}
+						}
+						
+						if !copySuccess {
+							wm.orchestrator.Logger.Error("[Waitlist] Failed to copy some outputs", "execID", execID)
 						} else {
-							wm.orchestrator.Logger.Info("[Waitlist] Successfully dumped artifacts to outputs/", "execID", execID)
+							wm.orchestrator.Logger.Info(fmt.Sprintf("[Waitlist] Successfully dumped artifacts to %s/%s", filepath.Base(workspaceDir), execID), "execID", execID)
 						}
 					}
 					
@@ -176,7 +207,18 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 		wm.mu.Lock()
 		defer wm.mu.Unlock()
 		if wm.orchestrator != nil && wm.orchestrator.Bus != nil {
-			wm.orchestrator.Bus.Publish(events.EventType("WaitlistUpdated"), events.Component("waitlist"), wm.items)
+			runningTotal := 0
+			for _, item := range wm.items {
+				if item.Status == StatusRunning {
+					runningTotal++
+				}
+			}
+			payload := WaitlistPayload{
+				Items:          wm.items,
+				MaxWorkers:     wm.maxWorkers,
+				RunningWorkers: runningTotal,
+			}
+			wm.orchestrator.Bus.Publish(events.EventType("WaitlistUpdated"), events.Component("waitlist"), payload)
 		}
 	})
 	
@@ -340,30 +382,44 @@ func (wm *WaitlistManager) Pump() {
 			// Build prompt history and find previous execution for file inheritance
 			var promptHistory string
 			var prevExecID string
-			if item.Group != "" {
-				historyLines := []string{}
-				for i := 0; i < len(wm.items); i++ {
-					prev := wm.items[i]
-					if prev.ID == item.ID {
-						break
-					}
-					if prev.Group == item.Group && (prev.Status == StatusCompleted || prev.Status == StatusFailed) {
-						historyLines = append(historyLines, fmt.Sprintf("- Iteration %s: %s", prev.ID, prev.Prompt))
-						prevExecID = prev.ID
-					}
+			historyLines := []string{}
+			for i := 0; i < len(wm.items); i++ {
+				prev := wm.items[i]
+				if prev.ID == item.ID {
+					break
 				}
-				if len(historyLines) > 0 {
-					promptHistory = strings.Join(historyLines, "\\n")
+				if prev.Group == item.Group && (prev.Status == StatusCompleted || prev.Status == StatusFailed) {
+					historyLines = append(historyLines, fmt.Sprintf("- Iteration %s: %s", prev.ID, prev.Prompt))
+					prevExecID = prev.ID
 				}
 			}
+			if len(historyLines) > 0 {
+				promptHistory = strings.Join(historyLines, "\\n")
+			}
 			
-			// If we found a previous execution, copy its src dir to inherit code
+			// If we found a previous execution, copy its project files to inherit code
 			if prevExecID != "" {
-				prevSrcDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", prevExecID, "src"))
-				newSrcDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", item.ID, "src"))
-				if _, err := os.Stat(prevSrcDir); err == nil {
-					os.MkdirAll(newSrcDir, 0755)
-					copyDir(prevSrcDir, newSrcDir)
+				prevSessionDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", prevExecID))
+				newSessionDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", item.ID))
+				if entries, err := os.ReadDir(prevSessionDir); err == nil {
+					for _, entry := range entries {
+						if entry.Name() == "agents" || entry.Name() == "workflows" {
+							continue
+						}
+						srcPath := filepath.Join(prevSessionDir, entry.Name())
+						dstPath := filepath.Join(newSessionDir, entry.Name())
+						if entry.IsDir() {
+							os.MkdirAll(dstPath, 0755)
+							copyDir(srcPath, dstPath)
+						} else {
+							// Copy single file
+							srcF, _ := os.Open(srcPath)
+							dstF, _ := os.Create(dstPath)
+							io.Copy(dstF, srcF)
+							srcF.Close()
+							dstF.Close()
+						}
+					}
 				}
 			}
 			

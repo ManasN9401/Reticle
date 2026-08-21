@@ -26,8 +26,8 @@ def execute_terminal_command(command, workspace_dir, allow_native=False):
                 subprocess.run([
                     "docker", "run", "-d", "--rm", "--name", container_name,
                     "-v", f"{os.path.abspath(workspace_dir)}:/workspace",
-                    "-w", "/workspace/src",
-                    "python:3.10-slim",
+                    "-w", "/workspace",
+                    "ghcr.io/astral-sh/uv:python3.12-bookworm-slim",
                     "sleep", "infinity"
                 ], capture_output=True)
                 
@@ -77,8 +77,6 @@ def search_codebase(regex_pattern, workspace_dir):
         return f"Error searching codebase: {e}"
 
 def write_file(path, content, workspace_dir, files_modified):
-    if path.startswith("src/") or path.startswith("src\\\\"):
-        path = path[4:]
     full_path = os.path.join(workspace_dir, "src", path)
     
     if os.path.exists(full_path) and path not in files_modified:
@@ -326,7 +324,7 @@ def main():
         agent_id = agent.get("id")
         sys_prompt = agent.get("system_prompt", "You are a helpful assistant.")
         sys_prompt += """\n\nYou are an autonomous agent equipped with tools. You must use the tools to read the workspace, execute tests, and modify files.
-You have full root access to a Debian terminal via `execute_terminal_command`. You can test your work by running standard compilation or execution commands for your assigned language (e.g. `node index.js`, `python script.py`, `go build`). Use `read_url` to look up documentation if you are stuck. Use `list_dir` to explore the workspace instead of guessing file paths.
+You have full root access to a Debian terminal via `execute_terminal_command`. You can test your work by running standard compilation or execution commands for your assigned language (e.g. `node src/index.js`, `python src/main.py`, `go build`). Use `read_url` to look up documentation if you are stuck. Use `list_dir` to explore the workspace instead of guessing file paths.
 CRITICAL REQUIREMENT: You MUST write FULLY FUNCTIONAL, complete code. You are strictly FORBIDDEN from using placeholders like `pass`, `TODO`, or `...`. Every function must have real implementation logic!
 CRITICAL BOUNDARY RULE: Do NOT rewrite or overwrite files owned by other components from scratch. If a file exists, use `read_file` to inspect it and ONLY use `replace_file_content` to surgically inject your specific feature. Overwriting existing files with `write_file` will destroy other agents' work and is STRICTLY FORBIDDEN unless you are the original creator of that file.
 When you are finished and have VERIFIED your code works via execute_terminal_command, call the `mark_task_complete` tool with a summary of what you did."""
@@ -414,7 +412,7 @@ def main():
         user_msg += "## User's Goal\\n" + user_prompt + "\\n"
         if upstream_context:
             user_msg += "\\n## Context From Previous Agents\\n" + upstream_context
-        user_msg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. File paths must be relative (e.g. 'main.py', 'utils.py') - do NOT prepend 'src/'. Start by using `list_dir` to see what already exists in the workspace before creating files. Use `read_file` to inspect existing files before modifying them. If you need to test your code using external libraries (like pygame or pytest), you MUST run 'pip install <library>' using the 'execute_terminal_command' tool BEFORE running your script! Do not assume third-party packages are pre-installed in the environment."
+        user_msg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. You must maintain a standard project directory structure. Place source code inside a `src/` directory (e.g. `src/main.py`, `src/utils.py`) and top-level configs in the root (e.g. `requirements.txt`, `package.json`). Start by using `list_dir` to see what already exists in the workspace before creating files. Use `read_file` to inspect existing files before modifying them. If you need to test your code using external libraries (like pygame or pytest), you MUST run 'uv pip install --system <library>' using the 'execute_terminal_command' tool BEFORE running your script! Do not assume third-party packages are pre-installed in the environment."
         
         messages = [
             {{"role": "system", "content": {json.dumps(sys_prompt)}}},
@@ -427,8 +425,15 @@ def main():
         task_completed = False
         MAX_ITERATIONS = 50
         for _iteration in range(MAX_ITERATIONS):
+            # Print LLM prompt for verbose telemetry
+            print(f"[LLM] Prompt:\\n{{json.dumps(messages, indent=2)}}", file=sys.stderr)
+            
             response = do_completion(messages)
             msg = response.choices[0].message
+            
+            # Print LLM completion for verbose telemetry
+            print(f"[LLM] Completion:\\n{{msg.content}}", file=sys.stderr)
+            
             clean_msg = {{"role": "assistant", "content": msg.content or ""}}
             if msg.tool_calls:
                 clean_msg["tool_calls"] = []
@@ -525,9 +530,10 @@ def main():
                     except Exception as e:
                         res = f"Tool execution failed: {{e}}"
                         
-                    res_str = str(res)[:1000]
-                    for line in res_str.split('\\n'):
-                        print(f"[TOOL_RES] {{func_name}}: {{line}}", file=sys.stderr)
+                    res_str = str(res)
+                    if len(res_str) > 300:
+                        res_str = res_str[:300] + "... [TRUNCATED]"
+                    print(f"[TOOL_RES] {{func_name}}: {{res_str}}", file=sys.stderr)
                     messages.append({{
                         "role": "tool",
                         "name": func_name,
@@ -546,10 +552,10 @@ def main():
                     continue
                 else:
                     # Agent stopped calling tools without marking task complete
-                    messages.append({
+                    messages.append({{
                         "role": "user",
                         "content": "ERROR: You stopped calling tools without calling 'mark_task_complete'. If you are finished, you MUST call 'mark_task_complete'. If you are not finished, continue using tools to write code."
-                    })
+                    }})
                     continue
                 
         if not task_completed:
@@ -557,8 +563,11 @@ def main():
             
         result = messages[-1].get("content", "")
         if files_modified:
-            result += "\n\n### Files Modified By This Agent:\n"
+            result += "\\n\\n### Files Modified By This Agent:\\n"
             for p, c in files_modified.items():
+                result += f"#### {{p}}\\n```\\n{{c}}\\n```\\n"
+        
+        artifact = {{
             "id": f"{{req_id}}_output",
             "name": f"{agent_id} Output",
             "type": "document/markdown",

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -67,7 +68,41 @@ func runWorkflowSync(graphEngine *agent.GraphEngine, orch *orchestrator.Orchestr
 	return execErr
 }
 
+func getLastWorkspace(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) == 0 {
+		return ""
+	}
+	var newest string
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), "forge_workspace_") {
+			if newest == "" || e.Name() > newest {
+				newest = e.Name()
+			}
+		}
+	}
+	if newest != "" {
+		return filepath.Join(dir, newest)
+	}
+	return ""
+}
+
 func main() {
+	// Hack to allow -workspace without arguments
+	for i := 1; i < len(os.Args); i++ {
+		if os.Args[i] == "-workspace" {
+			if i == len(os.Args)-1 || strings.HasPrefix(os.Args[i+1], "-") {
+				// Insert "last" as the argument for -workspace
+				newArgs := make([]string, 0, len(os.Args)+1)
+				newArgs = append(newArgs, os.Args[:i+1]...)
+				newArgs = append(newArgs, "last")
+				newArgs = append(newArgs, os.Args[i+1:]...)
+				os.Args = newArgs
+				break
+			}
+		}
+	}
+
 	isolatedFlag := flag.Bool("isolated", true, "Use isolated session workspaces (dynamic compilation per prompt)")
 	freshFlag := flag.Bool("fresh", false, "Clear all previous isolated sessions on boot")
 	batchSize := flag.Int("batch", 5, "Number of concurrent workflows to run in a batch")
@@ -81,6 +116,36 @@ func main() {
 	var userPrompt string
 	if len(args) > 0 {
 		userPrompt = strings.Join(args, " ")
+	}
+
+	if !*nativeFlag {
+		if err := exec.Command("docker", "info").Run(); err != nil {
+			fmt.Println("\\n⚠️ WARNING: Docker does not appear to be running on your system!")
+			fmt.Println("By default, Forge runs agents inside isolated Docker containers for your security.")
+			fmt.Println("If you wish to proceed WITHOUT Docker (which is highly insecure as agents will run commands directly on your host machine),")
+			fmt.Print("press 'y' to continue, or 'n' to abort: ")
+			
+			scanner := bufio.NewScanner(os.Stdin)
+			if scanner.Scan() {
+				ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
+				if ans != "y" && ans != "yes" {
+					fmt.Println("Aborting.")
+					os.Exit(1)
+				}
+				*nativeFlag = true
+			} else {
+				os.Exit(1)
+			}
+		}
+	}
+
+	if *workspaceFlag == "last" || (*workspaceFlag == "" && *freshFlag) {
+		lastWs := getLastWorkspace("workspaces")
+		if lastWs != "" {
+			*workspaceFlag = lastWs
+		} else if *workspaceFlag == "last" {
+			*workspaceFlag = "" // fallback to creating a new one if none exist
+		}
 	}
 
 	fmt.Println("==================================================")
@@ -100,6 +165,19 @@ func main() {
 	if *freshFlag {
 		fmt.Println("[INFO] Wiping all previous isolated sessions...")
 		os.RemoveAll(filepath.Join(rootDir, ".hyperparallel", "sessions"))
+		if *workspaceFlag != "" {
+			workspaceDir, _ := filepath.Abs(*workspaceFlag)
+			os.Remove(filepath.Join(workspaceDir, "waitlist.json"))
+			
+			// Remove any exec-XXX folders in the workspace
+			if entries, err := os.ReadDir(workspaceDir); err == nil {
+				for _, entry := range entries {
+					if entry.IsDir() && strings.HasPrefix(entry.Name(), "exec-") {
+						os.RemoveAll(filepath.Join(workspaceDir, entry.Name()))
+					}
+				}
+			}
+		}
 	}
 
 	timestamp := time.Now().Format("20060102_150405")

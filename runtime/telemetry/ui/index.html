@@ -2368,7 +2368,7 @@
                 <div class="details-section" style="border: none; background: transparent; padding: 0;">
                     <div class="details-data" style="max-height: calc(100vh - 200px); overflow-y: auto;">`;
             
-            const toolLogs = data.filter(e => e.type === 'ToolCall' || (e.type === 'WorkerLog' && e.payload && (e.payload.log || '').includes('Tool')));
+            const toolLogs = data.filter(e => e.type === 'ToolCall' || (e.type === 'WorkerLog' && e.payload && (e.payload.log || '').toUpperCase().includes('[TOOL')));
             if (toolLogs.length > 0) {
                 toolLogs.forEach(e => {
                     html += `<div style="margin-bottom:1rem; border-left: 2px solid var(--running); padding-left: 0.8rem;">
