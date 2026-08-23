@@ -29,6 +29,13 @@ To prevent "messy merges" or stale patches, we introduce **Pessimistic File Lock
 3. **Blocking Execution:** If Agent B requests a lock on `middleware.go` while Agent A holds it, the Orchestrator pauses Agent B's execution stream.
 4. **Fresh Context:** Once Agent A releases the lock, Agent B acquires it. Crucially, Agent B must now read the *fresh* state of the file from disk before attempting to write any code, ensuring its context is completely up-to-date.
 
+### 4. Agent Workspace Pre-flight Context Injection
+Because sessions are completely isolated, agents must have absolute certainty about the current state of their internal `src/` directory without wasting LLM turns running blind exploratory commands.
+
+Before invoking the LLM, the Python worker script (`coder.py`) will automatically scan the isolated `src/` folder for the session. It recursively builds a visual text-based file tree representing the current codebase topology. This topology is injected directly into the bottom of the System Prompt under `## Workspace State`. 
+
+This permanently eliminates the need for agents to start their workflow by executing `list_dir` commands, heavily reducing token usage and speeding up task execution.
+
 ## Consequences
 - **Pros:** Users can spawn highly complex, parallel coding instructions continuously. The orchestrator guarantees that node maps never clash and file modifications are safely serialized without resorting to thousands of temporary Git branches.
 - **Cons:** High-contention files (e.g., `main.go`) may cause localized bottlenecks where multiple agents sit idle waiting for locks.

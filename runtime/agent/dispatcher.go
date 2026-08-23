@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"github.com/hyperparallel/runtime/events"
 	"github.com/hyperparallel/runtime/logger"
 	"github.com/hyperparallel/runtime/memory"
@@ -143,6 +144,11 @@ func (d *Dispatcher) Start() {
 				lastFailure = failure
 
 				if d.Router != nil {
+					if strings.Contains(failure.Stderr, "Insufficient credits") || strings.Contains(failure.Stderr, "invalid api key") || strings.Contains(failure.Stderr, "APIConnectionError") || strings.Contains(strings.ToLower(failure.Stderr), "exceeded your current quota") {
+						if apiKeyEnv, ok := t.Parameters["api_key"].(string); ok && apiKeyEnv != "" {
+							d.Router.PenalizeProvider(string(w.ID), apiKeyEnv)
+						}
+					}
 					d.Router.UpdateProbability(string(w.ID), string(t.ID), false)
 				}
 				

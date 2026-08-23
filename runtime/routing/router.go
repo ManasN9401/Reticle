@@ -177,3 +177,20 @@ func (r *ModelRouter) TrackForcedModel(taskID string, modelKey string) {
 	defer r.mu.Unlock()
 	r.inFlight[taskID] = modelKey
 }
+
+// PenalizeProvider drops the probability of all models that use the given apiKeyEnv to 0.0 for the specified agent.
+func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.Matrix[agentID] == nil {
+		r.Matrix[agentID] = make(map[string]float64)
+	}
+
+	for _, m := range AvailableModels {
+		if m.APIKeyEnv == apiKeyEnv {
+			r.Matrix[agentID][m.Key()] = 0.0
+		}
+	}
+	r.Logger.Info("Provider penalized globally for agent", "agent_id", agentID, "api_key_env", apiKeyEnv)
+}

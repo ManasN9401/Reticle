@@ -380,7 +380,7 @@ def main():
                 return resp
             except Exception as e:
                 err_str = str(e)
-                if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str:
+                if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str or "APIError" in err_str or "APIConnectionError" in err_str or "502" in err_str or "503" in err_str:
                     # We fail FAST on hard limits so the Go orchestrator can catch it and route to a new model
                     print(f"[LLM] Hard limit reached on {{model}}: {{err_str[:150]}}", file=sys.stderr)
                     sys.exit(1)

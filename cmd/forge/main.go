@@ -120,11 +120,11 @@ func main() {
 
 	if !*nativeFlag {
 		if err := exec.Command("docker", "info").Run(); err != nil {
-			fmt.Println("\\n⚠️ WARNING: Docker does not appear to be running on your system!")
+			fmt.Println("\\n WARNING: Docker does not appear to be running")
 			fmt.Println("By default, Forge runs agents inside isolated Docker containers for your security.")
-			fmt.Println("If you wish to proceed WITHOUT Docker (which is highly insecure as agents will run commands directly on your host machine),")
+			fmt.Println("If you wish to proceed WITHOUT Docker (meaning agents will run commands directly on your host machine),")
 			fmt.Print("press 'y' to continue, or 'n' to abort: ")
-			
+
 			scanner := bufio.NewScanner(os.Stdin)
 			if scanner.Scan() {
 				ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
@@ -159,7 +159,7 @@ func main() {
 
 	// Clean up old workspaces
 	cleanupWorkspaces("workspaces", 3)
-	
+
 	rootDir, _ := filepath.Abs("../../")
 
 	if *freshFlag {
@@ -168,7 +168,7 @@ func main() {
 		if *workspaceFlag != "" {
 			workspaceDir, _ := filepath.Abs(*workspaceFlag)
 			os.Remove(filepath.Join(workspaceDir, "waitlist.json"))
-			
+
 			// Remove any exec-XXX folders in the workspace
 			if entries, err := os.ReadDir(workspaceDir); err == nil {
 				for _, entry := range entries {
@@ -243,7 +243,7 @@ func main() {
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)
-	
+
 	waitlistPath := filepath.Join(workspaceDir, "waitlist.json")
 	wm := NewWaitlistManager(waitlistPath, *batchSize, graphEngine, orch, registry, dispatcher, envManager)
 
@@ -279,7 +279,7 @@ func main() {
 		Value:   workspaceDir,
 		Owner:   "forge",
 	})
-	
+
 	allowNative := "false"
 	if *nativeFlag {
 		allowNative = "true"
@@ -291,7 +291,7 @@ func main() {
 		Value:   allowNative,
 		Owner:   "forge",
 	})
-	
+
 	time.Sleep(500 * time.Millisecond) // Let memory propagate
 
 	// Pass the Compiler DAG to the Waitlist Manager so it can build sessions dynamically
@@ -304,7 +304,7 @@ func main() {
 	} else {
 		// Legacy Mode (Global Workspace)
 		fmt.Println("\n[INFO] Orchestrator running in Global Workspace Mode")
-		
+
 		if *workspaceFlag == "" {
 			fmt.Println("\n[PHASE 1] COMPILATION STARTED")
 			err := runWorkflowSync(graphEngine, orch, compilerWf, "compile-001")
@@ -327,7 +327,7 @@ func main() {
 		}
 
 		for _, sub := range registry.BuildSubscriptions() {
-			subManager.Register(sub) 
+			subManager.Register(sub)
 		}
 
 		// Change working directory to the workspace

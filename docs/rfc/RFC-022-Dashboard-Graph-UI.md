@@ -33,6 +33,8 @@ The UI must be ephemeral and completely decoupled from the runtime orchestration
 2. The UI files must be served from memory using Go's `embed.FS`.
 3. The Canvas frontend must automatically compute node depth and apply topological sorting (alphabetical fallbacks) to minimize edge crossover chaos.
 4. The frontend must implement physics-based panning, zooming, and robust panel resizing.
+5. The frontend must dynamically override generic GraphEngine `node_id` strings (e.g., `node-1`) with the semantic `agent_id` (e.g., `coder-agent`) intercepted from the `WorkerStarted` event for node display titles.
+6. The frontend's detail panel must automatically parse and compact verbose `[TOOL]` JSON executions emitted by the workers into readable semantic action descriptors.
 
 ## 7. Rationale
 Embedding the UI directly into the binary ensures a zero-friction developer experience. A single `hyperparallel.exe -gui=true` command spins up the backend and the observability frontend seamlessly. A WebSocket ensures sub-millisecond latency for real-time task updates.

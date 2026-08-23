@@ -1,65 +1,67 @@
 # RFC-012 — Model Routing
 
-Status: Draft
-Version: 1.0.0
+Status: Stable
+Version: 2.0.0
 Author: HyperParallel Core
-Last Updated: 2026-08-03
+Last Updated: 2026-08-23
 
 ---
 
 ## 1. Purpose
-This document defines the framework's approach to dynamic model selection (Model Routing). It establishes how the runtime determines which Large Language Model (e.g., Local 32B, GPT-5.5) should be assigned to execute a specific task at runtime.
+This document defines the framework's approach to dynamic model selection (Model Routing). It establishes how the runtime determines which Large Language Model (e.g., Local 32B, Gemini Flash, Groq Qwen) should be assigned to execute a specific task at runtime.
 
 ## 2. Motivation
-In agentic systems, hardcoding a frontier API model for every task results in extreme costs and high latency, while hardcoding local models results in task failures for complex logic. HyperParallel needs an intelligent router that continuously optimizes the balance between cost, speed, and capability based on historical success rates.
+In agentic systems, hardcoding a frontier API model for every task results in extreme costs and high latency, while hardcoding local models results in task failures for complex logic. HyperParallel relies on a centralized Bayesian router that continuously optimizes the balance between capability and cost, while actively mitigating API rate limits and failures.
 
 ## 3. Scope
 This RFC covers:
-- Dynamic Bayesian utility estimates.
-- The threshold-based selection policy.
-- Runtime learning via Event Bus telemetry (e.g., `WorkerCompleted` vs. `WorkerFailed`).
-- **LLM Integration via Skills**: How API keys and clients (e.g. `litellm`) are injected into the sandbox.
-- **The Benchmark Harness**: How the system seeds its Bayesian matrix prior to execution.
+- Dynamic Model Discovery via external APIs.
+- Capability extraction and scoring.
+- Effort-Based Routing.
+- Multi-Key Mirroring (API Pooling).
+- Fast-Fail and Bayesian Probability Penalties.
 
-## 4. Philosophy
-Model selection should not be static. The framework must learn from its own failures and successes over time, dynamically demoting models that repeatedly fail at a specific task type and promoting cheaper models that prove themselves capable.
+## 4. Architecture: Dynamic Model Discovery
+Instead of hardcoding supported models, the `routing` package invokes `FetchAvailableModels` on boot. 
+1. It reads `OPENROUTER_API_KEY`, `GROQ_API_KEY`, and `GEMINI_API_KEY` (and their `_2` variants).
+2. It natively queries the `/models` endpoint of these providers.
+3. It parses the price per token and registers the models into the global pool.
 
-## 5. Principles
-- **Cost Optimization**: The cheapest model capable of succeeding should always be chosen.
-- **Dynamic Learning**: Utility is not static; it is a Bayesian estimate updated continuously.
-- **Task Typology**: Models perform differently on different tasks (e.g., regex vs. architecture). Utility must be mapped per task type.
+### Multi-Key Mirroring
+If a secondary key (e.g., `GROQ_API_KEY_2`) is provided, the entire model pool for that provider is duplicated in the routing matrix. The `Model.Key()` acts as the unique identifier (e.g., `groq/qwen-27b|GROQ_API_KEY_2`), allowing the router to effortlessly load-balance between different accounts for the exact same model.
 
-## 6. Architectural Laws
-1. The Model Router must maintain a state matrix mapping `[Task Type][Model ID]` to a Bayesian probability of success.
-2. The orchestrator must evaluate a threshold policy before dispatching an LLM worker. It selects the cheapest model whose expected success rate exceeds the required confidence threshold.
-3. The orchestrator must inject the selected `model_id` into the Worker Protocol `stdin` payload under `Task.Parameters["llm_model"]`.
-4. The orchestrator must update the utility matrix based on the terminal events of a task (e.g., a `WorkerFailed` event decreases the probability of success for that model on that task type).
+## 5. Architecture: Effort-Based Routing
+The framework utilizes decoupled **Cost** and **Capability** matrices.
 
-## 7. LLM Integration via Skills
-Instead of hardcoding API keys in agent scripts, LLM access must be provided via the **Agent Skills** system.
-- Agents declare an `llm-access` skill in their YAML.
-- The Orchestrator (`EnvironmentManager`) installs a universal LLM client (like `litellm`) and injects the API key (e.g., `OPENAI_API_KEY`, `GROQ_API_KEY`) as an environment variable.
-- This allows testing with free OpenAI-compatible APIs (like Groq or OpenRouter) or local endpoints (Ollama) with zero changes to the agent logic.
+### Capability Scoring
+When models are dynamically discovered, a regex parser extracts their parameter count from their name (e.g., `qwen3.6-27b` = `27.0` capability). Frontier models without explicit parameters (e.g., `claude-3.5-sonnet`) are hardcoded to `100.0`. Generic models fall back to `10.0`.
 
-## 8. The Benchmark Harness (Seeding the Matrix)
-To prevent the router from starting completely blind, the framework provides a `benchmark` mode.
-- **Parallel Evaluation**: The framework runs an agent against a known dataset using *every* available model simultaneously.
-- **Telemetry Seeding**: The outcomes (success/fail) are captured by the Event Bus and recorded directly into the Router's Bayesian matrix.
-- **Production Readiness**: When the framework switches to normal mode, the router already knows which free/cheap models are capable of executing the task.
+### Effort Tiers
+Agents no longer request specific models. Instead, workflows define the required **Effort** for a task:
+- `minimal` (0th percentile - e.g., 8b models)
+- `low` (20th percentile)
+- `standard` (40th percentile - default)
+- `elevated` (60th percentile)
+- `high` (80th percentile)
+- `absolute` (100th percentile - e.g., Sonnet 3.5, GPT-4)
 
-## 9. Rationale
-By tying the Model Router directly into the Event Bus, the router becomes a native subsystem that passively observes execution traces. If a Supervisor delegates a task to an agent, and that agent fails and retries, the router immediately learns that the chosen model's capability for that task type was insufficient.
+The router sorts all historically successful models by capability, identifies the minimum acceptable capability for the requested tier, and selects the absolute cheapest model that meets that bar.
 
-## 10. Trade-offs
-- **Cold Starts**: When a new task type is introduced without benchmarking, the system has no prior probabilities, requiring it to explore randomly or use an Epsilon-Greedy approach, leading to initial inefficiencies.
+## 6. Architecture: Fast-Fail & Bayesian Penalties
+The router maintains a state matrix mapping `[Agent ID][Model Key]` to a Bayesian probability of success.
 
-## 11. Future Considerations
-- Introducing capability matching (e.g., routing tasks that require `web-browser` skills only to models that have high function-calling accuracy).
-- Epsilon-greedy exploration: occasionally dispatching tasks to cheaper models with low confidence just to see if they have improved after fine-tuning.
+### Fast-Fail Protocol
+To prevent Python-side `Tenacity` retry loops from stalling the orchestrator when an API provider goes down or hits a hard rate limit, the Python workers (`coder.py`, `architect.py`) must fail-fast on specific strings (`RateLimit`, `429`, `APIError`, `502`, `Insufficient credits`, etc.) and `exit 1`.
 
-## 12. References
-- Deprecated Routing Spec: `docs/specifications/model-routing/v1/001-routing.md`
+### Global Provider Penalization
+When the Go Dispatcher catches a failure, it inspects `stderr`. 
+- If the failure was a transient logic error, it slightly penalizes the specific model's Bayesian probability.
+- If the failure was a fatal provider error (e.g., "Insufficient credits" or "exceeded your current quota"), the Dispatcher invokes `PenalizeProvider`. This instantly drops the probability of **all models** using that specific API Key to `0.0`, forcing the router to immediately fallback to a completely different API provider (e.g., failing over from OpenRouter to Groq) on the next retry attempt.
 
-## 13. Related RFCs
+## 7. Rationale
+By moving rate-limit handling and model fallbacks from Python arrays (deprecated in RFC-028) directly into the Orchestrator's central Bayesian matrix, we achieve true cross-provider load balancing and maximize the utility of free-tier API keys.
+
+## 8. Related RFCs
 - RFC-003 — Runtime
 - RFC-010 — Supervisor Graph
+- RFC-028 — API Rate Limit Load Balancing (Deprecated)
