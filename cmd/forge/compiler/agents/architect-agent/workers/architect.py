@@ -43,6 +43,11 @@ def main():
         rfc_008 = ""
         rfc_027 = ""
         agent_std = ""
+        model = req.get("parameters", {}).get("llm_model")
+        if not model:
+            print("[ARCHITECT] Fatal Error: No llm_model provided by dispatcher!", file=sys.stderr)
+            sys.exit(1)
+            
         try:
             with open(os.path.join(base_dir, "docs", "rfc", "RFC-008-Agent-Architecture.md"), "r", encoding="utf-8") as f:
                 rfc_008 = f.read()
@@ -50,6 +55,12 @@ def main():
                 rfc_027 = f.read()
             with open(os.path.join(base_dir, "docs", "standards", "007 AGENT_STANDARD.md"), "r", encoding="utf-8") as f:
                 agent_std = f.read()
+            
+            # Truncate for strict context limits on Groq
+            if "groq" in model.lower():
+                rfc_008 = rfc_008[:1000] + "\n...(TRUNCATED)"
+                rfc_027 = rfc_027[:1000] + "\n...(TRUNCATED)"
+                agent_std = agent_std[:1000] + "\n...(TRUNCATED)"
         except Exception as e:
             print(f"[LLM] Error reading standards: {e}", file=sys.stderr)
 
@@ -122,6 +133,7 @@ Return the DAG strictly as JSON with the following schema, and NOTHING else (no 
   ]
 }}
 
+CRITICAL: Keep agent descriptions and system prompts EXTREMELY CONCISE. Do not write paragraphs of text. Use bullet points or short sentences. Your output MUST fit within strict token limits.
 CRITICAL: Every node in the `nodes` array MUST have a valid `agent_id` that EXACTLY matches the `id` of an agent defined in the `agents` list or the AVAILABLE AGENTS list. NEVER leave `agent_id` blank or null.
 CRITICAL: Every edge in the `edges` array MUST reference `from` and `to` nodes that EXACTLY match the `id` of a node defined in the `nodes` array. NEVER reference a node that does not exist.
 
@@ -145,10 +157,6 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
             {"role": "user", "content": f"{ide_prefix}{hist_prefix}Design the agent graph for this goal: {user_prompt}"}
         ]
         
-        model = req.get("parameters", {}).get("llm_model")
-        if not model:
-            print("[ARCHITECT] Fatal Error: No llm_model provided by dispatcher!", file=sys.stderr)
-            sys.exit(1)
         api_key_env = req.get("parameters", {}).get("api_key")
         api_key = os.environ.get(api_key_env) if api_key_env else None
 
@@ -158,13 +166,12 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 resp = completion(
                     model=model,
                     api_key=api_key,
-                    response_format={ "type": "json_object" },
-                    messages=conversation,
-                    max_tokens=8192
+                    max_tokens=6000,
+                    messages=conversation
                 )
             except Exception as e:
                 err_str = str(e)
-                if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str or "APIError" in err_str or "APIConnectionError" in err_str or "502" in err_str or "503" in err_str:
+                if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str or "APIError" in err_str or "APIConnectionError" in err_str or "502" in err_str or "503" in err_str or "too large" in err_str.lower() or "context_window" in err_str.lower() or "max_tokens" in err_str.lower():
                     # We fail FAST on hard limits so the Go orchestrator can catch it and route to a new model
                     print(f"[LLM] Hard limit reached on {model}: {err_str[:150]}", file=sys.stderr)
                     sys.exit(1)
@@ -172,9 +179,18 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     print(f"[LLM] Error: {err_str[:300]}{'...' if len(err_str) > 300 else ''}", file=sys.stderr)
                 raise e
             
-            # Programmatic Validation to enforce the strict constraints
             try:
-                data = json.loads(resp.choices[0].message.content)
+                content = resp.choices[0].message.content
+                print(f"[DEBUG LLM OUTPUT] >>{content}<<", file=sys.stderr)
+                raw_content = content.strip() if content else ""
+                if raw_content.startswith("```json"):
+                    raw_content = raw_content[7:]
+                elif raw_content.startswith("```"):
+                    raw_content = raw_content[3:]
+                if raw_content.endswith("```"):
+                    raw_content = raw_content[:-3]
+                raw_content = raw_content.strip()
+                data = json.loads(raw_content)
                 
                 # Gather valid agent IDs
                 valid_agents = set()
@@ -245,7 +261,10 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
             except Exception as e:
                 err_msg = f"Validation failed: {str(e)}"
                 if resp and resp.choices and len(resp.choices) > 0:
-                    conversation.append({"role": "assistant", "content": resp.choices[0].message.content})
+                    assistant_content = resp.choices[0].message.content or ""
+                    if len(assistant_content) > 1500:
+                        assistant_content = assistant_content[:1500] + "\n...[TRUNCATED]"
+                    conversation.append({"role": "assistant", "content": assistant_content})
                     conversation.append({"role": "user", "content": f"{err_msg}\nFix this and output the raw JSON again."})
                 print(f"[ARCHITECT] {err_msg}", file=sys.stderr)
                 raise Exception(err_msg) # This triggers the @retry

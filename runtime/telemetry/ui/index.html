@@ -2084,16 +2084,11 @@
                 </div>
             </div>
             <div class="models-toolbar">
-                <div class="search-box">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round">
-                        <circle cx="11" cy="11" r="8"></circle>
-                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    </svg>
-                    <input type="text" id="modelSearch" placeholder="Search models…" oninput="renderModelsList()">
-                </div>
-                <div class="filter-chips" id="providerChips"></div>
+                <input type="text" id="modelSearch" placeholder="Search models…" oninput="renderModelsList()">
+                <button onclick="toggleAllModels(true)" style="padding: 6px 12px; background: rgba(86, 214, 255, 0.1); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;">Select All</button>
+                <button onclick="toggleAllModels(false)" style="padding: 6px 12px; background: rgba(255, 107, 107, 0.1); color: var(--failed); border: 1px solid var(--failed); border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;">Deselect All</button>
             </div>
+            <div class="filter-chips" id="providerChips" style="padding: 0 20px 10px 20px; border-bottom: 1px solid var(--border);"></div>
             <div class="models-list" id="modelsContent">
                 <div class="no-results">Loading…</div>
             </div>
@@ -2442,7 +2437,7 @@
                 if (this.status === 'running' && this.llm) {
                     ctx.fillStyle = '#56d6ff';
                     ctx.font = '500 11px "IBM Plex Mono", monospace';
-                    ctx.fillText('🧠 ' + this.llm, this.x, this.y - r - 14);
+                    ctx.fillText('+ ' + this.llm, this.x, this.y - r - 14);
                 }
 
                 if (this.artifactNames && this.artifactNames.length > 0) {
@@ -2760,8 +2755,16 @@
 
             const tabCount = document.getElementById('logCountTab');
             if (tabCount) tabCount.textContent = logEntries.length;
+            scheduleRenderLogPanel();
+        }
 
-            renderLogPanel();
+        let renderLogTimeout = null;
+        function scheduleRenderLogPanel() {
+            if (renderLogTimeout) return;
+            renderLogTimeout = requestAnimationFrame(() => {
+                renderLogPanel();
+                renderLogTimeout = null;
+            });
         }
 
         function setLogFilter(cat) {
@@ -2840,9 +2843,11 @@
             const type = e.Type;
             const payload = e.Payload;
 
-            const logPayload = JSON.parse(JSON.stringify(payload));
-            if (logPayload.inputs) logPayload.inputs.forEach(i => { if (i.data) i.data = '<TRUNCATED>'; });
-            if (logPayload.data) logPayload.data = '<TRUNCATED>';
+            const logPayload = payload ? JSON.parse(JSON.stringify(payload)) : null;
+            if (logPayload) {
+                if (logPayload.inputs) logPayload.inputs.forEach(i => { if (i && i.data) i.data = '<TRUNCATED>'; });
+                if (logPayload.data) logPayload.data = '<TRUNCATED>';
+            }
 
             appendLog(type, e.Source, logPayload);
 
@@ -2914,7 +2919,7 @@
                 const s = stars.get(globalId);
                 s.status = 'running';
                 s.startTime = Date.now();
-                if (payload.llm_model) { addDOMChip(globalId, `🧠 ${payload.llm_model}`, 'llm-model'); s.llm = payload.llm_model; }
+                if (payload.llm_model) { addDOMChip(globalId, `+ ${payload.llm_model}`, 'llm-model'); s.llm = payload.llm_model; }
             }
             else if (type === 'WorkerCompleted') {
                 createOrUpdateDOMNode(globalId, taskId, 'completed', workerId);
@@ -3081,7 +3086,7 @@
                     <div class="details-data"><span class="status-badge" style="color: ${star.status === 'completed' ? 'var(--completed)' : star.status === 'failed' ? 'var(--failed)' : 'var(--running)'}">${star.status.toUpperCase()}</span></div>
                 </div>`;
                 if (star.duration) general += `<div class="details-section"><h4>Duration</h4><div class="details-data">${star.duration.toFixed(2)}s</div></div>`;
-                if (star.llm) general += `<div class="details-section"><h4>Model</h4><div class="details-data">🧠 ${escapeHtml(star.llm)}</div></div>`;
+                if (star.llm) general += `<div class="details-section"><h4>Model</h4><div class="details-data">+ ${escapeHtml(star.llm)}</div></div>`;
                 if (parents.length > 0) general += `<div class="details-section"><h4>Parents</h4><div class="details-data">${parents.map(escapeHtml).join(', ')}</div></div>`;
                 if (children.length > 0) general += `<div class="details-section"><h4>Children</h4><div class="details-data">${children.map(escapeHtml).join(', ')}</div></div>`;
                 if (receivedArtifacts.length > 0) general += `<div class="details-section"><h4>Artifacts Received</h4><div class="details-data">${receivedArtifacts.map(n => `📥 ${escapeHtml(n)}`).join('<br>')}</div></div>`;
@@ -3188,7 +3193,8 @@
                 buildProviderChips();
                 renderModelsList();
             } catch (e) {
-                container.innerHTML = '<div class="no-results" style="color: var(--failed);">Failed to load models.</div>';
+                console.error("Model load error:", e);
+                container.innerHTML = `<div class="no-results" style="color: var(--failed);">Failed to load models: ${e.message || e}</div>`;
             }
         }
 
@@ -3246,6 +3252,23 @@
 
         async function toggleModel(modelKey) {
             await fetch('/api/models/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_key: modelKey }) });
+        }
+
+        async function toggleAllModels(enabled) {
+            const promises = allModels.map(m => {
+                if (m.enabled !== enabled) {
+                    m.enabled = enabled;
+                    const modelKey = m.api_key_env ? (m.id + '|' + m.api_key_env) : m.id;
+                    return fetch('/api/models/toggle', { 
+                        method: 'POST', 
+                        headers: { 'Content-Type': 'application/json' }, 
+                        body: JSON.stringify({ model_key: modelKey }) 
+                    });
+                }
+                return Promise.resolve();
+            });
+            await Promise.all(promises);
+            renderModelsList();
         }
 
         /* =========================================================

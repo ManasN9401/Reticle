@@ -132,9 +132,18 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortStr strin
 		}
 	}
 
-	// Fallback to all models if none meet the strict required confidence
+	// Fallback to all enabled models if none meet the strict required confidence
 	if len(capable) == 0 {
-		capable = AvailableModels
+		for _, m := range AvailableModels {
+			if m.Enabled {
+				capable = append(capable, m)
+			}
+		}
+	}
+	
+	if len(capable) == 0 {
+		r.Logger.Error("No models available for selection", "agent_id", agentID, "effort", effortStr)
+		return nil
 	}
 
 	// Sort capable models by Capability ascending, then Cost ascending
@@ -145,20 +154,8 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortStr strin
 		return capable[i].Capability < capable[j].Capability
 	})
 
-	effortMap := map[string]float64{
-		"minimal":  0.0,
-		"low":      0.2,
-		"standard": 0.4,
-		"elevated": 0.6,
-		"high":     0.8,
-		"absolute": 1.0,
-	}
+	percentile := GetEffortPercentile(effortStr)
 
-	percentile, exists := effortMap[strings.ToLower(effortStr)]
-	if !exists {
-		percentile = 0.4 // standard default
-		effortStr = "standard"
-	}
 
 	idx := int(math.Round(percentile * float64(len(capable)-1)))
 	if idx < 0 {
@@ -211,4 +208,52 @@ func (r *ModelRouter) PenalizeModel(modelID string) {
 			r.Logger.Info("Model disabled globally due to fatal error", "model_id", AvailableModels[i].ID)
 		}
 	}
+}
+
+// GetEffortTier maps an effort string to an integer tier 0-5
+func GetEffortTier(effortStr string) int {
+	effortMap := map[string]int{
+		"minimal":  0,
+		"low":      1,
+		"standard": 2,
+		"elevated": 3,
+		"high":     4,
+		"absolute": 5,
+	}
+	tier, exists := effortMap[strings.ToLower(effortStr)]
+	if !exists {
+		return 2 // standard default
+	}
+	return tier
+}
+
+// GetTierDelta translates a global UI setting into a modifier delta
+func GetTierDelta(globalStr string) int {
+	switch strings.ToLower(globalStr) {
+	case "minimal": return -2
+	case "low": return -1
+	case "standard": return 0
+	case "elevated": return 1
+	case "high": return 2
+	case "absolute": return 3
+	default: return 0 // "auto"
+	}
+}
+
+// TierToEffortString converts a tier index back to a string
+func TierToEffortString(tier int) string {
+	if tier < 0 {
+		tier = 0
+	}
+	if tier > 5 {
+		tier = 5
+	}
+	tiers := []string{"minimal", "low", "standard", "elevated", "high", "absolute"}
+	return tiers[tier]
+}
+
+// GetEffortPercentile maps an effort string to a float percentile
+func GetEffortPercentile(effortStr string) float64 {
+	tier := GetEffortTier(effortStr)
+	return float64(tier) * 0.2
 }

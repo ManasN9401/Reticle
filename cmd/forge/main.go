@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -386,6 +387,11 @@ func main() {
 
 	if err := reader.Err(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading standard input: %v\n", err)
+	} else {
+		// If we reached EOF (e.g. running in background without stdin), block until SIGINT
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+		<-c
 	}
 
 	fmt.Println("\n[INFO] Shutting down...")

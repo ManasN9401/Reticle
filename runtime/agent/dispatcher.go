@@ -98,14 +98,19 @@ func (d *Dispatcher) Start() {
 			var lastFailure *WorkerFailure
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
-				// Extract effort
-				effortStr := "standard"
+				// Extract effort - Apply global UI effort as a modifier to the task's base effort
+				taskEffortStr := "standard"
 				if e, ok := t.Parameters["effort"].(string); ok && e != "" {
-					effortStr = e
+					taskEffortStr = e
 				}
+				globalModifier := 0
 				if globalEffort, ok := t.Memory["global_effort"].(string); ok && globalEffort != "" {
-					effortStr = globalEffort
+					globalModifier = routing.GetTierDelta(globalEffort)
 				}
+
+				baseTier := routing.GetEffortTier(taskEffortStr)
+				finalTier := baseTier + globalModifier
+				effortStr := routing.TierToEffortString(finalTier)
 
 				// Dynamically select model if not forced
 				if d.Router != nil {
@@ -147,11 +152,15 @@ func (d *Dispatcher) Start() {
 				lastFailure = failure
 
 				if d.Router != nil {
-					if strings.Contains(failure.Stderr, "Insufficient credits") || strings.Contains(failure.Stderr, "invalid api key") || strings.Contains(failure.Stderr, "APIConnectionError") || strings.Contains(strings.ToLower(failure.Stderr), "exceeded your current quota") {
+					stderrLower := strings.ToLower(failure.Stderr)
+					if strings.Contains(failure.Stderr, "Insufficient credits") || strings.Contains(failure.Stderr, "invalid api key") || strings.Contains(failure.Stderr, "APIConnectionError") || strings.Contains(stderrLower, "exceeded your current quota") || strings.Contains(stderrLower, "code\":429") || (strings.Contains(stderrLower, "ratelimiterror") && !strings.Contains(stderrLower, "request too large")) {
 						if apiKeyEnv, ok := t.Parameters["api_key"].(string); ok && apiKeyEnv != "" {
 							d.Router.PenalizeProvider(string(w.ID), apiKeyEnv)
 						}
-					} else if strings.Contains(strings.ToLower(failure.Stderr), "requires terms acceptance") {
+					} else if strings.Contains(stderrLower, "requires terms acceptance") ||
+						strings.Contains(stderrLower, "max_tokens must be less than") ||
+						strings.Contains(stderrLower, "request too large") ||
+						strings.Contains(stderrLower, "maximum context length") {
 						if modelID, ok := t.Parameters["llm_model"].(string); ok && modelID != "" {
 							d.Router.PenalizeModel(modelID)
 						}

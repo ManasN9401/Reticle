@@ -4,16 +4,20 @@ version: 1.0.0
 nodes:
   - id: arch-1
     agent: architect-agent
-    parameters: {}
+    parameters:
+      effort: absolute
   - id: scaff-1
     agent: scaffolder-agent
-    parameters: {}
+    parameters:
+      effort: standard
   - id: code-1
     agent: coder-agent
-    parameters: {}
+    parameters:
+      effort: elevated
   - id: write-1
     agent: writer-agent
-    parameters: {}
+    parameters:
+      effort: low
 edges:
   - from: arch-1
     to: scaff-1

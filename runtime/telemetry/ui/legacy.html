@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,14 +19,19 @@
         }
 
         @keyframes moveGrid {
-            0% { background-position: 0 0; }
-            100% { background-position: 40px 40px; }
+            0% {
+                background-position: 0 0;
+            }
+
+            100% {
+                background-position: 40px 40px;
+            }
         }
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             background-color: var(--bg-color);
-            background-image: 
+            background-image:
                 linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
             background-size: 40px 40px;
@@ -81,7 +87,9 @@
             transition: background 0.2s;
             z-index: 20;
         }
-        .resizer-vertical:hover, .resizer-vertical.active {
+
+        .resizer-vertical:hover,
+        .resizer-vertical.active {
             background: rgba(88, 166, 255, 0.4);
         }
 
@@ -94,7 +102,9 @@
             flex-shrink: 0;
             z-index: 20;
         }
-        .resizer-horizontal:hover, .resizer-horizontal.active {
+
+        .resizer-horizontal:hover,
+        .resizer-horizontal.active {
             background: rgba(88, 166, 255, 0.4);
         }
 
@@ -115,9 +125,9 @@
             background: var(--panel-bg);
             backdrop-filter: blur(24px);
             -webkit-backdrop-filter: blur(24px);
-            box-shadow: 
+            box-shadow:
                 0 16px 48px 0 rgba(0, 0, 0, 0.6),
-                inset 0 1px 1px rgba(255,255,255,0.1);
+                inset 0 1px 1px rgba(255, 255, 255, 0.1);
             position: relative;
             overflow: hidden;
             z-index: 10;
@@ -129,6 +139,7 @@
             display: block;
             cursor: grab;
         }
+
         #starMap:active {
             cursor: grabbing;
         }
@@ -140,9 +151,9 @@
             padding: 1.25rem;
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
-            box-shadow: 
+            box-shadow:
                 0 8px 32px 0 rgba(0, 0, 0, 0.4),
-                inset 0 1px 1px rgba(255,255,255,0.05);
+                inset 0 1px 1px rgba(255, 255, 255, 0.05);
             position: relative;
             overflow: hidden;
             display: flex;
@@ -172,6 +183,7 @@
             background: linear-gradient(135deg, rgba(88, 166, 255, 0.1) 0%, var(--panel-bg) 100%);
             border-color: rgba(88, 166, 255, 0.3);
         }
+
         .node-card.status-running::before {
             background-color: var(--accent-color);
             box-shadow: 0 0 15px var(--accent-color);
@@ -181,15 +193,17 @@
             background: linear-gradient(135deg, rgba(46, 160, 67, 0.1) 0%, var(--panel-bg) 100%);
             border-color: rgba(46, 160, 67, 0.3);
         }
+
         .node-card.status-completed::before {
             background-color: var(--success-color);
             box-shadow: 0 0 15px var(--success-color);
         }
-        
+
         .node-card.status-failed {
             background: linear-gradient(135deg, rgba(248, 81, 73, 0.1) 0%, var(--panel-bg) 100%);
             border-color: rgba(248, 81, 73, 0.3);
         }
+
         .node-card.status-failed::before {
             background-color: var(--error-color);
             box-shadow: 0 0 15px var(--error-color);
@@ -251,10 +265,21 @@
             font-weight: 700;
             color: var(--text-secondary);
         }
-        
-        .status-running .status-badge { color: var(--accent-color); text-shadow: 0 0 10px var(--accent-color); }
-        .status-completed .status-badge { color: var(--success-color); text-shadow: 0 0 10px var(--success-color); }
-        .status-failed .status-badge { color: var(--error-color); text-shadow: 0 0 10px var(--error-color); }
+
+        .status-running .status-badge {
+            color: var(--accent-color);
+            text-shadow: 0 0 10px var(--accent-color);
+        }
+
+        .status-completed .status-badge {
+            color: var(--success-color);
+            text-shadow: 0 0 10px var(--success-color);
+        }
+
+        .status-failed .status-badge {
+            color: var(--error-color);
+            text-shadow: 0 0 10px var(--error-color);
+        }
 
         .log-panel {
             background: var(--panel-bg);
@@ -269,23 +294,36 @@
             font-size: 0.8rem;
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
-            box-shadow: inset 0 1px 1px rgba(255,255,255,0.05);
+            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05);
         }
 
         .log-entry {
             margin-bottom: 0.3rem;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             padding-bottom: 0.3rem;
         }
 
-        .log-time { color: var(--text-secondary); margin-right: 5px; }
-        .log-type { color: var(--accent-color); font-weight: bold; margin-right: 5px; }
-        .log-source { color: var(--warning-color); margin-right: 5px; }
+        .log-time {
+            color: var(--text-secondary);
+            margin-right: 5px;
+        }
+
+        .log-type {
+            color: var(--accent-color);
+            font-weight: bold;
+            margin-right: 5px;
+        }
+
+        .log-source {
+            color: var(--warning-color);
+            margin-right: 5px;
+        }
 
         /* Fullscreen styles */
         .fs-container {
             position: relative;
         }
+
         .fs-btn {
             position: absolute;
             top: 10px;
@@ -303,9 +341,11 @@
             z-index: 50;
             transition: background 0.2s;
         }
+
         .fs-btn:hover {
             background: rgba(255, 255, 255, 0.2);
         }
+
         .zoom-controls {
             position: absolute;
             bottom: 20px;
@@ -320,8 +360,9 @@
             z-index: 50;
             backdrop-filter: blur(20px);
         }
+
         .zoom-controls button {
-            background: rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.1);
             border: none;
             color: #fff;
             width: 24px;
@@ -330,15 +371,18 @@
             cursor: pointer;
             font-weight: bold;
         }
+
         .zoom-controls button:hover {
-            background: rgba(255,255,255,0.2);
+            background: rgba(255, 255, 255, 0.2);
         }
+
         #zoomPercent {
             font-size: 0.8rem;
             min-width: 45px;
             text-align: center;
             font-family: monospace;
         }
+
         .fullscreen-mode {
             position: fixed !important;
             top: 0 !important;
@@ -366,11 +410,13 @@
             transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             flex-direction: column;
-            box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
         }
+
         .details-panel.open {
             right: 0;
         }
+
         .details-header {
             padding: 1.5rem;
             border-bottom: 1px solid var(--border-color);
@@ -378,11 +424,13 @@
             justify-content: space-between;
             align-items: center;
         }
+
         .details-header h2 {
             margin: 0;
             font-size: 1.2rem;
             color: #fff;
         }
+
         .details-close {
             background: none;
             border: none;
@@ -391,9 +439,11 @@
             cursor: pointer;
             transition: color 0.2s;
         }
+
         .details-close:hover {
             color: #fff;
         }
+
         .details-content {
             padding: 1.5rem;
             overflow-y: auto;
@@ -402,12 +452,14 @@
             flex-direction: column;
             gap: 1rem;
         }
+
         .details-section {
-            background: rgba(0,0,0,0.2);
+            background: rgba(0, 0, 0, 0.2);
             border-radius: 8px;
             padding: 1rem;
-            border: 1px solid rgba(255,255,255,0.05);
+            border: 1px solid rgba(255, 255, 255, 0.05);
         }
+
         .details-section h4 {
             margin: 0 0 0.5rem 0;
             color: var(--accent-color);
@@ -415,6 +467,7 @@
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
+
         .details-data {
             font-family: monospace;
             font-size: 0.8rem;
@@ -424,49 +477,100 @@
         }
 
         @keyframes popIn {
-            0% { transform: scale(0.8); opacity: 0; }
-            100% { transform: scale(1); opacity: 1; }
+            0% {
+                transform: scale(0.8);
+                opacity: 0;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
         }
 
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
 
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
     </style>
 </head>
+
 <body>
 
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; padding: 0 1rem;">
-        <h1 style="margin: 0; font-size: 1.5rem; font-weight: 800; background: linear-gradient(90deg, #58a6ff, #a371f7); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">HyperParallel Orchestrator</h1>
+    <div
+        style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; padding: 0 1rem;">
+        <h1
+            style="margin: 0; font-size: 1.5rem; font-weight: 800; background: linear-gradient(90deg, #58a6ff, #a371f7); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">
+            HyperParallel Orchestrator</h1>
     </div>
-    
+
     <div class="container">
         <!-- Left Dashboard -->
         <div class="dashboard-left" id="sidebar">
-            <div class="nodes-container fs-container" id="nodesContainer" style="background: var(--panel-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 1rem; box-sizing: border-box; position: relative;">
-                <h3 style="margin-top:0; color:#fff; font-size: 0.9rem; margin-bottom: 10px; flex-shrink: 0; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">Active Agents</h3>
-                <div id="nodesEmptyState" style="color: rgba(255,255,255,0.4); font-size: 0.8rem; text-align: center; margin-top: 2rem;">No agents currently running.</div>
-                <button class="fs-btn" style="z-index: 1000; top: 10px; right: 10px;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+            <div class="nodes-container fs-container" id="nodesContainer"
+                style="background: var(--panel-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 1rem; box-sizing: border-box; position: relative;">
+                <h3
+                    style="margin-top:0; color:#fff; font-size: 0.9rem; margin-bottom: 10px; flex-shrink: 0; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                    Active Agents</h3>
+                <div id="nodesEmptyState"
+                    style="color: rgba(255,255,255,0.4); font-size: 0.8rem; text-align: center; margin-top: 2rem;">No
+                    agents currently running.</div>
+                <button class="fs-btn" style="z-index: 1000; top: 10px; right: 10px;"
+                    onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                            d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3">
+                        </path>
+                    </svg>
                 </button>
             </div>
             <div class="resizer-horizontal" id="resizerWaitlist"></div>
-            <div class="waitlist-panel fs-container" id="waitlistContainer" style="height: 30%; min-height: 150px; flex-shrink: 1; background: var(--panel-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 1rem; box-sizing: border-box; display: flex; flex-direction: column;">
-                <h3 style="margin-top:0; color:#fff; font-size: 0.9rem; margin-bottom: 10px; flex-shrink: 0;">Queue (Waitlist)</h3>
+            <div class="waitlist-panel fs-container" id="waitlistContainer"
+                style="height: 30%; min-height: 150px; flex-shrink: 1; background: var(--panel-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 1rem; box-sizing: border-box; display: flex; flex-direction: column;">
+                <h3 style="margin-top:0; color:#fff; font-size: 0.9rem; margin-bottom: 10px; flex-shrink: 0;">Queue
+                    (Waitlist)</h3>
                 <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-shrink: 0;">
-                    <input type="text" id="waitlistInput" placeholder="Enter prompt..." onkeydown="if(event.key==='Enter') submitWaitlistPrompt()" style="flex-grow: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 6px; font-family: 'Inter', sans-serif; font-size: 0.8rem;">
-                    <button onclick="submitWaitlistPrompt()" style="background: var(--accent-color); color: #000; border: none; border-radius: 4px; padding: 0 12px; font-weight: bold; cursor: pointer; font-size: 0.8rem;">Queue</button>
+                    <input type="text" id="waitlistInput" placeholder="Enter prompt..."
+                        onkeydown="if(event.key==='Enter') submitWaitlistPrompt()"
+                        style="flex-grow: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; color: #fff; padding: 6px; font-family: 'Inter', sans-serif; font-size: 0.8rem;">
+                    <button onclick="submitWaitlistPrompt()"
+                        style="background: var(--accent-color); color: #000; border: none; border-radius: 4px; padding: 0 12px; font-weight: bold; cursor: pointer; font-size: 0.8rem;">Queue</button>
                 </div>
-                <div id="waitlistItems" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto;"></div>
-                <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                <div id="waitlistItems" style="display: flex; flex-direction: column; gap: 8px; overflow-y: auto;">
+                </div>
+                <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)"
+                    title="Toggle Fullscreen">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                            d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3">
+                        </path>
+                    </svg>
                 </button>
             </div>
             <div class="resizer-horizontal" id="resizerLog"></div>
             <div class="log-panel fs-container" id="logContainer">
-                <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)"
+                    title="Toggle Fullscreen">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path
+                            d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3">
+                        </path>
+                    </svg>
                 </button>
             </div>
         </div>
@@ -475,8 +579,14 @@
 
         <!-- Right Star Map Canvas -->
         <div class="dashboard-right fs-container" id="starMapContainer">
-            <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)" title="Toggle Fullscreen">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+            <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)"
+                title="Toggle Fullscreen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path
+                        d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3">
+                    </path>
+                </svg>
             </button>
             <div class="zoom-controls">
                 <button onclick="setZoom(scale * 1.2)">+</button>
@@ -485,7 +595,7 @@
                 <button onclick="resetZoom()" style="width: auto; padding: 0 8px; font-size: 0.75rem;">Reset</button>
             </div>
             <canvas id="starMap"></canvas>
-            
+
             <!-- Details Panel -->
             <div id="nodeDetailsPanel" class="details-panel">
                 <div class="details-header">
@@ -502,15 +612,15 @@
     <script>
         const nodesContainer = document.getElementById('nodesContainer');
         const logContainer = document.getElementById('logContainer');
-        const nodesMap = new Map(); 
+        const nodesMap = new Map();
         const nodeDataMap = new Map(); // Accumulates event history per node
         let selectedNodeId = null;
-        
+
         function toggleFullscreen(elem) {
             elem.classList.toggle('fullscreen-mode');
             setTimeout(resizeCanvas, 50); // Give layout time to update
         }
-        
+
         const canvas = document.getElementById('starMap');
         const ctx = canvas.getContext('2d');
         let cw, ch;
@@ -520,7 +630,7 @@
             layoutTree();
         }
         window.addEventListener('resize', resizeCanvas);
-        
+
         // Sidebar Resizer
         const sidebar = document.getElementById('sidebar');
         const resizerSidebar = document.getElementById('resizerSidebar');
@@ -567,7 +677,7 @@
             if (isResizingWaitlist) {
                 const sidebarRect = sidebar.getBoundingClientRect();
                 const logRect = document.getElementById('logContainer').getBoundingClientRect();
-                
+
                 // Calculate height based on cursor position relative to nodesContainer
                 const newHeight = sidebarRect.bottom - logRect.height - e.clientY;
                 if (newHeight > 100 && newHeight < sidebarRect.height - 150) {
@@ -615,7 +725,7 @@
                 document.body.style.cursor = '';
             }
         });
-        
+
         const stars = new Map();
         let activePulses = [];
         let execEdges = new Map();
@@ -664,7 +774,7 @@
                     const rect = canvas.getBoundingClientRect();
                     const mouseX = (e.clientX - rect.left - panX) / scale;
                     const mouseY = (e.clientY - rect.top - panY) / scale;
-                    
+
                     for (const star of stars.values()) {
                         const d = Math.hypot(star.x - mouseX, star.y - mouseY);
                         // Scale the hit radius so it's always at least 50 screen pixels
@@ -686,31 +796,31 @@
 
         function openDetailsPanel(nodeId) {
             selectedNodeId = nodeId;
-            
+
             document.querySelectorAll('.node-card').forEach(el => el.classList.remove('selected'));
             const selectedEl = document.getElementById(`node-${nodeId}`);
             if (selectedEl) {
                 selectedEl.classList.add('selected');
                 selectedEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
-            
+
             const panel = document.getElementById('nodeDetailsPanel');
             const title = document.getElementById('detailsTitle');
             const content = document.getElementById('detailsContent');
-            
+
             panel.classList.add('open');
             title.innerText = nodeId;
-            
+
             const star = stars.get(nodeId);
             const data = nodeDataMap.get(nodeId) || [];
-            
+
             let html = '';
-            
+
             const execId = star ? star.execId : null;
             const edges = execId ? (execEdges.get(execId) || []) : [];
             const parents = edges.filter(e => e.To === (star ? star.id : nodeId)).map(e => e.From);
             const children = edges.filter(e => e.From === (star ? star.id : nodeId)).map(e => e.To);
-            
+
             let receivedArtifacts = [];
             if (execId) {
                 parents.forEach(pId => {
@@ -720,11 +830,11 @@
                     }
                 });
             }
-            
+
             if (star) {
                 html += `<div class="details-section">
                     <h4>Status</h4>
-                    <div class="details-data"><span class="status-badge" style="color: ${star.status==='completed'?'var(--success-color)':star.status==='failed'?'var(--error-color)':'var(--accent-color)'}">${star.status.toUpperCase()}</span></div>
+                    <div class="details-data"><span class="status-badge" style="color: ${star.status === 'completed' ? 'var(--success-color)' : star.status === 'failed' ? 'var(--error-color)' : 'var(--accent-color)'}">${star.status.toUpperCase()}</span></div>
                 </div>`;
                 if (star.duration) {
                     html += `<div class="details-section">
@@ -735,7 +845,7 @@
                 if (star.llm) {
                     html += `<div class="details-section">
                         <h4>Model</h4>
-                        <div class="details-data">🧠 ${star.llm}</div>
+                        <div class="details-data">+ ${star.llm}</div>
                     </div>`;
                 }
                 if (parents.length > 0) {
@@ -763,7 +873,7 @@
                     </div>`;
                 }
             }
-            
+
             if (data.length > 0) {
                 html += `<div class="details-section">
                     <h4>Event Log</h4>
@@ -779,7 +889,7 @@
             } else {
                 html += `<div class="details-section"><div class="details-data">No event data found.</div></div>`;
             }
-            
+
             if (execId && star && (star.status === 'completed' || star.status === 'failed')) {
                 html += `<div style="margin-top: 1rem; text-align: center;">
                     <button onclick="clearExecution('${execId}')" style="background: var(--error-color); color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%;">Clear Execution from Map</button>
@@ -820,7 +930,7 @@
             const rect = canvas.getBoundingClientRect();
             const centerX = rect.width / 2;
             const centerY = rect.height / 2;
-            
+
             panX = centerX - (centerX - panX) * (newScale / scale);
             panY = centerY - (centerY - panY) * (newScale / scale);
             scale = newScale;
@@ -839,16 +949,16 @@
             const zoomIntensity = 0.05; // Slightly increased sensitivity
             const wheel = e.deltaY < 0 ? 1 : -1;
             const zoomFactor = Math.exp(wheel * zoomIntensity);
-            
+
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
             const newScale = scale * zoomFactor;
-            
+
             panX = mouseX - (mouseX - panX) * zoomFactor;
             panY = mouseY - (mouseY - panY) * zoomFactor;
-            
+
             scale = newScale;
             updateZoomUI();
         }, { passive: false });
@@ -866,7 +976,7 @@
                 this.pulse = 0;
                 this.llm = null;
                 this.artifactNames = [];
-                
+
                 // Tree Layout Properties
                 this.depth = depth;
                 this.targetX = 0;
@@ -892,9 +1002,9 @@
                 ctx.save();
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.radius + (this.pulse * 4), 0, Math.PI * 2);
-                
+
                 ctx.shadowBlur = 20 + (this.pulse * 20);
-                
+
                 let activeColor = forceColor;
                 if (!activeColor) {
                     if (this.status === 'running') {
@@ -912,16 +1022,16 @@
                 ctx.fillStyle = activeColor;
                 ctx.shadowColor = activeColor;
                 ctx.fill();
-                
+
                 // Draw selection halo
                 if (selectedNodeId === this.globalId) {
                     ctx.save();
                     ctx.translate(this.x, this.y);
                     ctx.rotate((performance.now() / 1000) * 1.5);
-                    
+
                     const scouterColor = 'rgba(88, 166, 255, 0.9)'; // Blue color
                     const r = this.radius + 10; // Smaller halo
-                    
+
                     ctx.beginPath();
                     ctx.arc(0, 0, r, 0, Math.PI * 2);
                     ctx.strokeStyle = scouterColor;
@@ -929,9 +1039,9 @@
                     ctx.shadowBlur = 10;
                     ctx.shadowColor = scouterColor;
                     ctx.stroke();
-                    
+
                     ctx.fillStyle = scouterColor;
-                    for(let i=0; i<4; i++) {
+                    for (let i = 0; i < 4; i++) {
                         ctx.rotate(Math.PI / 2);
                         ctx.beginPath();
                         ctx.moveTo(0, -r);
@@ -942,19 +1052,19 @@
                     }
                     ctx.restore();
                 }
-                
+
                 // Draw labels
                 ctx.shadowBlur = 0;
                 ctx.fillStyle = forceColor ? forceColor : '#ffffff';
                 ctx.font = 'bold 14px monospace';
                 ctx.textAlign = 'center';
                 ctx.fillText(this.id, this.x, this.y + 35);
-                
+
                 if (this.status === 'running' && this.llm) {
                     ctx.fillStyle = '#58a6ff';
-                    ctx.fillText('🧠 ' + this.llm, this.x, this.y - 25);
+                    ctx.fillText('+ ' + this.llm, this.x, this.y - 25);
                 }
-                
+
                 if (this.artifactNames && this.artifactNames.length > 0) {
                     ctx.fillStyle = '#2ea043';
                     const baseYOffset = (this.status === 'running' && this.llm) ? 45 : 25;
@@ -981,7 +1091,7 @@
                 }
 
                 const execStars = Array.from(stars.values()).filter(s => s.execId === execId);
-                
+
                 // Group stars by depth
                 const byDepth = new Map();
                 for (const star of execStars) {
@@ -1013,11 +1123,11 @@
                         star.targetY = startY + (depth * VERTICAL_SPACING);
                     });
                 }
-                
+
                 // Advance x offset for next island
                 currentXOffset += islandWidth + ISLAND_PADDING;
             }
-            
+
             // Auto-pan to the new workflow if one was just discovered
             if (newlyDiscoveredExecId) {
                 const newStars = Array.from(stars.values()).filter(s => s.execId === newlyDiscoveredExecId && s.depth === 0);
@@ -1034,14 +1144,14 @@
         function renderCanvas(timestamp) {
             const dt = (timestamp - lastFrameTime) / 1000;
             lastFrameTime = timestamp;
-            
+
             ctx.clearRect(0, 0, cw, ch);
             ctx.save();
             ctx.translate(panX, panY);
             ctx.scale(scale, scale);
-            
+
             const starArr = Array.from(stars.values());
-            
+
             // Draw connecting structural lines (directed from depth to depth+1)
             ctx.save();
             ctx.lineWidth = 2;
@@ -1050,20 +1160,20 @@
                 for (let j = 0; j < starArr.length; j++) {
                     const parent = starArr[i];
                     const child = starArr[j];
-                    
+
                     // Check if an explicit edge exists
                     const edges = execEdges.get(parent.execId) || [];
                     const hasEdge = (parent.execId === child.execId) && edges.some(e => e.From === parent.id && e.To === child.id);
-                    
+
                     if (hasEdge) {
                         ctx.beginPath();
                         ctx.moveTo(parent.x, parent.y);
                         // Draw curved structural lines like a circuit board
                         ctx.bezierCurveTo(parent.x, parent.y + 50, child.x, child.y - 50, child.x, child.y);
-                        
+
                         ctx.strokeStyle = `rgba(255, 255, 255, 0.15)`;
                         ctx.stroke();
-                        
+
                         // Fade to green on completion
                         const alphaObj = execAlpha.get(parent.execId);
                         if (alphaObj && alphaObj.current > 0) {
@@ -1074,7 +1184,7 @@
                 }
             }
             ctx.restore();
-            
+
             // Process active high-tech pulses travelling UP the tree
             let nextPulses = [];
             for (let i = activePulses.length - 1; i >= 0; i--) {
@@ -1082,17 +1192,17 @@
                 // Approximate distance for speed calculation
                 const dist = Math.hypot(pulse.from.x - pulse.to.x, pulse.from.y - pulse.to.y);
                 pulse.progress += 800 * dt;
-                
+
                 if (pulse.progress < dist) {
                     ctx.save();
                     const currentDist = Math.min(dist, pulse.progress);
                     const tailDist = Math.max(0, pulse.progress - 150);
-                    
+
                     // Bezier t goes from 0 (parent) to 1 (child)
                     // We are traveling from 'from' (child) to 'to' (parent), so t goes 1 -> 0
                     const startT = 1 - (tailDist / dist);
                     const endT = 1 - (currentDist / dist);
-                    
+
                     const getBezierPoint = (t) => {
                         const u = 1 - t;
                         const tt = t * t;
@@ -1107,9 +1217,9 @@
                         y += 3 * u * tt * (pulse.from.y - 50);
                         x += ttt * pulse.from.x;
                         y += ttt * pulse.from.y;
-                        return {x, y};
+                        return { x, y };
                     };
-                    
+
                     // Draw tail
                     ctx.strokeStyle = '#2ea043';
                     ctx.lineWidth = 6;
@@ -1124,7 +1234,7 @@
                         else ctx.lineTo(pt.x, pt.y);
                     }
                     ctx.stroke();
-                    
+
                     // Draw head
                     const headPt = getBezierPoint(endT);
                     ctx.fillStyle = '#ffffff';
@@ -1133,7 +1243,7 @@
                     ctx.beginPath();
                     ctx.arc(headPt.x, headPt.y, 4, 0, Math.PI * 2);
                     ctx.fill();
-                    
+
                     ctx.restore();
                 } else {
                     // Reached parent node
@@ -1157,7 +1267,7 @@
                 }
             }
             activePulses.push(...nextPulses);
-            
+
             // Update alphas
             for (const [eId, alphaObj] of execAlpha.entries()) {
                 if (alphaObj.current < alphaObj.target) {
@@ -1170,9 +1280,9 @@
                 star.update(dt);
                 star.draw(ctx);
             }
-            
+
             ctx.restore();
-            
+
             requestAnimationFrame(renderCanvas);
         }
 
@@ -1200,7 +1310,7 @@
                 setTimeout(connectWS, 1000);
             };
 
-            ws.onerror = (e) => {};
+            ws.onerror = (e) => { };
 
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
@@ -1227,7 +1337,7 @@
             const container = document.getElementById('waitlistItems');
             if (!container) return;
             container.innerHTML = '';
-            
+
             items.forEach(item => {
                 const el = document.createElement('div');
                 el.style.cssText = `
@@ -1239,12 +1349,12 @@
                     flex-direction: column; 
                     gap: 4px;
                 `;
-                
+
                 let color = '#8b949e';
                 if (item.status === 'RUNNING') color = '#58a6ff';
                 if (item.status === 'COMPLETED') color = '#2ea043';
                 if (item.status === 'FAILED') color = '#f85149';
-                
+
                 el.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <strong style="color: ${color}; font-size: 0.8rem;">${item.status}</strong>
@@ -1269,7 +1379,7 @@
                 logPayload.inputs.forEach(i => { if (i.data) i.data = '<TRUNCATED>'; });
             }
             if (logPayload.data) logPayload.data = '<TRUNCATED>';
-            
+
             appendLog(type, e.Source, JSON.stringify(logPayload));
 
             let execId = payload.execution || payload.exec_id;
@@ -1283,10 +1393,10 @@
             // Listen for WorkflowStarted to get the explicit edges
             if (type === 'WorkflowStarted' && payload.edges) {
                 execEdges.set(execId, payload.edges);
-                
+
                 const nodes = new Set();
                 payload.edges.forEach(e => { nodes.add(e.From); nodes.add(e.To); });
-                
+
                 const depths = new Map();
                 const getDepth = (nId) => {
                     if (depths.has(nId)) return depths.get(nId);
@@ -1297,13 +1407,13 @@
                     }
                     let maxD = 0;
                     for (const p of parents) {
-                        if (p === nId) continue; 
+                        if (p === nId) continue;
                         maxD = Math.max(maxD, getDepth(p));
                     }
                     depths.set(nId, maxD + 1);
                     return maxD + 1;
                 };
-                
+
                 for (const nId of nodes) {
                     const globalId = `${execId}|${nId}`;
                     if (!stars.has(globalId)) {
@@ -1334,8 +1444,8 @@
             }
 
             let workerId = payload.worker_id || payload.producer || payload.agent_id;
-            let taskId = payload.task_id || payload.id; 
-            
+            let taskId = payload.task_id || payload.id;
+
             let nodeId = workerId;
             if (taskId && taskId.includes('|')) {
                 nodeId = taskId.split('|')[1];
@@ -1344,7 +1454,7 @@
             }
 
             if (!nodeId && type !== 'TaskCreated' && type !== 'WorkflowStarted' && type !== 'WaitlistUpdated') return;
-            
+
             if (type === 'WaitlistUpdated') {
                 renderWaitlist(payload);
                 return;
@@ -1353,7 +1463,7 @@
             if (!nodeId) return;
 
             const globalId = `${execId}|${nodeId}`;
-            
+
             if (globalId) {
                 if (!nodeDataMap.has(globalId)) nodeDataMap.set(globalId, []);
                 nodeDataMap.get(globalId).push({ type, payload: logPayload });
@@ -1361,7 +1471,7 @@
 
             if (type === 'WorkerStarted' || type === 'TaskDispatched') {
                 createOrUpdateDOMNode(globalId, taskId, 'running');
-                
+
                 if (!stars.has(globalId)) {
                     let depth = 0;
                     stars.set(globalId, new Star(execId, nodeId, depth));
@@ -1370,22 +1480,22 @@
                 const s = stars.get(globalId);
                 s.status = 'running';
                 s.startTime = Date.now();
-                
+
                 if (payload.llm_model) {
-                    addDOMChip(globalId, `🧠 ${payload.llm_model}`);
+                    addDOMChip(globalId, `+ ${payload.llm_model}`);
                     s.llm = payload.llm_model;
                 }
             }
             else if (type === 'WorkerCompleted') {
                 createOrUpdateDOMNode(globalId, taskId, 'completed');
                 lastCompletedNode = globalId;
-                
+
                 const s = stars.get(globalId);
                 if (s) {
                     s.status = 'completed';
                     s.pulse = 0;
                     s.duration = (Date.now() - s.startTime) / 1000;
-                    
+
                     if (s.duration < 1.0) {
                         s.color = '#58a6ff'; // Blue
                     } else if (s.duration < 5.0) {
@@ -1422,7 +1532,7 @@
 
         function createOrUpdateDOMNode(workerId, taskId, status) {
             let nodeEl = document.getElementById(`node-${workerId}`);
-            
+
             if (!nodeEl) {
                 const emptyState = document.getElementById('nodesEmptyState');
                 if (emptyState) emptyState.style.display = 'none';
@@ -1430,7 +1540,7 @@
                 nodeEl = document.createElement('div');
                 nodeEl.id = `node-${workerId}`;
                 nodeEl.className = 'node-card';
-                
+
                 nodeEl.innerHTML = `
                     <div class="node-header">
                         <h3 class="node-title">${workerId}</h3>
@@ -1441,7 +1551,7 @@
                 `;
                 nodeEl.style.cursor = 'pointer';
                 nodeEl.onclick = () => openDetailsPanel(workerId);
-                
+
                 document.getElementById('nodesContainer').appendChild(nodeEl);
                 nodesMap.set(workerId, nodeEl);
             }
@@ -1483,4 +1593,5 @@
         }
     </script>
 </body>
+
 </html>

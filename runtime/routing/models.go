@@ -38,6 +38,9 @@ func estimateCapability(id string) float64 {
 	matches := re.FindStringSubmatch(lower)
 	if len(matches) == 2 {
 		if cap, err := strconv.ParseFloat(matches[1], 64); err == nil {
+			if cap > 40.0 {
+				cap = 40.0 // Cap at 40 so parameter size doesn't artificially outrank state-of-the-art models like Gemini/Claude
+			}
 			return cap
 		}
 	}
@@ -78,54 +81,70 @@ func FetchAvailableModels(log *logger.Logger) {
 	}
 
 	orKeys := []string{"OPENROUTER_API_KEY", "OPENROUTER_API_KEY_2"}
-	orFetched := false
+	
+	// Fetch all OpenRouter models globally once
+	var allORModels []ORModel
+	req, _ := http.NewRequest("GET", "https://openrouter.ai/api/v1/models", nil)
+	if resp, err := client.Do(req); err == nil && resp.StatusCode == 200 {
+		var orData ORResp
+		if b, _ := io.ReadAll(resp.Body); err == nil {
+			json.Unmarshal(b, &orData)
+			allORModels = orData.Data
+		}
+		resp.Body.Close()
+	}
+
 	for _, envKey := range orKeys {
 		if os.Getenv(envKey) == "" {
 			continue
 		}
-		if !orFetched { // Only fetch once for OpenRouter since all models are the same
-			req, _ := http.NewRequest("GET", "https://openrouter.ai/api/v1/models", nil)
-			if resp, err := client.Do(req); err == nil && resp.StatusCode == 200 {
-				var orData ORResp
-				if b, _ := io.ReadAll(resp.Body); err == nil {
-					json.Unmarshal(b, &orData)
-					for _, m := range orData.Data {
-						cost := 0.0
-						if p, err := strconv.ParseFloat(m.Pricing.Prompt, 64); err == nil {
-							cost += p
-						}
-						// Only load free models if you want to restrict, or load everything:
-						// We'll load everything and let Bayesian route by cost
-						AvailableModels = append(AvailableModels, Model{
-							ID:         "openrouter/" + m.ID,
-							Cost:       cost,
-							Capability: estimateCapability(m.ID),
-							APIKeyEnv:  envKey,
-							Enabled:    true,
-						})
-					}
-					orFetched = true
-					log.Info("Dynamically loaded OpenRouter models", "key", envKey, "count", len(orData.Data))
-				}
-				resp.Body.Close()
+		
+		isFreeKey := false
+		authReq, _ := http.NewRequest("GET", "https://openrouter.ai/api/v1/auth/key", nil)
+		authReq.Header.Set("Authorization", "Bearer "+os.Getenv(envKey))
+		if authResp, err := client.Do(authReq); err == nil && authResp.StatusCode == 200 {
+			type AuthResp struct {
+				Data struct {
+					IsFreeTier bool     `json:"is_free_tier"`
+					Limit      *float64 `json:"limit"`
+					Usage      float64  `json:"usage"`
+				} `json:"data"`
 			}
-		} else {
-			// If we already fetched the list, just copy the entries for the second key
-			var additional []Model
-			for _, m := range AvailableModels {
-				if strings.HasPrefix(m.ID, "openrouter/") && m.APIKeyEnv == "OPENROUTER_API_KEY" {
-					additional = append(additional, Model{
-						ID:         m.ID,
-						Cost:       m.Cost,
-						Capability: m.Capability,
-						APIKeyEnv:  envKey,
-						Enabled:    true,
-					})
+			var aData AuthResp
+			if b, _ := io.ReadAll(authResp.Body); err == nil {
+				json.Unmarshal(b, &aData)
+				if aData.Data.IsFreeTier {
+					isFreeKey = true
+				}
+				if aData.Data.Limit != nil && aData.Data.Usage >= *aData.Data.Limit {
+					isFreeKey = true
 				}
 			}
-			AvailableModels = append(AvailableModels, additional...)
-			log.Info("Mirrored OpenRouter models for secondary key", "key", envKey)
+			authResp.Body.Close()
 		}
+
+		added := 0
+		for _, m := range allORModels {
+			cost := 0.0
+			if p, err := strconv.ParseFloat(m.Pricing.Prompt, 64); err == nil {
+				cost += p
+			}
+			if isFreeKey && cost > 0.0 && !strings.HasSuffix(m.ID, ":free") {
+				continue
+			}
+			if strings.Contains(strings.ToLower(m.ID), "guard") {
+				continue
+			}
+			AvailableModels = append(AvailableModels, Model{
+				ID:         "openrouter/" + m.ID,
+				Cost:       cost,
+				Capability: estimateCapability(m.ID),
+				APIKeyEnv:  envKey,
+				Enabled:    true,
+			})
+			added++
+		}
+		log.Info("Dynamically loaded OpenRouter models", "key", envKey, "count", added, "free_only", isFreeKey)
 	}
 
 	// 2. Groq
@@ -149,6 +168,9 @@ func FetchAvailableModels(log *logger.Logger) {
 			if b, _ := io.ReadAll(resp.Body); err == nil {
 				json.Unmarshal(b, &groqData)
 				for _, m := range groqData.Data {
+					if strings.Contains(strings.ToLower(m.ID), "guard") {
+						continue
+					}
 					AvailableModels = append(AvailableModels, Model{
 						ID:         "groq/" + m.ID,
 						Cost:       0.0, // Groq is currently free tier dominated
@@ -188,10 +210,11 @@ func FetchAvailableModels(log *logger.Logger) {
 					// m.Name is "models/gemini-1.5-flash"
 					id := strings.TrimPrefix(m.Name, "models/")
 					AvailableModels = append(AvailableModels, Model{
-						ID:        "gemini/" + id,
-						Cost:      2.0, // Fixed low cost
+						ID:         "gemini/" + id,
+						Cost:       2.0, // Fixed low cost
 						Capability: estimateCapability(id),
-						APIKeyEnv: envKey,
+						APIKeyEnv:  envKey,
+						Enabled:    true,
 					})
 				}
 				log.Info("Dynamically loaded Gemini models", "key", envKey, "count", len(gemData.Models))

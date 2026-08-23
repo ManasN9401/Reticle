@@ -606,7 +606,7 @@
         .waitlist-input-row button:hover {
             filter: brightness(1.12);
         }
-        
+
         .effort-slider {
             -webkit-appearance: none;
             width: 100%;
@@ -953,6 +953,7 @@
             margin-bottom: 1rem;
             gap: 1rem;
         }
+
         .details-tab {
             cursor: pointer;
             padding: 0.5rem 0;
@@ -962,19 +963,24 @@
             letter-spacing: 0.05em;
             border-bottom: 2px solid transparent;
         }
+
         .details-tab:hover {
             color: #fff;
         }
+
         .details-tab.active {
             color: var(--completed);
             border-bottom-color: var(--completed);
         }
+
         .tab-pane {
             display: none;
         }
+
         .tab-pane.active {
             display: block;
         }
+
         /* ============ OUTPUTS MODAL ============ */
         .outputs-modal {
             position: fixed;
@@ -1031,7 +1037,10 @@
             cursor: pointer;
             transition: color 0.2s;
         }
-        .outputs-close:hover { color: #fff; }
+
+        .outputs-close:hover {
+            color: #fff;
+        }
 
         .outputs-body {
             display: flex;
@@ -1057,11 +1066,13 @@
             word-break: break-all;
         }
 
-        .outputs-file-item:hover, .outputs-file-item.active {
+        .outputs-file-item:hover,
+        .outputs-file-item.active {
             color: var(--running);
             background: rgba(86, 214, 255, 0.08);
             border-left: 3px solid var(--running);
         }
+
         .outputs-file-item.active {
             font-weight: 600;
         }
@@ -1103,12 +1114,23 @@
             </div>
         </div>
         <div class="tb-right">
-            <button onclick="document.getElementById('modelsModal').classList.add('open'); loadModels();" style="margin-right: 5px; background: rgba(86, 214, 255, 0.15); border: 1px solid var(--border); padding: 5px 12px; border-radius: 6px; color: var(--running); text-decoration: none; font-size: 0.85rem; font-family: var(--font-display); letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: background 0.2s;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <button onclick="document.getElementById('modelsModal').classList.add('open'); loadModels();"
+                style="margin-right: 5px; background: rgba(86, 214, 255, 0.15); border: 1px solid var(--border); padding: 5px 12px; border-radius: 6px; color: var(--running); text-decoration: none; font-size: 0.85rem; font-family: var(--font-display); letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: background 0.2s;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path
+                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                    </path>
+                </svg>
                 MODELS
             </button>
-            <a href="/artifacts/" target="_blank" style="margin-right: 15px; background: rgba(86, 214, 255, 0.15); border: 1px solid var(--border); padding: 5px 12px; border-radius: 6px; color: var(--running); text-decoration: none; font-size: 0.85rem; font-family: var(--font-display); letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: background 0.2s;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <a href="/artifacts/" target="_blank"
+                style="margin-right: 15px; background: rgba(86, 214, 255, 0.15); border: 1px solid var(--border); padding: 5px 12px; border-radius: 6px; color: var(--running); text-decoration: none; font-size: 0.85rem; font-family: var(--font-display); letter-spacing: 0.05em; display: flex; align-items: center; gap: 6px; cursor: pointer; transition: background 0.2s;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                </svg>
                 VIEW ARTIFACTS
             </a>
             <div class="tb-field">
@@ -1152,9 +1174,12 @@
                 <div class="waitlist-input-row" style="gap: 8px;">
                     <input type="text" id="waitlistInput" placeholder="Enter prompt..."
                         onkeydown="if(event.key==='Enter') submitWaitlistPrompt()">
-                    <div style="display: flex; flex-direction: column; gap: 6px; width: 100px; justify-content: center; align-items: center; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px;">
-                        <span id="effortLabel" style="font-size: 0.55rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.1em; white-space: nowrap;">Effort: Auto</span>
-                        <input type="range" id="waitlistEffort" class="effort-slider" min="0" max="6" value="0" step="1" 
+                    <div
+                        style="display: flex; flex-direction: column; gap: 6px; width: 100px; justify-content: center; align-items: center; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px;">
+                        <span id="effortLabel"
+                            style="font-size: 0.55rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.1em; white-space: nowrap;">Effort:
+                            Auto</span>
+                        <input type="range" id="waitlistEffort" class="effort-slider" min="0" max="6" value="0" step="1"
                             oninput="
                                 const tiers = ['auto', 'minimal', 'low', 'standard', 'elevated', 'high', 'absolute'];
                                 const labels = ['Auto', 'Minimal', 'Low', 'Standard', 'Elevated', 'High', 'Absolute'];
@@ -1179,7 +1204,8 @@
             <div class="resizer-horizontal" id="resizerLog"></div>
             <div class="log-panel fs-container panel-frame" id="logContainer">
                 <h3 class="panel-eyebrow" style="padding: 0.85rem 0.95rem 0.55rem; margin: -0.85rem -0.95rem 0.6rem;">
-                    <span class="bracket">[</span>Event Log<span class="bracket">]</span></h3>
+                    <span class="bracket">[</span>Event Log<span class="bracket">]</span>
+                </h3>
                 <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)"
                     title="Toggle Fullscreen">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -1231,8 +1257,13 @@
         <div class="outputs-container" style="width: 500px; height: 70%; max-height: 600px;">
             <div class="outputs-header">
                 <h2>Available Models</h2>
-                <button class="outputs-close" onclick="document.getElementById('modelsModal').classList.remove('open')" style="color: white;">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                <button class="outputs-close" onclick="document.getElementById('modelsModal').classList.remove('open')"
+                    style="color: white;">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
                 </button>
             </div>
             <div class="outputs-content" id="modelsContent" style="display: flex; flex-direction: column; gap: 8px;">
@@ -1249,14 +1280,14 @@
                 const res = await fetch('/api/models');
                 const models = await res.json();
                 container.innerHTML = '';
-                
+
                 const grouped = {};
                 for (const m of models) {
                     const provider = m.id.split('/')[0].toUpperCase();
                     if (!grouped[provider]) grouped[provider] = [];
                     grouped[provider].push(m);
                 }
-                
+
                 for (const [provider, list] of Object.entries(grouped)) {
                     const header = document.createElement('h3');
                     header.textContent = provider;
@@ -1265,7 +1296,7 @@
                     header.style.fontSize = '0.8rem';
                     header.style.fontFamily = 'var(--font-display)';
                     container.appendChild(header);
-                    
+
                     for (const m of list) {
                         const item = document.createElement('div');
                         item.style.display = 'flex';
@@ -1275,7 +1306,7 @@
                         item.style.background = 'rgba(255,255,255,0.02)';
                         item.style.border = '1px solid var(--border-soft)';
                         item.style.borderRadius = '6px';
-                        
+
                         const cb = document.createElement('input');
                         cb.type = 'checkbox';
                         cb.checked = m.enabled;
@@ -1287,18 +1318,18 @@
                                 body: JSON.stringify({ model_key: modelKey })
                             });
                         };
-                        
+
                         const label = document.createElement('span');
                         label.textContent = m.id + (m.api_key_env ? ' (' + m.api_key_env + ')' : '');
                         label.style.fontSize = '0.8rem';
                         label.style.color = 'var(--ink)';
-                        
+
                         item.appendChild(cb);
                         item.appendChild(label);
                         container.appendChild(item);
                     }
                 }
-            } catch(e) {
+            } catch (e) {
                 container.innerHTML = '<div style="color: var(--failed); text-align: center; padding: 2rem;">Failed to load models.</div>';
             }
         }
@@ -1547,7 +1578,7 @@
                 if (star.llm) {
                     html += `<div class="details-section">
                         <h4>Model</h4>
-                        <div class="details-data">🧠 ${star.llm}</div>
+                        <div class="details-data">+ ${star.llm}</div>
                     </div>`;
                 }
                 if (parents.length > 0) {
@@ -1749,17 +1780,17 @@
                 if (selectedNodeId === this.globalId) {
                     ctx.save();
                     ctx.translate(this.x, this.y);
-                    
+
                     const rr = r + 14;
                     const selColor = '#c4d300'; // Scouter yellow-green
-                    
+
                     const t = performance.now() / 1500; // Spin speed
                     ctx.strokeStyle = selColor;
                     ctx.fillStyle = selColor;
                     ctx.lineWidth = 1.5;
                     ctx.shadowBlur = 12;
                     ctx.shadowColor = selColor;
-                    
+
                     // Central ring
                     ctx.beginPath();
                     ctx.arc(0, 0, r + 10, 0, Math.PI * 2);
@@ -1771,7 +1802,7 @@
                     const dist = r + 16; // Distance from center to tip
                     const baseHalf = 8; // Half-width of the triangle base
                     const length = 12; // Length of the triangle from tip to base
-                    
+
                     for (let i = 0; i < 4; i++) {
                         ctx.save();
                         ctx.rotate((Math.PI / 2) * i);
@@ -1798,7 +1829,7 @@
                 if (this.status === 'running' && this.llm) {
                     ctx.fillStyle = '#56d6ff';
                     ctx.font = '500 11px "IBM Plex Mono", monospace';
-                    ctx.fillText('🧠 ' + this.llm, this.x, this.y - r - 14);
+                    ctx.fillText('+ ' + this.llm, this.x, this.y - r - 14);
                 }
 
                 if (this.artifactNames && this.artifactNames.length > 0) {
@@ -2101,7 +2132,7 @@
             const container = document.getElementById('waitlistItems');
             if (!container) return;
             container.innerHTML = '';
-            
+
             const countEl = document.getElementById('waitlistCount');
             if (countEl && max !== undefined) {
                 countEl.textContent = `${running}/${max} Active`;
@@ -2232,7 +2263,7 @@
                 if (!nodeDataMap.has(globalId)) nodeDataMap.set(globalId, []);
                 const eventsList = nodeDataMap.get(globalId);
                 eventsList.push({ type, payload: logPayload });
-                
+
                 // Prevent extreme UI lag by capping in-memory events per node to 400
                 if (eventsList.length > 400) {
                     eventsList.shift();
@@ -2252,7 +2283,7 @@
                 s.startTime = Date.now();
 
                 if (payload.llm_model) {
-                    addDOMChip(globalId, `🧠 ${payload.llm_model}`, 'llm-model');
+                    addDOMChip(globalId, `+ ${payload.llm_model}`, 'llm-model');
                     s.llm = payload.llm_model;
                 }
             }
@@ -2314,7 +2345,7 @@
                 nodeEl = document.createElement('div');
                 nodeEl.id = `node-${globalId}`;
                 nodeEl.className = 'node-card';
-                
+
                 const displayTitle = title && title !== globalId.split('|')[1] ? title : globalId.split('|')[1];
 
                 nodeEl.innerHTML = `
@@ -2370,12 +2401,12 @@
                 <span class="log-content">${content}</span>
             `;
             logContainer.appendChild(el);
-            
+
             // Protect DOM performance by popping old logs
             while (logContainer.children.length > 300) {
                 logContainer.removeChild(logContainer.firstChild);
             }
-            
+
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
@@ -2391,17 +2422,17 @@
             document.querySelectorAll('.node-card').forEach(el => el.classList.remove('selected'));
             const selectedEl = document.getElementById(`node-${nodeId}`);
             if (selectedEl) selectedEl.classList.add('selected');
-            
+
             const panel = document.getElementById('nodeDetailsPanel');
             const title = document.getElementById('detailsTitle');
             const content = document.getElementById('detailsContent');
-            
+
             panel.classList.add('open');
             title.innerText = nodeId;
-            
+
             const star = stars.get(nodeId);
             const data = nodeDataMap.get(nodeId) || [];
-            
+
             let html = `
                 <div class="details-tabs">
                     <div class="details-tab active" data-tab="tab-general" onclick="switchTab('tab-general')">General</div>
@@ -2410,12 +2441,12 @@
                 </div>
                 <div class="tab-pane active" id="tab-general">
             `;
-            
+
             const execId = star ? star.execId : null;
             const edges = execId ? (execEdges.get(execId) || []) : [];
             const parents = edges.filter(e => e.To === (star ? star.id : nodeId)).map(e => e.From);
             const children = edges.filter(e => e.From === (star ? star.id : nodeId)).map(e => e.To);
-            
+
             let receivedArtifacts = [];
             if (execId) {
                 parents.forEach(pId => {
@@ -2425,11 +2456,11 @@
                     }
                 });
             }
-            
+
             if (star) {
                 html += `<div class="details-section">
                     <h4>Status</h4>
-                    <div class="details-data"><span class="status-badge" style="color: ${star.status==='completed'?'var(--completed)':star.status==='failed'?'var(--failed)':'var(--running)'}">${star.status.toUpperCase()}</span></div>
+                    <div class="details-data"><span class="status-badge" style="color: ${star.status === 'completed' ? 'var(--completed)' : star.status === 'failed' ? 'var(--failed)' : 'var(--running)'}">${star.status.toUpperCase()}</span></div>
                 </div>`;
                 if (star.duration) {
                     html += `<div class="details-section">
@@ -2440,7 +2471,7 @@
                 if (star.llm) {
                     html += `<div class="details-section">
                         <h4>Model</h4>
-                        <div class="details-data">🧠 ${star.llm}</div>
+                        <div class="details-data">+ ${star.llm}</div>
                     </div>`;
                 }
                 if (parents.length > 0) {
@@ -2468,7 +2499,7 @@
                     </div>`;
                 }
             }
-            
+
             if (data.length > 0) {
                 html += `<div class="details-section">
                     <h4>Event Log</h4>
@@ -2483,12 +2514,12 @@
                 html += `</div></div>`;
             }
             html += `</div>`; // Close tab-general
-            
+
             // Build LLM Verbose Tab
             html += `<div class="tab-pane" id="tab-llm">
                 <div class="details-section" style="border: none; background: transparent; padding: 0;">
                     <div class="details-data" style="max-height: calc(100vh - 200px); overflow-y: auto; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; line-height: 1.4; color: var(--ink);">`;
-            
+
             const llmLogs = data.filter(e => e.type === 'WorkerLog' && e.payload && (e.payload.log || '').includes('[LLM]'));
             if (llmLogs.length > 0) {
                 llmLogs.forEach(e => {
@@ -2501,16 +2532,16 @@
                 html += `<div style="color: var(--ink-faint); font-style: italic;">No LLM verbose logs available for this agent.</div>`;
             }
             html += `</div></div></div>`;
-            
+
             // Build Tools Used Tab
             html += `<div class="tab-pane" id="tab-tools">
                 <div class="details-section" style="border: none; background: transparent; padding: 0;">
                     <div class="details-data" style="max-height: calc(100vh - 200px); overflow-y: auto;">`;
-            
+
             const toolLogs = data.filter(e => e.type === 'ToolCall' || (e.type === 'WorkerLog' && e.payload && (e.payload.log || '').toUpperCase().includes('[TOOL')));
             if (toolLogs.length > 0) {
                 let currentTool = '';
-                
+
                 toolLogs.forEach(e => {
                     if (e.type === 'WorkerLog' && e.payload && e.payload.log) {
                         const log = e.payload.log;
@@ -2519,7 +2550,7 @@
                         } else if (log.includes('[TOOL] Args:')) {
                             let currentArgs = log.split('[TOOL] Args:')[1].trim();
                             let actionDesc = currentArgs; // fallback
-                            
+
                             try {
                                 // Try to parse if not truncated
                                 let parseableArgs = currentArgs;
@@ -2527,7 +2558,7 @@
                                     parseableArgs = parseableArgs.replace('... [TRUNCATED]', '') + '"}'; // rough attempt
                                 }
                                 const argsObj = JSON.parse(parseableArgs);
-                                
+
                                 if (currentTool === 'execute_terminal_command') {
                                     actionDesc = `Ran command: <code style="color: var(--accent);">${argsObj.command || ''}</code>`;
                                 } else if (currentTool === 'write_file') {
@@ -2539,8 +2570,8 @@
                                 } else if (currentTool === 'list_dir') {
                                     actionDesc = `Listed directory: <code style="color: var(--accent);">${argsObj.path || ''}</code>`;
                                 }
-                            } catch (err) {}
-                            
+                            } catch (err) { }
+
                             html += `<div style="margin-bottom:0.8rem; border-left: 2px solid var(--running); padding-left: 0.8rem;">
                                 <strong style="color: #fff;">${currentTool || 'Tool Used'}</strong><br>
                                 <div style="margin-top:0.2rem; font-size: 0.85rem; color: var(--ink-dim);">${actionDesc}</div>
@@ -2625,7 +2656,7 @@
                 const res = await fetch(`/api/outputs/${execId}`);
                 if (!res.ok) throw new Error(await res.text());
                 currentOutputs = await res.json();
-                
+
                 sidebar.innerHTML = '';
                 if (currentOutputs.length === 0) {
                     sidebar.innerHTML = '<div style="padding: 1.5rem; color: var(--ink-dim);">No output files found.</div>';
@@ -2642,7 +2673,7 @@
                         viewer.innerText = file.content;
                     };
                     sidebar.appendChild(el);
-                    
+
                     // Auto-select first file
                     if (idx === 0) el.click();
                 });
