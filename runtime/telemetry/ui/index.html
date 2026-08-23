@@ -2086,6 +2086,7 @@
             <div class="models-toolbar">
                 <input type="text" id="modelSearch" placeholder="Search models…" oninput="renderModelsList()">
                 <button onclick="toggleAllModels(true)" style="padding: 6px 12px; background: rgba(86, 214, 255, 0.1); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;">Select All</button>
+                <button onclick="autoSelectPremiumModels()" style="padding: 6px 12px; background: rgba(76, 209, 115, 0.1); color: var(--completed); border: 1px solid var(--completed); border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;">Auto-Select Premium</button>
                 <button onclick="toggleAllModels(false)" style="padding: 6px 12px; background: rgba(255, 107, 107, 0.1); color: var(--failed); border: 1px solid var(--failed); border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;">Deselect All</button>
             </div>
             <div class="filter-chips" id="providerChips" style="padding: 0 20px 10px 20px; border-bottom: 1px solid var(--border);"></div>
@@ -2168,7 +2169,16 @@
             document.querySelectorAll('#agentFilterChips .filter-chip').forEach(c => {
                 c.classList.toggle('active', c.dataset.status === status);
             });
-            filterAgents();
+            scheduleFilterAgents();
+        }
+
+        let filterAgentsTimeout = null;
+        function scheduleFilterAgents() {
+            if (filterAgentsTimeout) return;
+            filterAgentsTimeout = requestAnimationFrame(() => {
+                filterAgents();
+                filterAgentsTimeout = null;
+            });
         }
         function filterAgents() {
             const q = (document.getElementById('agentSearch').value || '').toLowerCase();
@@ -2578,9 +2588,7 @@
                         return { x, y };
                     };
                     ctx.strokeStyle = '#57e8ab';
-                    ctx.lineWidth = 5;
-                    ctx.shadowColor = '#57e8ab';
-                    ctx.shadowBlur = 18;
+                    ctx.lineWidth = 4;
                     ctx.beginPath();
                     const steps = 10;
                     for (let step = 0; step <= steps; step++) {
@@ -2591,8 +2599,6 @@
                     ctx.stroke();
                     const headPt = getBezierPoint(endT);
                     ctx.fillStyle = '#ffffff';
-                    ctx.shadowColor = '#ffffff';
-                    ctx.shadowBlur = 26;
                     ctx.beginPath();
                     ctx.arc(headPt.x, headPt.y, 3.5, 0, Math.PI * 2);
                     ctx.fill();
@@ -2747,7 +2753,7 @@
         function appendLog(type, source, payload) {
             const time = new Date().toLocaleTimeString();
             let contentStr;
-            try { contentStr = typeof payload === 'string' ? payload : JSON.stringify(payload); }
+            try { contentStr = (payload === null || payload === undefined) ? '(No payload)' : (typeof payload === 'string' ? payload : JSON.stringify(payload)); }
             catch (e) { contentStr = String(payload); }
 
             logEntries.push({ id: ++logSeq, type, source, content: contentStr, time, expanded: false, cat: logCategory(type) });
@@ -2830,6 +2836,9 @@
         }
 
         function prettyJson(str) {
+            if (typeof str !== 'string') return str;
+            str = str.trim();
+            if (!str.startsWith('{') && !str.startsWith('[')) return str;
             try { return JSON.stringify(JSON.parse(str), null, 2); } catch (e) { return str; }
         }
         function escapeHtml(str) {
@@ -2947,7 +2956,7 @@
                 }
             }
 
-            filterAgents();
+            scheduleFilterAgents();
         }
 
         function createOrUpdateDOMNode(globalId, taskId, status, title) {
@@ -3259,11 +3268,42 @@
                 if (m.enabled !== enabled) {
                     m.enabled = enabled;
                     const modelKey = m.api_key_env ? (m.id + '|' + m.api_key_env) : m.id;
-                    return fetch('/api/models/toggle', { 
-                        method: 'POST', 
-                        headers: { 'Content-Type': 'application/json' }, 
-                        body: JSON.stringify({ model_key: modelKey }) 
-                    });
+                    return fetch('/api/models/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_key: modelKey }) });
+                }
+                return Promise.resolve();
+            });
+            await Promise.all(promises);
+            renderModelsList();
+        }
+
+        async function autoSelectPremiumModels() {
+            const premiumKeywords = [
+                'llama-3.3-70b', 'llama-3.1-70b', 'llama-3.1-405b', 'llama-3-70b',
+                'qwen-2.5-72b', 'qwen-2.5-coder-32b', 'qwen3.6-27b', 'qwen-2.5-32b',
+                'gemini-1.5-pro', 'gemini-2.0-pro', 'gemini-1.5-flash',
+                'claude-3-5-sonnet', 'claude-3-opus', 'claude-3-5-haiku',
+                'gpt-4o', 'gpt-4-turbo', 'o1', 'o3'
+            ];
+            
+            const promises = allModels.map(m => {
+                const idLower = m.id.toLowerCase();
+                let shouldEnable = false;
+                
+                const isBad = idLower.includes('canopy') || idLower.includes('liquid') || idLower.includes('guard') || idLower.includes('free');
+                
+                if (!isBad) {
+                    for (const kw of premiumKeywords) {
+                        if (idLower.includes(kw)) {
+                            shouldEnable = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (m.enabled !== shouldEnable) {
+                    m.enabled = shouldEnable;
+                    const modelKey = m.api_key_env ? (m.id + '|' + m.api_key_env) : m.id;
+                    return fetch('/api/models/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_key: modelKey }) });
                 }
                 return Promise.resolve();
             });
