@@ -54,8 +54,17 @@ func estimateCapability(id string) float64 {
 	return 10.0 // Default
 }
 
-func FetchAvailableModels(log *logger.Logger) {
-	AvailableModels = []Model{} // Reset
+// FetchAvailableModels fetches and parses available models dynamically.
+func FetchAvailableModels(log *logger.Logger, loadAll bool) {
+	AvailableModels = make([]Model, 0)
+	
+	premiumKeywords := []string{
+		"llama-3.3-70b", "llama-3.1-70b", "llama-3.1-405b", "llama-3-70b",
+		"qwen-2.5-72b", "qwen-2.5-coder-32b", "qwen3.6-27b", "qwen-2.5-32b",
+		"gemini-1.5-pro", "gemini-2.0-pro", "gemini-1.5-flash",
+		"claude-3-5-sonnet", "claude-3-opus", "claude-3-5-haiku",
+		"gpt-4o", "gpt-4-turbo", "o1", "o3",
+	}
 
 	// The default fallback models we know exist
 	defaultModels := []Model{
@@ -80,7 +89,7 @@ func FetchAvailableModels(log *logger.Logger) {
 		Data []ORModel `json:"data"`
 	}
 
-	orKeys := []string{"OPENROUTER_API_KEY", "OPENROUTER_API_KEY_2"}
+	orKeys := []string{"OPENROUTER_API_KEY", "OPENROUTER_API_KEY_2", "OPENROUTER_API_KEY_3"}
 	
 	// Fetch all OpenRouter models globally once
 	var allORModels []ORModel
@@ -135,6 +144,23 @@ func FetchAvailableModels(log *logger.Logger) {
 			if strings.Contains(strings.ToLower(m.ID), "guard") {
 				continue
 			}
+			if !loadAll {
+				isPremium := false
+				idLower := strings.ToLower(m.ID)
+				isBad := strings.Contains(idLower, "canopy") || strings.Contains(idLower, "liquid") || strings.Contains(idLower, "guard") || strings.Contains(idLower, "free")
+				if !isBad {
+					for _, kw := range premiumKeywords {
+						if strings.Contains(idLower, kw) {
+							isPremium = true
+							break
+						}
+					}
+				}
+				if !isPremium {
+					continue
+				}
+			}
+
 			AvailableModels = append(AvailableModels, Model{
 				ID:         "openrouter/" + m.ID,
 				Cost:       cost,
@@ -155,7 +181,7 @@ func FetchAvailableModels(log *logger.Logger) {
 		Data []GroqModel `json:"data"`
 	}
 
-	groqKeys := []string{"GROQ_API_KEY", "GROQ_API_KEY_2"}
+	groqKeys := []string{"GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3"}
 	for _, envKey := range groqKeys {
 		keyVal := os.Getenv(envKey)
 		if keyVal == "" {
@@ -170,6 +196,22 @@ func FetchAvailableModels(log *logger.Logger) {
 				for _, m := range groqData.Data {
 					if strings.Contains(strings.ToLower(m.ID), "guard") {
 						continue
+					}
+					if !loadAll {
+						isPremium := false
+						idLower := strings.ToLower(m.ID)
+						isBad := strings.Contains(idLower, "canopy") || strings.Contains(idLower, "liquid") || strings.Contains(idLower, "guard") || strings.Contains(idLower, "free")
+						if !isBad {
+							for _, kw := range premiumKeywords {
+								if strings.Contains(idLower, kw) {
+									isPremium = true
+									break
+								}
+							}
+						}
+						if !isPremium {
+							continue
+						}
 					}
 					AvailableModels = append(AvailableModels, Model{
 						ID:         "groq/" + m.ID,

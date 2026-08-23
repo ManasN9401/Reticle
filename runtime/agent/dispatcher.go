@@ -94,7 +94,7 @@ func (d *Dispatcher) Start() {
 
 		// Asynchronously invoke the worker directly
 		go func(w *Worker, t Task, forced bool) {
-			maxRetries := 5
+			maxRetries := 15
 			var lastFailure *WorkerFailure
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {

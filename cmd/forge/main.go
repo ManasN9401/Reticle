@@ -111,6 +111,7 @@ func main() {
 	portFlag := flag.Int("port", 8080, "Port to run the UI telemetry server on")
 	legacyFlag := flag.Bool("legacy", false, "Use legacy terminal UI (no web UI)")
 	nativeFlag := flag.Bool("native", false, "Run worker terminal commands natively on the host instead of in a Docker container")
+	allModelsFlag := flag.Bool("all-models", false, "Load all available models (instead of just premium tier)")
 	flag.Parse()
 
 	args := flag.Args()
@@ -240,7 +241,7 @@ func main() {
 	workers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
 
 	instructionStore := agent.NewInstructionStore()
-	router := routing.NewRouter(orch.Logger, orch.Bus)
+	router := routing.NewRouter(orch.Logger, orch.Bus, *allModelsFlag)
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hyperparallel/runtime/events"
 	"github.com/hyperparallel/runtime/logger"
@@ -24,8 +25,8 @@ type ModelRouter struct {
 	mu sync.RWMutex
 }
 
-func NewRouter(l *logger.Logger, b *events.Bus) *ModelRouter {
-	FetchAvailableModels(l)
+func NewRouter(l *logger.Logger, b *events.Bus, loadAll bool) *ModelRouter {
+	FetchAvailableModels(l, loadAll)
 
 	r := &ModelRouter{
 		Logger:   l,
@@ -146,9 +147,20 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortStr strin
 		return nil
 	}
 
-	// Sort capable models by Capability ascending, then Cost ascending
+	// Sort capable models by Capability ascending, then Cost ascending, then Priority
 	sort.Slice(capable, func(i, j int) bool {
 		if capable[i].Capability == capable[j].Capability {
+			if capable[i].Cost == capable[j].Cost {
+				// Prioritize _3 keys
+				iHas3 := strings.HasSuffix(capable[i].APIKeyEnv, "_3")
+				jHas3 := strings.HasSuffix(capable[j].APIKeyEnv, "_3")
+				if iHas3 && !jHas3 {
+					return true
+				}
+				if jHas3 && !iHas3 {
+					return false
+				}
+			}
 			return capable[i].Cost < capable[j].Cost
 		}
 		return capable[i].Capability < capable[j].Capability
@@ -179,21 +191,36 @@ func (r *ModelRouter) TrackForcedModel(taskID string, modelKey string) {
 	r.inFlight[taskID] = modelKey
 }
 
-// PenalizeProvider drops the probability of all models that use the given apiKeyEnv to 0.0 for the specified agent.
+// PenalizeProvider globally disables all models that use the given apiKeyEnv across the entire application, and re-enables them after a 60-second cooldown.
 func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.Matrix[agentID] == nil {
-		r.Matrix[agentID] = make(map[string]float64)
-	}
-
-	for _, m := range AvailableModels {
-		if m.APIKeyEnv == apiKeyEnv {
-			r.Matrix[agentID][m.Key()] = 0.0
+	count := 0
+	for i := range AvailableModels {
+		if AvailableModels[i].APIKeyEnv == apiKeyEnv && AvailableModels[i].Enabled {
+			AvailableModels[i].Enabled = false
+			count++
 		}
 	}
-	r.Logger.Info("Provider penalized globally for agent", "agent_id", agentID, "api_key_env", apiKeyEnv)
+	r.mu.Unlock()
+
+	if count > 0 {
+		r.Logger.Info("Provider penalized globally for ALL agents (60s cooldown)", "api_key_env", apiKeyEnv, "models_disabled", count)
+		
+		// Launch recovery timer
+		go func() {
+			time.Sleep(60 * time.Second)
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			recovered := 0
+			for i := range AvailableModels {
+				if AvailableModels[i].APIKeyEnv == apiKeyEnv && !AvailableModels[i].Enabled {
+					AvailableModels[i].Enabled = true
+					recovered++
+				}
+			}
+			r.Logger.Info("Provider cooldown finished, models re-enabled", "api_key_env", apiKeyEnv, "models_recovered", recovered)
+		}()
+	}
 }
 
 // PenalizeModel globally disables a specific model across the entire application.
