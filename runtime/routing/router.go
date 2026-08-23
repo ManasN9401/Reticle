@@ -116,6 +116,10 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortStr strin
 
 	var capable []Model
 	for _, m := range AvailableModels {
+		if !m.Enabled {
+			continue
+		}
+		
 		mCopy := m
 		prob, exists := r.Matrix[agentID][mCopy.Key()]
 		if !exists {
@@ -193,4 +197,18 @@ func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
 		}
 	}
 	r.Logger.Info("Provider penalized globally for agent", "agent_id", agentID, "api_key_env", apiKeyEnv)
+}
+
+// PenalizeModel globally disables a specific model across the entire application.
+func (r *ModelRouter) PenalizeModel(modelID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for i := range AvailableModels {
+		// match by ID or full key
+		if AvailableModels[i].ID == modelID || AvailableModels[i].Key() == modelID {
+			AvailableModels[i].Enabled = false
+			r.Logger.Info("Model disabled globally due to fatal error", "model_id", AvailableModels[i].ID)
+		}
+	}
 }

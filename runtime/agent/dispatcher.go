@@ -103,6 +103,9 @@ func (d *Dispatcher) Start() {
 				if e, ok := t.Parameters["effort"].(string); ok && e != "" {
 					effortStr = e
 				}
+				if globalEffort, ok := t.Memory["global_effort"].(string); ok && globalEffort != "" {
+					effortStr = globalEffort
+				}
 
 				// Dynamically select model if not forced
 				if d.Router != nil {
@@ -147,6 +150,10 @@ func (d *Dispatcher) Start() {
 					if strings.Contains(failure.Stderr, "Insufficient credits") || strings.Contains(failure.Stderr, "invalid api key") || strings.Contains(failure.Stderr, "APIConnectionError") || strings.Contains(strings.ToLower(failure.Stderr), "exceeded your current quota") {
 						if apiKeyEnv, ok := t.Parameters["api_key"].(string); ok && apiKeyEnv != "" {
 							d.Router.PenalizeProvider(string(w.ID), apiKeyEnv)
+						}
+					} else if strings.Contains(strings.ToLower(failure.Stderr), "requires terms acceptance") {
+						if modelID, ok := t.Parameters["llm_model"].(string); ok && modelID != "" {
+							d.Router.PenalizeModel(modelID)
 						}
 					}
 					d.Router.UpdateProbability(string(w.ID), string(t.ID), false)

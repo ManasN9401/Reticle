@@ -40,6 +40,7 @@ type WaitlistItem struct {
 	Group      string          `json:"group"`
 	Mode       ExecutionMode   `json:"mode"`
 	IDEContext string          `json:"ide_context,omitempty"`
+	Effort     string          `json:"effort,omitempty"`
 	CreatedAt  time.Time       `json:"created_at"`
 }
 
@@ -191,11 +192,12 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 				group, _ := payload["group"].(string)
 				modeStr, _ := payload["mode"].(string)
 				ideContext, _ := payload["ide_context"].(string)
+				effort, _ := payload["effort"].(string)
 				mode := ModeParallel
 				if modeStr == "sequential" {
 					mode = ModeSequential
 				}
-				wm.Enqueue(prompt, group, mode, ideContext)
+				wm.Enqueue(prompt, group, mode, ideContext, effort)
 			case "remove":
 				id, _ := payload["id"].(string)
 				wm.Remove(id)
@@ -225,7 +227,7 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 	return wm
 }
 
-func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMode, ideContext string) {
+func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMode, ideContext string, effort string) {
 	wm.mu.Lock()
 	
 	id := fmt.Sprintf("exec-%03d", wm.nextID)
@@ -247,6 +249,7 @@ func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMo
 		Group:      group,
 		Mode:       mode,
 		IDEContext: ideContext,
+		Effort:     effort,
 		CreatedAt:  time.Now(),
 	}
 	wm.items = append(wm.items, item)
@@ -489,6 +492,23 @@ func (wm *WaitlistManager) Pump() {
 				Value:   isolatedWorkspacePath,
 				Owner:   "waitlist",
 			})
+			
+			if item.Effort != "" && item.Effort != "auto" {
+				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+					Scope:   memory.ScopeExecution,
+					ScopeID: item.ID,
+					Key:     "global_effort",
+					Value:   item.Effort,
+					Owner:   "waitlist",
+				})
+				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+					Scope:   memory.ScopeExecution,
+					ScopeID: "compile-" + item.ID,
+					Key:     "global_effort",
+					Value:   item.Effort,
+					Owner:   "waitlist",
+				})
+			}
 			
 			// Launch workflow
 			go func(i *WaitlistItem) {

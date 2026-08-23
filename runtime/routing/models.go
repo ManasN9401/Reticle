@@ -19,6 +19,7 @@ type Model struct {
 	Cost      float64 `json:"cost"`       // Financial cost
 	Capability float64 `json:"capability"` // Estimated performance capability
 	APIKeyEnv string  `json:"api_key_env,omitempty"`
+	Enabled   bool    `json:"enabled"`
 }
 
 func (m Model) Key() string {
@@ -55,11 +56,11 @@ func FetchAvailableModels(log *logger.Logger) {
 
 	// The default fallback models we know exist
 	defaultModels := []Model{
-		{ID: "openrouter/liquid/lfm-2.5-2.6b:free", Cost: 0.0, Capability: 2.6, APIKeyEnv: "OPENROUTER_API_KEY"},
-		{ID: "openrouter/liquid/lfm-2.5-2.6b:free", Cost: 0.0, Capability: 2.6, APIKeyEnv: "OPENROUTER_API_KEY_2"},
-		{ID: "gemini/gemini-3.5-flash-lite", Cost: 0.0, Capability: 8.0, APIKeyEnv: "GEMINI_API_KEY"},
-		{ID: "groq/qwen/qwen3.6-27b", Cost: 0.0, Capability: 27.0, APIKeyEnv: "GROQ_API_KEY"},
-		{ID: "groq/groq/compound-mini", Cost: 0.0, Capability: 8.0, APIKeyEnv: "GROQ_API_KEY_2"},
+		{ID: "openrouter/liquid/lfm-2.5-2.6b:free", Cost: 0.0, Capability: 2.6, APIKeyEnv: "OPENROUTER_API_KEY", Enabled: true},
+		{ID: "openrouter/liquid/lfm-2.5-2.6b:free", Cost: 0.0, Capability: 2.6, APIKeyEnv: "OPENROUTER_API_KEY_2", Enabled: true},
+		{ID: "gemini/gemini-3.5-flash-lite", Cost: 0.0, Capability: 8.0, APIKeyEnv: "GEMINI_API_KEY", Enabled: true},
+		{ID: "groq/qwen/qwen3.6-27b", Cost: 0.0, Capability: 27.0, APIKeyEnv: "GROQ_API_KEY", Enabled: true},
+		{ID: "groq/groq/compound-mini", Cost: 0.0, Capability: 8.0, APIKeyEnv: "GROQ_API_KEY_2", Enabled: true},
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -96,10 +97,11 @@ func FetchAvailableModels(log *logger.Logger) {
 						// Only load free models if you want to restrict, or load everything:
 						// We'll load everything and let Bayesian route by cost
 						AvailableModels = append(AvailableModels, Model{
-							ID:        "openrouter/" + m.ID,
-							Cost:      cost,
+							ID:         "openrouter/" + m.ID,
+							Cost:       cost,
 							Capability: estimateCapability(m.ID),
-							APIKeyEnv: envKey,
+							APIKeyEnv:  envKey,
+							Enabled:    true,
 						})
 					}
 					orFetched = true
@@ -113,10 +115,11 @@ func FetchAvailableModels(log *logger.Logger) {
 			for _, m := range AvailableModels {
 				if strings.HasPrefix(m.ID, "openrouter/") && m.APIKeyEnv == "OPENROUTER_API_KEY" {
 					additional = append(additional, Model{
-						ID:        m.ID,
-						Cost:      m.Cost,
+						ID:         m.ID,
+						Cost:       m.Cost,
 						Capability: m.Capability,
-						APIKeyEnv: envKey,
+						APIKeyEnv:  envKey,
+						Enabled:    true,
 					})
 				}
 			}
@@ -147,10 +150,11 @@ func FetchAvailableModels(log *logger.Logger) {
 				json.Unmarshal(b, &groqData)
 				for _, m := range groqData.Data {
 					AvailableModels = append(AvailableModels, Model{
-						ID:        "groq/" + m.ID,
-						Cost:      1.0, // Fixed low cost for Groq
+						ID:         "groq/" + m.ID,
+						Cost:       0.0, // Groq is currently free tier dominated
 						Capability: estimateCapability(m.ID),
-						APIKeyEnv: envKey,
+						APIKeyEnv:  envKey,
+						Enabled:    true,
 					})
 				}
 				log.Info("Dynamically loaded Groq models", "key", envKey, "count", len(groqData.Data))
