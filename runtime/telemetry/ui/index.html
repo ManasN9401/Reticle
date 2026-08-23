@@ -205,34 +205,78 @@
         }
 
         .tb-btn {
-            background: rgba(86, 214, 255, 0.1);
+            background: rgba(255, 255, 255, 0.03);
             border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            color: var(--running);
+            border-radius: 999px;
             text-decoration: none;
-            padding: 0.4rem 0.7rem;
-            font-size: 0.72rem;
+            padding: 0.32rem 0.85rem 0.32rem 0.32rem;
+            font-size: 0.7rem;
             font-family: var(--font-display);
             letter-spacing: 0.06em;
             text-transform: uppercase;
-            font-weight: 600;
+            font-weight: 700;
             display: inline-flex;
             align-items: center;
-            gap: 0.4rem;
+            gap: 0.5rem;
             cursor: pointer;
-            transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+            transition: background 0.18s ease, border-color 0.18s ease, transform 0.15s ease;
         }
 
         .tb-btn:hover {
-            background: rgba(86, 214, 255, 0.2);
-            border-color: rgba(86, 214, 255, 0.45);
             transform: translateY(-1px);
         }
 
-        .tb-btn svg {
+        .tb-btn-icon {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .tb-btn-icon svg {
             width: 13px;
             height: 13px;
             flex-shrink: 0;
+        }
+
+        .tb-btn.models {
+            color: var(--running);
+        }
+
+        .tb-btn.models .tb-btn-icon {
+            background: rgba(86, 214, 255, 0.16);
+            color: var(--running);
+        }
+
+        .tb-btn.models:hover {
+            border-color: rgba(86, 214, 255, 0.5);
+            background: rgba(86, 214, 255, 0.06);
+        }
+
+        .tb-btn.models:hover .tb-btn-icon {
+            box-shadow: 0 0 10px rgba(86, 214, 255, 0.5);
+        }
+
+        .tb-btn.artifacts {
+            color: var(--completed);
+        }
+
+        .tb-btn.artifacts .tb-btn-icon {
+            background: rgba(87, 232, 171, 0.16);
+            color: var(--completed);
+        }
+
+        .tb-btn.artifacts:hover {
+            border-color: rgba(87, 232, 171, 0.5);
+            background: rgba(87, 232, 171, 0.06);
+        }
+
+        .tb-btn.artifacts:hover .tb-btn-icon {
+            box-shadow: 0 0 10px rgba(87, 232, 171, 0.5);
         }
 
         .tb-stats {
@@ -1237,6 +1281,18 @@
             cursor: grabbing;
         }
 
+        @property --beam-half {
+            syntax: '<angle>';
+            inherits: false;
+            initial-value: 18deg;
+        }
+
+        @property --beam-fade {
+            syntax: '<angle>';
+            inherits: false;
+            initial-value: 45deg;
+        }
+
         .dashboard-right {
             flex-grow: 1;
             border: 1px solid var(--border);
@@ -1248,21 +1304,49 @@
             position: relative;
             overflow: hidden;
             z-index: 10;
+            background-image: radial-gradient(rgba(148, 197, 255, 0.09) 1px, transparent 1px);
+            background-size: 22px 22px;
         }
 
-        .dashboard-right::before {
-            content: '';
+        .searchlight {
             position: absolute;
             inset: 0;
             pointer-events: none;
+            z-index: 1;
             opacity: 0.5;
-            background: conic-gradient(from 0deg at 50% 50%, transparent 0deg, rgba(86, 214, 255, 0.05) 8deg, transparent 20deg, transparent 360deg);
-            animation: sweep 9s linear infinite;
+            transition: opacity 1.1s ease;
         }
 
-        @keyframes sweep {
+        .searchlight.hidden {
+            opacity: 0;
+        }
+
+        .searchlight-beam {
+            position: absolute;
+            inset: 0;
+            background: conic-gradient(from 0deg at 50% 50%, transparent 0deg, rgba(86, 214, 255, 0.05) var(--beam-half, 18deg), transparent var(--beam-fade, 45deg), transparent 360deg);
+            -webkit-mask-image: radial-gradient(circle closest-side at 50% 50%, #000 0%, #000 82%, transparent 100%);
+            mask-image: radial-gradient(circle closest-side at 50% 50%, #000 0%, #000 82%, transparent 100%);
+            animation: searchlightRotate 9s linear infinite, searchlightWidth 6s ease-in-out infinite;
+        }
+
+        @keyframes searchlightRotate {
             to {
                 transform: rotate(360deg);
+            }
+        }
+
+        @keyframes searchlightWidth {
+
+            0%,
+            100% {
+                --beam-half: 8deg;
+                --beam-fade: 26deg;
+            }
+
+            50% {
+                --beam-half: 38deg;
+                --beam-fade: 56deg;
             }
         }
 
@@ -1748,6 +1832,82 @@
             flex-shrink: 0;
         }
 
+        .models-bulk-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .bulk-btn {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-soft);
+            color: var(--ink-dim);
+            font-size: 0.64rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            font-weight: 700;
+            padding: 0.32rem 0.65rem;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .bulk-btn svg {
+            width: 11px;
+            height: 11px;
+            flex-shrink: 0;
+        }
+
+        .bulk-btn:hover {
+            color: #fff;
+            border-color: var(--border);
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        .bulk-btn.auto {
+            color: var(--running);
+            border-color: rgba(86, 214, 255, 0.3);
+            background: rgba(86, 214, 255, 0.06);
+        }
+
+        .bulk-btn.auto:hover {
+            background: rgba(86, 214, 255, 0.14);
+            border-color: rgba(86, 214, 255, 0.5);
+        }
+
+        .bulk-btn.select-all {
+            color: var(--completed);
+            border-color: rgba(87, 232, 171, 0.3);
+            background: rgba(87, 232, 171, 0.06);
+        }
+
+        .bulk-btn.select-all:hover {
+            background: rgba(87, 232, 171, 0.14);
+            border-color: rgba(87, 232, 171, 0.5);
+        }
+
+        .bulk-btn.deselect-all {
+            color: var(--failed);
+            border-color: rgba(255, 111, 111, 0.3);
+            background: rgba(255, 111, 111, 0.06);
+        }
+
+        .bulk-btn.deselect-all:hover {
+            background: rgba(255, 111, 111, 0.14);
+            border-color: rgba(255, 111, 111, 0.5);
+        }
+
+        .models-count {
+            margin-left: auto;
+            font-size: 0.64rem;
+            color: var(--ink-faint);
+            letter-spacing: 0.04em;
+            white-space: nowrap;
+        }
+
         .models-list {
             flex-grow: 1;
             overflow-y: auto;
@@ -1775,6 +1935,7 @@
             align-items: center;
             gap: 0.7rem;
             padding: 0.55rem 0.75rem;
+            min-height: 42px;
             background: rgba(255, 255, 255, 0.02);
             border: 1px solid var(--border-soft);
             border-radius: 7px;
@@ -1785,18 +1946,22 @@
             border-color: var(--border);
         }
 
-        .model-row label {
+        .model-row .model-name {
             font-size: 0.78rem;
             color: var(--ink);
-            flex-grow: 1;
+            flex: 1 1 auto;
+            min-width: 0;
             cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .toggle-switch {
             position: relative;
             width: 34px;
             height: 19px;
-            flex-shrink: 0;
+            flex: 0 0 34px;
         }
 
         .toggle-switch input {
@@ -1863,22 +2028,22 @@
             </div>
         </div>
         <div class="tb-right">
-            <button class="tb-btn"
+            <button class="tb-btn models"
                 onclick="document.getElementById('modelsModal').classList.add('open'); loadModels();">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                    stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="3"></circle>
-                    <path
-                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
-                    </path>
-                </svg>
+                <span class="tb-btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                        </path>
+                    </svg></span>
                 Models
             </button>
-            <a href="/artifacts/" target="_blank" class="tb-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                    stroke-linejoin="round">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                </svg>
+            <a href="/artifacts/" target="_blank" class="tb-btn artifacts">
+                <span class="tb-btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    </svg></span>
                 Artifacts
             </a>
             <div class="tb-stats">
@@ -1964,7 +2129,7 @@
                                     <input type="range" id="waitlistEffort" class="effort-slider" min="0" max="6"
                                         value="0" step="1" data-tier="auto" oninput="updateEffortSlider(this)">
                                     <div class="effort-ticks">
-                                        <span>Auto</span><span>Min</span><span>Low</span><span>Std</span><span>Elev</span><span>High</span><span>Abs</span>
+                                        <span>Auto</span><span>Min</span><span>Low</span><span>Std</span><span>Elev</span><span>High</span><span>Max</span>
                                     </div>
                                 </div>
                                 <button class="queue-btn" onclick="submitWaitlistPrompt()">Queue</button>
@@ -2028,6 +2193,9 @@
         <!-- Right Star Map Canvas -->
         <div class="dashboard-right fs-container" id="starMapContainer">
             <span class="stage-label">Execution Schematic</span>
+            <div class="searchlight" id="searchlight">
+                <div class="searchlight-beam"></div>
+            </div>
             <button class="fs-btn" style="z-index: 1000;" onclick="toggleFullscreen(this.parentElement)"
                 title="Toggle Fullscreen">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -2084,12 +2252,43 @@
                 </div>
             </div>
             <div class="models-toolbar">
-                <input type="text" id="modelSearch" placeholder="Search models…" oninput="renderModelsList()">
-                <button onclick="toggleAllModels(true)" style="padding: 6px 12px; background: rgba(86, 214, 255, 0.1); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;">Select All</button>
-                <button onclick="autoSelectPremiumModels()" style="padding: 6px 12px; background: rgba(76, 209, 115, 0.1); color: var(--completed); border: 1px solid var(--completed); border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;">Auto-Select Premium</button>
-                <button onclick="toggleAllModels(false)" style="padding: 6px 12px; background: rgba(255, 107, 107, 0.1); color: var(--failed); border: 1px solid var(--failed); border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 12px;">Deselect All</button>
+                <div class="search-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <input type="text" id="modelSearch" placeholder="Search models…" oninput="renderModelsList()">
+                </div>
+                <div class="filter-chips" id="providerChips"></div>
+                <div class="models-bulk-actions">
+                    <button class="bulk-btn auto" title="Select one recommended model per provider"
+                        onclick="autoSelectModels()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2l2.4 7.2H22l-6 4.6 2.3 7.2-6.3-4.5-6.3 4.5 2.3-7.2-6-4.6h7.6z"></path>
+                        </svg>
+                        Auto Select
+                    </button>
+                    <button class="bulk-btn select-all" title="Enable all visible models" onclick="bulkSetModels(true)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                        Select All
+                    </button>
+                    <button class="bulk-btn deselect-all" title="Disable all visible models"
+                        onclick="bulkSetModels(false)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        Deselect All
+                    </button>
+                    <span class="models-count" id="modelsCount"></span>
+                </div>
             </div>
-            <div class="filter-chips" id="providerChips" style="padding: 0 20px 10px 20px; border-bottom: 1px solid var(--border);"></div>
             <div class="models-list" id="modelsContent">
                 <div class="no-results">Loading…</div>
             </div>
@@ -2169,16 +2368,7 @@
             document.querySelectorAll('#agentFilterChips .filter-chip').forEach(c => {
                 c.classList.toggle('active', c.dataset.status === status);
             });
-            scheduleFilterAgents();
-        }
-
-        let filterAgentsTimeout = null;
-        function scheduleFilterAgents() {
-            if (filterAgentsTimeout) return;
-            filterAgentsTimeout = requestAnimationFrame(() => {
-                filterAgents();
-                filterAgentsTimeout = null;
-            });
+            filterAgents();
         }
         function filterAgents() {
             const q = (document.getElementById('agentSearch').value || '').toLowerCase();
@@ -2335,6 +2525,8 @@
            STAR (canvas node) — rendering & the scouter selection halo
            (kept exactly as the spinning inward triangle + ring design)
         ========================================================= */
+        const STATUS_GLOW_RGB = { running: '86,214,255', completed: '87,232,171', failed: '255,111,111', default: '76,100,132' };
+
         class Star {
             constructor(execId, id, depth) {
                 this.execId = execId;
@@ -2386,8 +2578,21 @@
                 const activeColor = forceColor || this.statusColor();
                 const r = this.radius + (this.pulse * 3);
 
-                ctx.shadowBlur = this.status === 'idle' || this.status === 'initializing' ? 8 : 18 + this.pulse * 14;
-                ctx.shadowColor = activeColor;
+                // Cheap glow: a radial-gradient fill instead of ctx.shadowBlur (which forces
+                // a full blur pass on every node, every frame — the biggest single cost in
+                // this scene). This looks equivalent but is dramatically faster to render.
+                const glowRgb = forceColor ? '87,232,171' : STATUS_GLOW_RGB[this.status] || STATUS_GLOW_RGB.default;
+                const isIdle = this.status === 'idle' || this.status === 'initializing';
+                const glowR = r + (isIdle ? 9 : 15 + this.pulse * 10);
+                const glowAlpha = isIdle ? 0.16 : 0.32 + this.pulse * 0.16;
+                const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, glowR);
+                grad.addColorStop(0, `rgba(${glowRgb}, ${glowAlpha})`);
+                grad.addColorStop(1, `rgba(${glowRgb}, 0)`);
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, glowR, 0, Math.PI * 2);
+                ctx.fillStyle = grad;
+                ctx.fill();
+
                 this.drawHex(ctx, this.x, this.y, r);
                 ctx.fillStyle = 'rgba(6, 13, 26, 0.9)';
                 ctx.fill();
@@ -2395,7 +2600,6 @@
                 ctx.strokeStyle = activeColor;
                 ctx.stroke();
 
-                ctx.shadowBlur = 0;
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, 3.2, 0, Math.PI * 2);
                 ctx.fillStyle = activeColor;
@@ -2447,7 +2651,7 @@
                 if (this.status === 'running' && this.llm) {
                     ctx.fillStyle = '#56d6ff';
                     ctx.font = '500 11px "IBM Plex Mono", monospace';
-                    ctx.fillText('+ ' + this.llm, this.x, this.y - r - 14);
+                    ctx.fillText('🧠 ' + this.llm, this.x, this.y - r - 14);
                 }
 
                 if (this.artifactNames && this.artifactNames.length > 0) {
@@ -2535,7 +2739,7 @@
         }
 
         function renderCanvas(timestamp) {
-            const dt = (timestamp - lastFrameTime) / 1000;
+            const dt = Math.min((timestamp - lastFrameTime) / 1000, 0.1);
             lastFrameTime = timestamp;
             ctx.clearRect(0, 0, cw, ch);
             ctx.save();
@@ -2547,22 +2751,20 @@
             ctx.save();
             ctx.lineWidth = 1.6;
             ctx.lineCap = 'round';
-            for (let i = 0; i < starArr.length; i++) {
-                for (let j = 0; j < starArr.length; j++) {
-                    const parent = starArr[i], child = starArr[j];
-                    const edges = execEdges.get(parent.execId) || [];
-                    const hasEdge = (parent.execId === child.execId) && edges.some(e => e.From === parent.id && e.To === child.id);
-                    if (hasEdge) {
-                        ctx.beginPath();
-                        ctx.moveTo(parent.x, parent.y);
-                        ctx.bezierCurveTo(parent.x, parent.y + 50, child.x, child.y - 50, child.x, child.y);
-                        ctx.strokeStyle = `rgba(148, 197, 255, 0.16)`;
+            for (const [execId, edges] of execEdges.entries()) {
+                const alphaObj = execAlpha.get(execId);
+                for (const e of edges) {
+                    const parent = stars.get(`${execId}|${e.From}`);
+                    const child = stars.get(`${execId}|${e.To}`);
+                    if (!parent || !child) continue;
+                    ctx.beginPath();
+                    ctx.moveTo(parent.x, parent.y);
+                    ctx.bezierCurveTo(parent.x, parent.y + 50, child.x, child.y - 50, child.x, child.y);
+                    ctx.strokeStyle = `rgba(148, 197, 255, 0.16)`;
+                    ctx.stroke();
+                    if (alphaObj && alphaObj.current > 0) {
+                        ctx.strokeStyle = `rgba(87, 232, 171, ${alphaObj.current * 0.8})`;
                         ctx.stroke();
-                        const alphaObj = execAlpha.get(parent.execId);
-                        if (alphaObj && alphaObj.current > 0) {
-                            ctx.strokeStyle = `rgba(87, 232, 171, ${alphaObj.current * 0.8})`;
-                            ctx.stroke();
-                        }
                     }
                 }
             }
@@ -2587,20 +2789,33 @@
                         x += ttt * pulse.from.x; y += ttt * pulse.from.y;
                         return { x, y };
                     };
-                    ctx.strokeStyle = '#57e8ab';
-                    ctx.lineWidth = 4;
-                    ctx.beginPath();
+                    const pts = [];
                     const steps = 10;
                     for (let step = 0; step <= steps; step++) {
                         const t = startT + (endT - startT) * (step / steps);
-                        const pt = getBezierPoint(t);
-                        if (step === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
+                        pts.push(getBezierPoint(t));
                     }
+                    // Two-pass stroke (wide+transparent, then thin+bright) stands in for
+                    // shadowBlur's glow at a fraction of the render cost.
+                    ctx.lineWidth = 11;
+                    ctx.strokeStyle = 'rgba(87, 232, 171, 0.22)';
+                    ctx.beginPath();
+                    pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
                     ctx.stroke();
-                    const headPt = getBezierPoint(endT);
-                    ctx.fillStyle = '#ffffff';
+                    ctx.lineWidth = 3.5;
+                    ctx.strokeStyle = '#57e8ab';
+                    ctx.beginPath();
+                    pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+                    ctx.stroke();
+
+                    const headPt = pts[pts.length - 1];
+                    ctx.beginPath();
+                    ctx.arc(headPt.x, headPt.y, 7, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+                    ctx.fill();
                     ctx.beginPath();
                     ctx.arc(headPt.x, headPt.y, 3.5, 0, Math.PI * 2);
+                    ctx.fillStyle = '#ffffff';
                     ctx.fill();
                     ctx.restore();
                 } else {
@@ -2608,10 +2823,11 @@
                     if (!pulse.to.pulseTriggered) {
                         pulse.to.pulseTriggered = true;
                         let hasParents = false;
-                        for (const parent of starArr) {
-                            const edges = execEdges.get(parent.execId) || [];
-                            const hasEdge = (parent.execId === pulse.to.execId) && edges.some(e => e.From === parent.id && e.To === pulse.to.id);
-                            if (hasEdge) { nextPulses.push({ from: pulse.to, to: parent, progress: 0 }); hasParents = true; }
+                        const edges = execEdges.get(pulse.to.execId) || [];
+                        for (const e of edges) {
+                            if (e.To !== pulse.to.id) continue;
+                            const parent = stars.get(`${pulse.to.execId}|${e.From}`);
+                            if (parent) { nextPulses.push({ from: pulse.to, to: parent, progress: 0 }); hasParents = true; }
                         }
                         if (!hasParents && pulse.to.depth === 0) pulseCompleted = true;
                     }
@@ -2750,27 +2966,86 @@
             }
         }
 
+        const LOG_CAP = 300;
+        let logRenderQueue = [];
+        let logFlushScheduled = false;
+        let logNearBottom = true; // only auto-scroll if the user hasn't scrolled up to read older entries
+
         function appendLog(type, source, payload) {
             const time = new Date().toLocaleTimeString();
             let contentStr;
-            try { contentStr = (payload === null || payload === undefined) ? '(No payload)' : (typeof payload === 'string' ? payload : JSON.stringify(payload)); }
+            try { contentStr = typeof payload === 'string' ? payload : JSON.stringify(payload); }
             catch (e) { contentStr = String(payload); }
 
-            logEntries.push({ id: ++logSeq, type, source, content: contentStr, time, expanded: false, cat: logCategory(type) });
-            if (logEntries.length > 300) logEntries.shift();
+            const entry = { id: ++logSeq, type, source, content: contentStr, time, expanded: false, cat: logCategory(type) };
+            logEntries.push(entry);
+            if (logEntries.length > LOG_CAP) logEntries.shift();
+            logRenderQueue.push(entry);
 
             const tabCount = document.getElementById('logCountTab');
             if (tabCount) tabCount.textContent = logEntries.length;
-            scheduleRenderLogPanel();
+
+            scheduleLogFlush();
         }
 
-        let renderLogTimeout = null;
-        function scheduleRenderLogPanel() {
-            if (renderLogTimeout) return;
-            renderLogTimeout = requestAnimationFrame(() => {
-                renderLogPanel();
-                renderLogTimeout = null;
-            });
+        // Batches rapid bursts of events into a single DOM update per animation frame
+        function scheduleLogFlush() {
+            if (logFlushScheduled) return;
+            logFlushScheduled = true;
+            requestAnimationFrame(flushLogQueue);
+        }
+
+        function flushLogQueue() {
+            logFlushScheduled = false;
+            const queue = logRenderQueue;
+            logRenderQueue = [];
+            if (queue.length === 0) return;
+
+            if (logRawMode) {
+                const pre = document.getElementById('logRawPre');
+                const lines = queue.filter(matchesLogFilters).map(e => `[${e.time}] ${e.type} (${e.source}) ${e.content}`);
+                if (lines.length) {
+                    pre.textContent += (pre.textContent ? '\n' : '') + lines.join('\n');
+                    const allLines = pre.textContent.split('\n');
+                    if (allLines.length > LOG_CAP) pre.textContent = allLines.slice(-LOG_CAP).join('\n');
+                    if (logNearBottom) {
+                        const rawView = document.getElementById('logRawView');
+                        rawView.scrollTop = rawView.scrollHeight;
+                    }
+                }
+                return;
+            }
+
+            const listEl = document.getElementById('logList');
+            const emptyEl = listEl.querySelector('.log-empty');
+            if (emptyEl) emptyEl.remove();
+
+            const frag = document.createDocumentFragment();
+            queue.forEach(e => { if (matchesLogFilters(e)) frag.appendChild(buildLogEntryEl(e)); });
+            listEl.appendChild(frag);
+
+            while (listEl.children.length > LOG_CAP) listEl.removeChild(listEl.firstChild);
+            if (listEl.children.length === 0) listEl.innerHTML = '<div class="log-empty">No log entries match your filters.</div>';
+            if (logNearBottom) listEl.scrollTop = listEl.scrollHeight;
+        }
+
+        function buildLogEntryEl(e) {
+            const m = logMeta(e.cat);
+            const summary = e.content.length > 90 ? e.content.slice(0, 90) + '…' : e.content;
+            const div = document.createElement('div');
+            div.className = `log-entry ${e.cat === 'error' ? 'cat-error' : ''} ${e.expanded ? 'expanded' : ''}`;
+            div.dataset.id = e.id;
+            div.innerHTML = `
+                <div class="log-entry-head">
+                    <svg class="log-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    <span class="log-type-badge" style="color:${m.color}; background:${m.bg};">${m.icon} ${e.type}</span>
+                    <span class="log-source">(${escapeHtml(e.source)})</span>
+                    <span class="log-summary">${escapeHtml(summary)}</span>
+                    <span class="log-time">${e.time}</span>
+                </div>
+                <div class="log-entry-body"><pre>${escapeHtml(prettyJson(e.content))}</pre></div>`;
+            div.addEventListener('click', () => toggleLogEntryExpand(e.id));
+            return div;
         }
 
         function setLogFilter(cat) {
@@ -2784,7 +3059,10 @@
         }
         function toggleLogEntryExpand(id) {
             const entry = logEntries.find(e => e.id === id);
-            if (entry) { entry.expanded = !entry.expanded; renderLogPanel(); }
+            if (!entry) return;
+            entry.expanded = !entry.expanded;
+            const el = document.querySelector(`.log-entry[data-id="${id}"]`);
+            if (el) el.classList.toggle('expanded', entry.expanded);
         }
         function toggleLogRaw() {
             logRawMode = !logRawMode;
@@ -2800,6 +3078,7 @@
             return matchesCat && matchesText;
         }
 
+        // Full rebuild — only used on filter/search/mode changes (infrequent, cheap at LOG_CAP size)
         function renderLogPanel() {
             const visible = logEntries.filter(matchesLogFilters);
 
@@ -2812,33 +3091,18 @@
             }
 
             const listEl = document.getElementById('logList');
+            listEl.innerHTML = '';
             if (visible.length === 0) {
                 listEl.innerHTML = '<div class="log-empty">No log entries match your filters.</div>';
                 return;
             }
-
-            listEl.innerHTML = visible.map(e => {
-                const m = logMeta(e.cat);
-                const summary = e.content.length > 90 ? e.content.slice(0, 90) + '…' : e.content;
-                return `
-                <div class="log-entry ${e.cat === 'error' ? 'cat-error' : ''} ${e.expanded ? 'expanded' : ''}" onclick="toggleLogEntryExpand(${e.id})">
-                    <div class="log-entry-head">
-                        <svg class="log-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                        <span class="log-type-badge" style="color:${m.color}; background:${m.bg};">${m.icon} ${e.type}</span>
-                        <span class="log-source">(${escapeHtml(e.source)})</span>
-                        <span class="log-summary">${escapeHtml(summary)}</span>
-                        <span class="log-time">${e.time}</span>
-                    </div>
-                    <div class="log-entry-body"><pre>${escapeHtml(prettyJson(e.content))}</pre></div>
-                </div>`;
-            }).join('');
+            const frag = document.createDocumentFragment();
+            visible.forEach(e => frag.appendChild(buildLogEntryEl(e)));
+            listEl.appendChild(frag);
             listEl.scrollTop = listEl.scrollHeight;
         }
 
         function prettyJson(str) {
-            if (typeof str !== 'string') return str;
-            str = str.trim();
-            if (!str.startsWith('{') && !str.startsWith('[')) return str;
             try { return JSON.stringify(JSON.parse(str), null, 2); } catch (e) { return str; }
         }
         function escapeHtml(str) {
@@ -2852,11 +3116,9 @@
             const type = e.Type;
             const payload = e.Payload;
 
-            const logPayload = payload ? JSON.parse(JSON.stringify(payload)) : null;
-            if (logPayload) {
-                if (logPayload.inputs) logPayload.inputs.forEach(i => { if (i && i.data) i.data = '<TRUNCATED>'; });
-                if (logPayload.data) logPayload.data = '<TRUNCATED>';
-            }
+            const logPayload = JSON.parse(JSON.stringify(payload));
+            if (logPayload.inputs) logPayload.inputs.forEach(i => { if (i.data) i.data = '<TRUNCATED>'; });
+            if (logPayload.data) logPayload.data = '<TRUNCATED>';
 
             appendLog(type, e.Source, logPayload);
 
@@ -2928,7 +3190,7 @@
                 const s = stars.get(globalId);
                 s.status = 'running';
                 s.startTime = Date.now();
-                if (payload.llm_model) { addDOMChip(globalId, `+ ${payload.llm_model}`, 'llm-model'); s.llm = payload.llm_model; }
+                if (payload.llm_model) { addDOMChip(globalId, `🧠 ${payload.llm_model}`, 'llm-model'); s.llm = payload.llm_model; }
             }
             else if (type === 'WorkerCompleted') {
                 createOrUpdateDOMNode(globalId, taskId, 'completed', workerId);
@@ -2956,8 +3218,28 @@
                 }
             }
 
-            scheduleFilterAgents();
+            scheduleUIDomUpdates();
         }
+
+        let uiDomUpdateTimeout = null;
+        function scheduleUIDomUpdates() {
+            if (uiDomUpdateTimeout) return;
+            uiDomUpdateTimeout = requestAnimationFrame(() => {
+                filterAgents();
+                updateSearchlight();
+                uiDomUpdateTimeout = null;
+            });
+        }
+
+        function updateSearchlight() {
+            const el = document.getElementById('searchlight');
+            if (!el) return;
+            const anyRunning = Array.from(stars.values()).some(s => s.status === 'running');
+            el.classList.toggle('hidden', anyRunning);
+        }
+
+        // Angular width oscillation is now handled entirely by the CSS
+        // searchlightWidth @property keyframes — no per-frame JS needed.
 
         function createOrUpdateDOMNode(globalId, taskId, status, title) {
             let nodeEl = document.getElementById(`node-${globalId}`);
@@ -3095,7 +3377,7 @@
                     <div class="details-data"><span class="status-badge" style="color: ${star.status === 'completed' ? 'var(--completed)' : star.status === 'failed' ? 'var(--failed)' : 'var(--running)'}">${star.status.toUpperCase()}</span></div>
                 </div>`;
                 if (star.duration) general += `<div class="details-section"><h4>Duration</h4><div class="details-data">${star.duration.toFixed(2)}s</div></div>`;
-                if (star.llm) general += `<div class="details-section"><h4>Model</h4><div class="details-data">+ ${escapeHtml(star.llm)}</div></div>`;
+                if (star.llm) general += `<div class="details-section"><h4>Model</h4><div class="details-data">🧠 ${escapeHtml(star.llm)}</div></div>`;
                 if (parents.length > 0) general += `<div class="details-section"><h4>Parents</h4><div class="details-data">${parents.map(escapeHtml).join(', ')}</div></div>`;
                 if (children.length > 0) general += `<div class="details-section"><h4>Children</h4><div class="details-data">${children.map(escapeHtml).join(', ')}</div></div>`;
                 if (receivedArtifacts.length > 0) general += `<div class="details-section"><h4>Artifacts Received</h4><div class="details-data">${receivedArtifacts.map(n => `📥 ${escapeHtml(n)}`).join('<br>')}</div></div>`;
@@ -3184,6 +3466,7 @@
             execEdges.delete(execId);
             closeDetailsPanel();
             layoutTree();
+            updateSearchlight();
         }
 
         /* =========================================================
@@ -3202,8 +3485,7 @@
                 buildProviderChips();
                 renderModelsList();
             } catch (e) {
-                console.error("Model load error:", e);
-                container.innerHTML = `<div class="no-results" style="color: var(--failed);">Failed to load models: ${e.message || e}</div>`;
+                container.innerHTML = '<div class="no-results" style="color: var(--failed);">Failed to load models.</div>';
             }
         }
 
@@ -3219,16 +3501,23 @@
             renderModelsList();
         }
 
-        function renderModelsList() {
-            const container = document.getElementById('modelsContent');
-            const q = (document.getElementById('modelSearch').value || '').toLowerCase();
+        function modelKeyOf(m) { return m.api_key_env ? (m.id + '|' + m.api_key_env) : m.id; }
+        function findModelByKey(modelKey) { return allModels.find(m => modelKeyOf(m) === modelKey); }
 
-            const filtered = allModels.filter(m => {
+        function getVisibleFilteredModels() {
+            const q = (document.getElementById('modelSearch').value || '').toLowerCase();
+            return allModels.filter(m => {
                 const provider = m.id.split('/')[0].toUpperCase();
                 const matchesProvider = activeProviders.size === 0 || activeProviders.has(provider);
                 const matchesText = !q || m.id.toLowerCase().includes(q);
                 return matchesProvider && matchesText;
             });
+        }
+
+        function renderModelsList() {
+            const container = document.getElementById('modelsContent');
+            const filtered = getVisibleFilteredModels();
+            updateModelsCount(filtered);
 
             if (filtered.length === 0) {
                 container.innerHTML = '<div class="no-results">No models match your search.</div>';
@@ -3246,13 +3535,14 @@
             for (const [provider, list] of Object.entries(grouped)) {
                 html += `<h3 class="model-group-title">${escapeHtml(provider)}</h3>`;
                 for (const m of list) {
-                    const modelKey = m.api_key_env ? (m.id + '|' + m.api_key_env) : m.id;
+                    const modelKey = modelKeyOf(m);
+                    const fullLabel = m.id + (m.api_key_env ? ` (${m.api_key_env})` : '');
                     html += `<div class="model-row">
                         <label class="toggle-switch">
                             <input type="checkbox" ${m.enabled ? 'checked' : ''} onchange="toggleModel('${escapeHtml(modelKey)}')">
                             <span class="toggle-slider"></span>
                         </label>
-                        <label>${escapeHtml(m.id)}${m.api_key_env ? ` <span style="color:var(--ink-faint)">(${escapeHtml(m.api_key_env)})</span>` : ''}</label>
+                        <span class="model-name" title="${escapeHtml(fullLabel)}">${escapeHtml(m.id)}${m.api_key_env ? ` <span style="color:var(--ink-faint)">(${escapeHtml(m.api_key_env)})</span>` : ''}</span>
                     </div>`;
                 }
             }
@@ -3260,54 +3550,53 @@
         }
 
         async function toggleModel(modelKey) {
+            const m = findModelByKey(modelKey);
             await fetch('/api/models/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_key: modelKey }) });
+            if (m) m.enabled = !m.enabled;
+            updateModelsCount(getVisibleFilteredModels());
         }
 
-        async function toggleAllModels(enabled) {
-            const promises = allModels.map(m => {
-                if (m.enabled !== enabled) {
-                    m.enabled = enabled;
-                    const modelKey = m.api_key_env ? (m.id + '|' + m.api_key_env) : m.id;
-                    return fetch('/api/models/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_key: modelKey }) });
-                }
-                return Promise.resolve();
-            });
-            await Promise.all(promises);
+        async function setModelState(modelKey, enabled) {
+            const m = findModelByKey(modelKey);
+            if (!m || m.enabled === enabled) return;
+            await fetch('/api/models/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_key: modelKey }) });
+            m.enabled = enabled;
+        }
+
+        function updateModelsCount(filtered) {
+            const el = document.getElementById('modelsCount');
+            if (!el) return;
+            const list = filtered || getVisibleFilteredModels();
+            const enabledCount = list.filter(m => m.enabled).length;
+            el.textContent = `${enabledCount} / ${list.length} enabled`;
+        }
+
+        // Enable/disable every currently visible (search + provider filtered) model
+        async function bulkSetModels(enabled) {
+            const visible = getVisibleFilteredModels();
+            const toChange = visible.filter(m => m.enabled !== enabled);
+            if (toChange.length === 0) return;
+            await Promise.all(toChange.map(m => setModelState(modelKeyOf(m), enabled)));
             renderModelsList();
         }
 
-        async function autoSelectPremiumModels() {
-            const premiumKeywords = [
-                'llama-3.3-70b', 'llama-3.1-70b', 'llama-3.1-405b', 'llama-3-70b',
-                'qwen-2.5-72b', 'qwen-2.5-coder-32b', 'qwen3.6-27b', 'qwen-2.5-32b',
-                'gemini-1.5-pro', 'gemini-2.0-pro', 'gemini-1.5-flash',
-                'claude-3-5-sonnet', 'claude-3-opus', 'claude-3-5-haiku',
-                'gpt-4o', 'gpt-4-turbo', 'o1', 'o3'
-            ];
-            
-            const promises = allModels.map(m => {
-                const idLower = m.id.toLowerCase();
-                let shouldEnable = false;
-                
-                const isBad = idLower.includes('canopy') || idLower.includes('liquid') || idLower.includes('guard') || idLower.includes('free');
-                
-                if (!isBad) {
-                    for (const kw of premiumKeywords) {
-                        if (idLower.includes(kw)) {
-                            shouldEnable = true;
-                            break;
-                        }
-                    }
-                }
-                
-                if (m.enabled !== shouldEnable) {
-                    m.enabled = shouldEnable;
-                    const modelKey = m.api_key_env ? (m.id + '|' + m.api_key_env) : m.id;
-                    return fetch('/api/models/toggle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_key: modelKey }) });
-                }
-                return Promise.resolve();
+        // Curated default: enables one representative model per provider, disables the rest
+        async function autoSelectModels() {
+            const byProvider = {};
+            allModels.forEach(m => {
+                const provider = m.id.split('/')[0].toUpperCase();
+                if (!byProvider[provider]) byProvider[provider] = [];
+                byProvider[provider].push(m);
             });
-            await Promise.all(promises);
+            const chosenKeys = new Set();
+            Object.values(byProvider).forEach(list => {
+                list.sort((a, b) => (b.capability || 0) - (a.capability || 0));
+                chosenKeys.add(modelKeyOf(list[0]));
+            });
+            const ops = allModels
+                .filter(m => m.enabled !== chosenKeys.has(modelKeyOf(m)))
+                .map(m => setModelState(modelKeyOf(m), chosenKeys.has(modelKeyOf(m))));
+            await Promise.all(ops);
             renderModelsList();
         }
 
@@ -3395,9 +3684,19 @@
             }
         });
 
+        // Track scroll position so live log updates don't yank the view while reading history
+        function trackNearBottom(el) {
+            el.addEventListener('scroll', () => {
+                logNearBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) < 60;
+            });
+        }
+        trackNearBottom(document.getElementById('logList'));
+        trackNearBottom(document.getElementById('logRawView'));
+
         // Init
         updateEffortSlider(document.getElementById('waitlistEffort'));
         renderLogPanel();
+        updateSearchlight();
     </script>
 </body>
 
