@@ -95,6 +95,9 @@ func (d *Dispatcher) Start() {
 		// Asynchronously invoke the worker directly
 		go func(w *Worker, t Task, forced bool) {
 			maxRetries := 15
+			if v, ok := t.Memory["max_retries"].(int); ok {
+				maxRetries = v
+			}
 			var lastFailure *WorkerFailure
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -116,11 +119,15 @@ func (d *Dispatcher) Start() {
 				if d.Router != nil {
 					if !forced {
 						selectedModel := d.Router.SelectModel(string(t.ID), string(w.ID), effortStr, 0.90)
-						if selectedModel != nil {
-							t.Parameters["llm_model"] = selectedModel.ID
-							if selectedModel.APIKeyEnv != "" {
-								t.Parameters["api_key"] = selectedModel.APIKeyEnv
-							}
+						for selectedModel == nil {
+							d.Logger.Warn("All models are currently locked or penalized. Waiting 5 seconds before retrying routing...", "worker_id", w.ID)
+							time.Sleep(5 * time.Second)
+							selectedModel = d.Router.SelectModel(string(t.ID), string(w.ID), effortStr, 0.90)
+						}
+						
+						t.Parameters["llm_model"] = selectedModel.ID
+						if selectedModel.APIKeyEnv != "" {
+							t.Parameters["api_key"] = selectedModel.APIKeyEnv
 						}
 					} else if attempt == 1 {
 						d.Router.TrackForcedModel(string(t.ID), t.Parameters["llm_model"].(string))

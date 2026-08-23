@@ -112,6 +112,7 @@ func main() {
 	legacyFlag := flag.Bool("legacy", false, "Use legacy terminal UI (no web UI)")
 	nativeFlag := flag.Bool("native", false, "Run worker terminal commands natively on the host instead of in a Docker container")
 	allModelsFlag := flag.Bool("all-models", false, "Load all available models (instead of just premium tier)")
+	retriesFlag := flag.Int("retries", 15, "Number of retries per node for recovering from API rate limits and execution failures")
 	flag.Parse()
 
 	args := flag.Args()
@@ -200,6 +201,7 @@ func main() {
 
 	// 1. Boot Runtime
 	orch := orchestrator.New()
+	orch.RuntimeState.Set(memory.ScopeGlobal, "global", "max_retries", memory.Value{Value: *retriesFlag})
 	orch.Start()
 	defer orch.Shutdown()
 
