@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/hyperparallel/runtime/events"
+	"github.com/hyperparallel/runtime/routing"
 )
 
 //go:embed ui/*
@@ -100,6 +101,34 @@ func (s *Server) Start() error {
 		
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(files)
+	})
+	
+	// JSON API to fetch and toggle available models
+	http.HandleFunc("/api/models", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(routing.AvailableModels)
+	})
+	
+	http.HandleFunc("/api/models/toggle", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload struct {
+			ModelKey string `json:"model_key"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		for i := range routing.AvailableModels {
+			if routing.AvailableModels[i].Key() == payload.ModelKey {
+				routing.AvailableModels[i].Enabled = !routing.AvailableModels[i].Enabled
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+		}
+		http.Error(w, "Model not found", http.StatusNotFound)
 	})
 	
 	http.HandleFunc("/ws", s.wsHandler)
