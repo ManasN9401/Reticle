@@ -1,0 +1,52 @@
+# Graphify Ignore File
+# Ignore version control
+.git/
+.gitignore
+
+# Ignore scratch and temporary directories
+scratch/
+scratch_hermes/
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Ignore build artifacts and binaries
+bin/
+obj/
+*.exe
+*.dll
+*.so
+*.dylib
+*.class
+*.o
+*.out
+
+# Ignore node modules and dependencies (if any)
+node_modules/
+vendor/
+
+# Ignore logs
+logs/
+*.log
+transcript.jsonl
+*.jsonl
+
+# Ignore IDE and editor files
+.idea/
+.vscode/
+.gemini/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Ignore specific large data files
+*.sqlite
+*.db
+*.csv
+*.tsv
+*.dat
+
+# DO NOT ignore .md files (RFCs and SKILLs are critical for graph context)

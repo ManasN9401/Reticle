@@ -60,3 +60,6 @@ cmd/forge/test_workspace/*
 
 # Outputs
 outputs/
+
+# Hermes
+scratch_hermes/hermes-agent/
