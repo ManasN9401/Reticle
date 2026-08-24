@@ -2,6 +2,7 @@ package agent
 
 import (
 	"strings"
+	"time"
 	"github.com/hyperparallel/runtime/events"
 	"github.com/hyperparallel/runtime/logger"
 	"github.com/hyperparallel/runtime/memory"
@@ -120,7 +121,7 @@ func (d *Dispatcher) Start() {
 					if !forced {
 						selectedModel := d.Router.SelectModel(string(t.ID), string(w.ID), effortStr, 0.90)
 						for selectedModel == nil {
-							d.Logger.Warn("All models are currently locked or penalized. Waiting 5 seconds before retrying routing...", "worker_id", w.ID)
+							d.Logger.Info("All models are currently locked or penalized. Waiting 5 seconds before retrying routing...", "worker_id", w.ID)
 							time.Sleep(5 * time.Second)
 							selectedModel = d.Router.SelectModel(string(t.ID), string(w.ID), effortStr, 0.90)
 						}

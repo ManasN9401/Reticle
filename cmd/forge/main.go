@@ -199,10 +199,18 @@ func main() {
 	}
 	loadEnv(rootDir)
 
-	// 1. Boot Runtime
 	orch := orchestrator.New()
-	orch.RuntimeState.Set(memory.ScopeGlobal, "global", "max_retries", memory.Value{Value: *retriesFlag})
 	orch.Start()
+	
+	// Inject max_retries config into the global memory scope via event bus
+	orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("system"), memory.MemoryEntry{
+		Scope:   memory.ScopeGlobal,
+		ScopeID: "global",
+		Key:     "max_retries",
+		Value:   *retriesFlag,
+		Owner:   "system",
+	})
+	
 	defer orch.Shutdown()
 
 	telemetryServer := telemetry.NewServer(orch.Bus, fmt.Sprintf(":%d", *portFlag), rootDir)

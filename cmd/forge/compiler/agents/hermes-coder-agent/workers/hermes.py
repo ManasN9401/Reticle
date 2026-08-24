@@ -120,6 +120,29 @@ def replace_file_content(path, target_content, replacement_content, workspace_di
     except Exception as e:
         return f"Error replacing content: {e}"
 
+
+_persistent_namespace = {}
+
+def code_interpreter(code_markdown, workspace_dir):
+    try:
+        if code_markdown.strip().startswith("```"):
+            code_lines = code_markdown.strip().split('\n')[1:-1]
+            code = '\n'.join(code_lines)
+        else:
+            code = code_markdown
+            
+        import sys, io
+        old_stdout = sys.stdout
+        sys.stdout = buffer = io.StringIO()
+        
+        exec(code, _persistent_namespace)
+        
+        sys.stdout = old_stdout
+        return buffer.getvalue() or "Code executed successfully with no stdout."
+    except Exception as e:
+        sys.stdout = old_stdout
+        return f"Error: {e}"
+
 def read_url(url, workspace_dir):
     try:
         import urllib.request
@@ -134,6 +157,20 @@ def read_url(url, workspace_dir):
         return f"Error reading URL: {e}"
 
 tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "code_interpreter",
+            "description": "Execute Python code directly in a persistent namespace (like a Jupyter Notebook) and return the stdout. You can use this to define variables, run math, or test logic incrementally without writing to files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code_markdown": {"type": "string", "description": "The python code to execute"}
+                },
+                "required": ["code_markdown"]
+            }
+        }
+    },
     {
         "type": "function",
         "function": {
@@ -343,7 +380,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_l
 logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
-from forge_utils import execute_terminal_command, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
+from forge_utils import execute_terminal_command, code_interpreter, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
 
 def main():
     sys.stdin.reconfigure(encoding='utf-8')
@@ -491,6 +528,8 @@ def main():
                         
                         if func_name == "execute_terminal_command":
                             res = execute_terminal_command(args.get("command"), workspace_dir, allow_native_execution)
+                                                elif func_name == "code_interpreter":
+                            res = code_interpreter(args.get("code_markdown"), workspace_dir)
                         elif func_name == "read_file":
                             res = read_file(args.get("path"), workspace_dir)
                         elif func_name == "search_codebase":

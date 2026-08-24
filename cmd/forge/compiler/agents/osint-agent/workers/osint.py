@@ -120,6 +120,39 @@ def replace_file_content(path, target_content, replacement_content, workspace_di
     except Exception as e:
         return f"Error replacing content: {e}"
 
+
+def google_search_and_scrape(query, workspace_dir):
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        import concurrent.futures
+        import re
+        
+        num_results = 2
+        url = 'https://www.google.com/search'
+        params = {'q': query, 'num': num_results}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.61 Safari/537.3'}
+        
+        response = requests.get(url, params=params, headers=headers)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        urls = [result.find('a')['href'] for result in soup.find_all('div', class_='tF2Cxc')]
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(lambda u: (u, requests.get(u, headers=headers).text if isinstance(u, str) else None), u) for u in urls[:num_results] if isinstance(u, str)]
+            results = []
+            for future in concurrent.futures.as_completed(futures):
+                u, html = future.result()
+                soup = BeautifulSoup(html, 'html.parser')
+                paragraphs = [p.text.strip() for p in soup.find_all('p') if p.text.strip()]
+                text_content = ' '.join(paragraphs)
+                text_content = re.sub(r'\s+', ' ', text_content)
+                if text_content:
+                    results.append({'url': u, 'content': text_content[:5000]})
+        import json
+        return json.dumps(results)
+    except Exception as e:
+        return f"Error scraping: {e}"
+
 def read_url(url, workspace_dir):
     try:
         import urllib.request
@@ -134,6 +167,20 @@ def read_url(url, workspace_dir):
         return f"Error reading URL: {e}"
 
 tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "google_search_and_scrape",
+            "description": "Performs a Google search for the given query, retrieves the top search result URLs, and scrapes the text content from those pages in parallel using BeautifulSoup.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query"}
+                },
+                "required": ["query"]
+            }
+        }
+    },
     {
         "type": "function",
         "function": {
@@ -343,7 +390,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_l
 logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
-from forge_utils import execute_terminal_command, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
+from forge_utils import execute_terminal_command, google_search_and_scrape, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
 
 def main():
     sys.stdin.reconfigure(encoding='utf-8')
@@ -491,6 +538,8 @@ def main():
                         
                         if func_name == "execute_terminal_command":
                             res = execute_terminal_command(args.get("command"), workspace_dir, allow_native_execution)
+                        elif func_name == "google_search_and_scrape":
+                            res = google_search_and_scrape(args.get("query"), workspace_dir)
                         elif func_name == "read_file":
                             res = read_file(args.get("path"), workspace_dir)
                         elif func_name == "search_codebase":

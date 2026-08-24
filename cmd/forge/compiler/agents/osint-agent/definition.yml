@@ -1,0 +1,16 @@
+id: "osint-agent"
+name: "OSINT Scraping Expert"
+description: "A highly-skilled open source intelligence agent capable of performing live Google searches, web scraping in parallel, and compiling massive data sources."
+version: "1.0.0"
+capabilities:
+  - "web_search"
+  - "web_scraping"
+  - "data_analysis"
+inputs:
+  - id: "dag_json"
+    type: "application/json"
+    description: "The DAG JSON containing all agent definitions"
+outputs:
+  - id: "python_worker_files"
+    type: "application/json"
+    description: "The generated Python worker script for this agent"

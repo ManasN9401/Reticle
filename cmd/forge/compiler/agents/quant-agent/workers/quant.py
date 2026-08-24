@@ -120,6 +120,48 @@ def replace_file_content(path, target_content, replacement_content, workspace_di
     except Exception as e:
         return f"Error replacing content: {e}"
 
+
+def get_current_stock_price(symbol, workspace_dir):
+    try:
+        import yfinance as yf
+        stock = yf.Ticker(symbol)
+        current_price = stock.info.get("regularMarketPrice", stock.info.get("currentPrice"))
+        return str(current_price)
+    except Exception as e:
+        return f"Error: {e}"
+
+def get_stock_fundamentals(symbol, workspace_dir):
+    try:
+        import yfinance as yf
+        import json
+        stock = yf.Ticker(symbol)
+        info = stock.info
+        fundamentals = {
+            'symbol': symbol,
+            'company_name': info.get('longName', ''),
+            'sector': info.get('sector', ''),
+            'industry': info.get('industry', ''),
+            'market_cap': info.get('marketCap', None),
+            'pe_ratio': info.get('forwardPE', None),
+            'pb_ratio': info.get('priceToBook', None),
+            'dividend_yield': info.get('dividendYield', None),
+            'eps': info.get('trailingEps', None),
+            'beta': info.get('beta', None),
+            '52_week_high': info.get('fiftyTwoWeekHigh', None),
+            '52_week_low': info.get('fiftyTwoWeekLow', None)
+        }
+        return json.dumps(fundamentals)
+    except Exception as e:
+        return f"Error: {e}"
+
+def get_technical_indicators(symbol, workspace_dir):
+    try:
+        import yfinance as yf
+        indicators = yf.Ticker(symbol).history(period="1mo")
+        return str(indicators)
+    except Exception as e:
+        return f"Error: {e}"
+
 def read_url(url, workspace_dir):
     try:
         import urllib.request
@@ -134,6 +176,48 @@ def read_url(url, workspace_dir):
         return f"Error reading URL: {e}"
 
 tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_stock_price",
+            "description": "Get the current stock price for a given symbol.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "The stock symbol."}
+                },
+                "required": ["symbol"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_stock_fundamentals",
+            "description": "Get fundamental data for a given stock symbol using yfinance API.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "The stock symbol."}
+                },
+                "required": ["symbol"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_technical_indicators",
+            "description": "Get recent technical indicators and price history for a given stock symbol.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {"type": "string", "description": "The stock symbol."}
+                },
+                "required": ["symbol"]
+            }
+        }
+    },
     {
         "type": "function",
         "function": {
@@ -343,7 +427,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_l
 logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
-from forge_utils import execute_terminal_command, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
+from forge_utils import execute_terminal_command, get_current_stock_price, get_stock_fundamentals, get_technical_indicators, read_file, search_codebase, write_file, list_dir, replace_file_content, read_url, tools
 
 def main():
     sys.stdin.reconfigure(encoding='utf-8')
@@ -491,6 +575,12 @@ def main():
                         
                         if func_name == "execute_terminal_command":
                             res = execute_terminal_command(args.get("command"), workspace_dir, allow_native_execution)
+                                                elif func_name == "get_current_stock_price":
+                            res = get_current_stock_price(args.get("symbol"), workspace_dir)
+                        elif func_name == "get_stock_fundamentals":
+                            res = get_stock_fundamentals(args.get("symbol"), workspace_dir)
+                        elif func_name == "get_technical_indicators":
+                            res = get_technical_indicators(args.get("symbol"), workspace_dir)
                         elif func_name == "read_file":
                             res = read_file(args.get("path"), workspace_dir)
                         elif func_name == "search_codebase":

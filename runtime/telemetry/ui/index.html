@@ -3007,7 +3007,7 @@
                 if (lines.length) {
                     pre.textContent += (pre.textContent ? '\n' : '') + lines.join('\n');
                     const allLines = pre.textContent.split('\n');
-                    if (allLines.length > LOG_CAP) pre.textContent = allLines.slice(-LOG_CAP).join('\n');
+                    if (allLines.length > LOG_CAP) pre.textContent = allLines.slice(-LOG_CAP).join('+\n');
                     if (logNearBottom) {
                         const rawView = document.getElementById('logRawView');
                         rawView.scrollTop = rawView.scrollHeight;
@@ -3120,7 +3120,9 @@
             if (logPayload.inputs) logPayload.inputs.forEach(i => { if (i.data) i.data = '<TRUNCATED>'; });
             if (logPayload.data) logPayload.data = '<TRUNCATED>';
 
-            appendLog(type, e.Source, logPayload);
+            if (type !== 'WorkerLog') {
+                appendLog(type, e.Source, logPayload);
+            }
 
             let execId = payload.execution || payload.exec_id;
             if (!execId && (payload.task_id || payload.id)) {

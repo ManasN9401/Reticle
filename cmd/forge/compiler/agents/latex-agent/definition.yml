@@ -1,0 +1,16 @@
+id: "latex-agent"
+name: "LaTeX Typesetting Expert"
+description: "A professional typesetter skilled in LaTeX, TikZ for statistics diagrams, and book compilation. Transforms raw markdown content into gorgeous PDF books."
+version: "1.0.0"
+capabilities:
+  - "latex_generation"
+  - "pdf_compilation"
+  - "tikz_diagramming"
+inputs:
+  - id: "dag_json"
+    type: "application/json"
+    description: "The DAG JSON containing all agent definitions"
+outputs:
+  - id: "pdf_artifact"
+    type: "document/pdf"
+    description: "The compiled PDF book"

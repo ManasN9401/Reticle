@@ -183,12 +183,19 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 content = resp.choices[0].message.content
                 print(f"[DEBUG LLM OUTPUT] >>{content}<<", file=sys.stderr)
                 raw_content = content.strip() if content else ""
-                if raw_content.startswith("```json"):
-                    raw_content = raw_content[7:]
-                elif raw_content.startswith("```"):
-                    raw_content = raw_content[3:]
-                if raw_content.endswith("```"):
-                    raw_content = raw_content[:-3]
+                
+                # Robust JSON extraction
+                import re
+                json_match = re.search(r'```(?:json)?\s*(\{.*\}|\[.*\])\s*```', raw_content, re.DOTALL)
+                if json_match:
+                    raw_content = json_match.group(1)
+                else:
+                    # Fallback to finding the first { and last } if no markdown blocks
+                    start_idx = raw_content.find('{')
+                    end_idx = raw_content.rfind('}')
+                    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                        raw_content = raw_content[start_idx:end_idx+1]
+                
                 raw_content = raw_content.strip()
                 data = json.loads(raw_content)
                 
