@@ -49,4 +49,5 @@ transcript.jsonl
 *.tsv
 *.dat
 
+graphify-out/
 # DO NOT ignore .md files (RFCs and SKILLs are critical for graph context)
