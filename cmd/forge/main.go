@@ -355,7 +355,7 @@ func main() {
 
 	// Enqueue initial prompt if present
 	if userPrompt != "" {
-		wm.Enqueue(userPrompt, "", ModeParallel, "", "auto")
+		wm.Enqueue(userPrompt, "", ModeParallel, "", "auto", nil)
 	}
 
 	// Start Execution Shell
@@ -393,7 +393,7 @@ func main() {
 			mode = ModeSequential
 		}
 
-		wm.Enqueue(text, group, mode, "", "auto")
+		wm.Enqueue(text, group, mode, "", "auto", nil)
 	}
 
 	if err := reader.Err(); err != nil {

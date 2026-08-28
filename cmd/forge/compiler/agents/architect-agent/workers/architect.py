@@ -237,33 +237,20 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                         raise ValueError(f"Edge references unknown to node: {to_node}")
                     adj[from_node].append(to_node)
                     in_degree[to_node] += 1
-                    
-                # Cycle detection using Kahn's algorithm and Depth calculation
-                depth = {n: 1 for n in valid_nodes if in_degree[n] == 0}
-                queue = [n for n in valid_nodes if in_degree[n] == 0]
-                visited_count = 0
-                max_depth = 1
-                while queue:
-                    curr = queue.pop(0)
-                    visited_count += 1
-                    curr_d = depth[curr]
-                    for neighbor in adj[curr]:
-                        depth[neighbor] = max(depth.get(neighbor, 1), curr_d + 1)
-                        max_depth = max(max_depth, depth[neighbor])
-                        in_degree[neighbor] -= 1
-                        if in_degree[neighbor] == 0:
-                            queue.append(neighbor)
-                            
-                # Count nodes per depth layer to find maximum width
-                width_counts = {}
-                for d in depth.values():
-                    width_counts[d] = width_counts.get(d, 0) + 1
-                max_width = max(width_counts.values()) if width_counts else 0
-
-                if visited_count != len(valid_nodes):
-                    cyclic_nodes = [n for n in valid_nodes if in_degree[n] > 0]
+                import graphlib
+                ts = graphlib.TopologicalSorter()
+                for n in valid_nodes:
+                    ts.add(n)
+                for e in data.get("edges", []):
+                    # ts.add(node, *predecessors)
+                    ts.add(e.get("to"), e.get("from"))
+                
+                try:
+                    ts.prepare()
+                except graphlib.CycleError as ce:
+                    cyclic_nodes = ce.args[1]
                     raise ValueError(f"Graph contains a cycle! Directed Acyclic Graph (DAG) requirement violated. The cycle involves these nodes: {cyclic_nodes}. You MUST remove the bi-directional edges or circular dependencies between them.")
-                    
+
                 if len(valid_nodes) == 0:
                     raise ValueError(f"Graph has 0 nodes. You MUST create at least 1 node.")
 

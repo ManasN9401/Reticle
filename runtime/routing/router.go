@@ -22,6 +22,8 @@ type ModelRouter struct {
 	// In-flight task tracking: taskID -> modelID
 	inFlight map[string]string
 	
+	UseBayesianRouting bool
+	
 	mu sync.RWMutex
 }
 
@@ -29,10 +31,11 @@ func NewRouter(l *logger.Logger, b *events.Bus, loadAll bool) *ModelRouter {
 	FetchAvailableModels(l, loadAll)
 
 	r := &ModelRouter{
-		Logger:   l,
-		Bus:      b,
-		Matrix:   make(map[string]map[string]float64),
-		inFlight: make(map[string]string),
+		Logger:             l,
+		Bus:                b,
+		Matrix:             make(map[string]map[string]float64),
+		inFlight:           make(map[string]string),
+		UseBayesianRouting: true,
 	}
 	r.subscribe()
 	return r
@@ -73,6 +76,10 @@ func (r *ModelRouter) UpdateProbability(agentID, taskID string, success bool) {
 
 
 func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
+	if !r.UseBayesianRouting {
+		return
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -107,7 +114,7 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 }
 
 // SelectModel returns a model based on the requested effort tier, constrained by confidence.
-func (r *ModelRouter) SelectModel(taskID string, agentID string, effortStr string, requiredConfidence float64) *Model {
+func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int, requiredConfidence float64) *Model {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -122,13 +129,17 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortStr strin
 		}
 		
 		mCopy := m
-		prob, exists := r.Matrix[agentID][mCopy.Key()]
-		if !exists {
-			prob = 0.90 // Optimistic prior for cold starts
-			r.Matrix[agentID][mCopy.Key()] = prob
-		}
+		if r.UseBayesianRouting {
+			prob, exists := r.Matrix[agentID][mCopy.Key()]
+			if !exists {
+				prob = 0.90 // Optimistic prior for cold starts
+				r.Matrix[agentID][mCopy.Key()] = prob
+			}
 
-		if prob >= requiredConfidence {
+			if prob >= requiredConfidence {
+				capable = append(capable, mCopy)
+			}
+		} else {
 			capable = append(capable, mCopy)
 		}
 	}
@@ -143,7 +154,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortStr strin
 	}
 	
 	if len(capable) == 0 {
-		r.Logger.Error("No models available for selection", "agent_id", agentID, "effort", effortStr)
+		r.Logger.Error("No models available for selection", "agent_id", agentID, "effort", effortTier)
 		return nil
 	}
 
@@ -166,8 +177,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortStr strin
 		return capable[i].Capability < capable[j].Capability
 	})
 
-	percentile := GetEffortPercentile(effortStr)
-
+	percentile := float64(effortTier) * 0.2
 
 	idx := int(math.Round(percentile * float64(len(capable)-1)))
 	if idx < 0 {
@@ -180,7 +190,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortStr strin
 	bestModel := &capable[idx]
 
 	r.inFlight[taskID] = bestModel.Key()
-	r.Logger.Info("Model routed", "agent_id", agentID, "model_key", bestModel.Key(), "effort", effortStr, "capability", bestModel.Capability)
+	r.Logger.Info("Model routed", "agent_id", agentID, "model_key", bestModel.Key(), "effort_tier", effortTier, "capability", bestModel.Capability)
 	return bestModel
 }
 
@@ -265,22 +275,4 @@ func GetTierDelta(globalStr string) int {
 	case "absolute": return 3
 	default: return 0 // "auto"
 	}
-}
-
-// TierToEffortString converts a tier index back to a string
-func TierToEffortString(tier int) string {
-	if tier < 0 {
-		tier = 0
-	}
-	if tier > 5 {
-		tier = 5
-	}
-	tiers := []string{"minimal", "low", "standard", "elevated", "high", "absolute"}
-	return tiers[tier]
-}
-
-// GetEffortPercentile maps an effort string to a float percentile
-func GetEffortPercentile(effortStr string) float64 {
-	tier := GetEffortTier(effortStr)
-	return float64(tier) * 0.2
 }

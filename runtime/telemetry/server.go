@@ -4,12 +4,14 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/hyperparallel/runtime/events"
@@ -101,6 +103,62 @@ func (s *Server) Start() error {
 		
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(files)
+	})
+	
+	http.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		err := r.ParseMultipartForm(50 << 20) // 50 MB max memory
+		if err != nil {
+			http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		stagingDir := filepath.Join(s.rootDir, ".hyperparallel", "waitlist_staging")
+		os.MkdirAll(stagingDir, 0755)
+
+		type UploadedFile struct {
+			ID       string `json:"id"`
+			Filename string `json:"filename"`
+			MimeType string `json:"mime_type"`
+			Path     string `json:"path"`
+		}
+
+		var uploaded []UploadedFile
+
+		for _, fheaders := range r.MultipartForm.File {
+			for _, hdr := range fheaders {
+				file, err := hdr.Open()
+				if err != nil {
+					continue
+				}
+				
+				fileID := fmt.Sprintf("%d_%s", time.Now().UnixNano(), hdr.Filename)
+				fileID = strings.ReplaceAll(fileID, " ", "_")
+				fileID = strings.ReplaceAll(fileID, "/", "_")
+				
+				dstPath := filepath.Join(stagingDir, fileID)
+				dst, err := os.Create(dstPath)
+				if err == nil {
+					io.Copy(dst, file)
+					dst.Close()
+					
+					uploaded = append(uploaded, UploadedFile{
+						ID:       fileID,
+						Filename: hdr.Filename,
+						MimeType: hdr.Header.Get("Content-Type"),
+						Path:     dstPath,
+					})
+				}
+				file.Close()
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(uploaded)
 	})
 	
 	// JSON API to fetch and toggle available models

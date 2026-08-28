@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,15 +34,23 @@ const (
 	ModeSequential ExecutionMode = "sequential"
 )
 
+type Attachment struct {
+	ID       string `json:"id"`
+	Filename string `json:"filename"`
+	MimeType string `json:"mime_type"`
+	Path     string `json:"path"`
+}
+
 type WaitlistItem struct {
-	ID         string          `json:"id"`
-	Prompt     string          `json:"prompt"`
-	Status     ExecutionStatus `json:"status"`
-	Group      string          `json:"group"`
-	Mode       ExecutionMode   `json:"mode"`
-	IDEContext string          `json:"ide_context,omitempty"`
-	Effort     string          `json:"effort,omitempty"`
-	CreatedAt  time.Time       `json:"created_at"`
+	ID          string          `json:"id"`
+	Prompt      string          `json:"prompt"`
+	Status      ExecutionStatus `json:"status"`
+	Group       string          `json:"group"`
+	Mode        ExecutionMode   `json:"mode"`
+	IDEContext  string          `json:"ide_context,omitempty"`
+	Effort      string          `json:"effort,omitempty"`
+	Attachments []Attachment    `json:"attachments,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
 }
 
 type WaitlistPayload struct {
@@ -193,11 +202,30 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 				modeStr, _ := payload["mode"].(string)
 				ideContext, _ := payload["ide_context"].(string)
 				effort, _ := payload["effort"].(string)
+				
+				var attachments []Attachment
+				if atts, ok := payload["attachments"].([]any); ok {
+					for _, att := range atts {
+						if aMap, ok := att.(map[string]any); ok {
+							id, _ := aMap["id"].(string)
+							filename, _ := aMap["filename"].(string)
+							mimeType, _ := aMap["mime_type"].(string)
+							path, _ := aMap["path"].(string)
+							attachments = append(attachments, Attachment{
+								ID:       id,
+								Filename: filename,
+								MimeType: mimeType,
+								Path:     path,
+							})
+						}
+					}
+				}
+				
 				mode := ModeParallel
 				if modeStr == "sequential" {
 					mode = ModeSequential
 				}
-				wm.Enqueue(prompt, group, mode, ideContext, effort)
+				wm.Enqueue(prompt, group, mode, ideContext, effort, attachments)
 			case "remove":
 				id, _ := payload["id"].(string)
 				wm.Remove(id)
@@ -227,7 +255,7 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 	return wm
 }
 
-func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMode, ideContext string, effort string) {
+func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMode, ideContext string, effort string, attachments []Attachment) {
 	wm.mu.Lock()
 	
 	id := fmt.Sprintf("exec-%03d", wm.nextID)
@@ -248,9 +276,10 @@ func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMo
 		Status:     StatusPending,
 		Group:      group,
 		Mode:       mode,
-		IDEContext: ideContext,
-		Effort:     effort,
-		CreatedAt:  time.Now(),
+		IDEContext:  ideContext,
+		Effort:      effort,
+		Attachments: attachments,
+		CreatedAt:   time.Now(),
 	}
 	wm.items = append(wm.items, item)
 	wm.save()
@@ -479,6 +508,66 @@ func (wm *WaitlistManager) Pump() {
 			// Inject workspace_dir for this execution (and its compiler phase)
 			isolatedWorkspacePath, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", item.ID))
 			os.MkdirAll(isolatedWorkspacePath, 0755)
+
+			// Process Attachments
+			if len(item.Attachments) > 0 {
+				var promptAttachments []map[string]any
+				for _, att := range item.Attachments {
+					dstPath := filepath.Join(isolatedWorkspacePath, att.Filename)
+					
+					// move file
+					if srcFile, err := os.Open(att.Path); err == nil {
+						if dstFile, err := os.Create(dstPath); err == nil {
+							io.Copy(dstFile, srcFile)
+							dstFile.Close()
+						}
+						srcFile.Close()
+						os.Remove(att.Path)
+					}
+					
+					if strings.HasPrefix(att.MimeType, "image/") {
+						b, err := os.ReadFile(dstPath)
+						var imageURL map[string]string
+						if err == nil {
+							encoded := base64.StdEncoding.EncodeToString(b)
+							imageURL = map[string]string{"url": fmt.Sprintf("data:%s;base64,%s", att.MimeType, encoded)}
+						}
+						
+						promptAttachments = append(promptAttachments, map[string]any{
+							"type":      "image_url",
+							"mime_type": att.MimeType,
+							"image_url": imageURL,
+							"filename":  att.Filename,
+							"path":      dstPath,
+						})
+					} else {
+						promptAttachments = append(promptAttachments, map[string]any{
+							"type":     "file",
+							"mime_type": att.MimeType,
+							"filename": att.Filename,
+							"path":     dstPath,
+						})
+					}
+				}
+				
+				if len(promptAttachments) > 0 {
+					attJSON, _ := json.Marshal(promptAttachments)
+					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+						Scope:   memory.ScopeExecution,
+						ScopeID: item.ID,
+						Key:     "prompt_attachments",
+						Value:   string(attJSON),
+						Owner:   "waitlist",
+					})
+					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+						Scope:   memory.ScopeExecution,
+						ScopeID: "compile-" + item.ID,
+						Key:     "prompt_attachments",
+						Value:   string(attJSON),
+						Owner:   "waitlist",
+					})
+				}
+			}
 			
 			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
 				Scope:   memory.ScopeExecution,
