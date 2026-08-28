@@ -113,7 +113,7 @@ Return the DAG strictly as JSON with the following schema, and NOTHING else (no 
       "name": "Human Readable Name",
       "description": "Short description",
       "is_new": true, 
-      "system_prompt": "Highly detailed prompt with all 5 requirements above...",
+      "system_prompt": "LEAVE THIS BLANK. Output exactly 'TBD' for now to save tokens.",
       "inputs": ["expected_artifact_id"], // List of artifact IDs this agent depends on
       "memory": ["expected_memory_key"], // List of memory keys this agent needs
       "skills": ["required_skill_id"] // List of global skills this agent needs
@@ -133,7 +133,8 @@ Return the DAG strictly as JSON with the following schema, and NOTHING else (no 
   ]
 }}
 
-CRITICAL: Keep agent descriptions and system prompts EXTREMELY CONCISE. Do not write paragraphs of text. Use bullet points or short sentences. Your output MUST fit within strict token limits.
+CRITICAL: Keep agent descriptions EXTREMELY CONCISE. Do not write paragraphs of text. Use bullet points or short sentences. Your output MUST fit within strict token limits.
+CRITICAL: Do NOT write the `system_prompt` yet. The system prompts will be generated in parallel after you design the architecture. For `system_prompt`, you MUST output exactly "TBD" to save tokens!
 CRITICAL: Every node in the `nodes` array MUST have a valid `agent_id` that EXACTLY matches the `id` of an agent defined in the `agents` list or the AVAILABLE AGENTS list. NEVER leave `agent_id` blank or null.
 CRITICAL: Every edge in the `edges` array MUST reference `from` and `to` nodes that EXACTLY match the `id` of a node defined in the `nodes` array. NEVER reference a node that does not exist.
 
@@ -167,11 +168,12 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     model=model,
                     api_key=api_key,
                     max_tokens=6000,
-                    messages=conversation
+                    messages=conversation,
+                    timeout=60
                 )
             except Exception as e:
                 err_str = str(e)
-                if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str or "APIError" in err_str or "APIConnectionError" in err_str or "502" in err_str or "503" in err_str or "too large" in err_str.lower() or "context_window" in err_str.lower() or "max_tokens" in err_str.lower():
+                if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str or "APIError" in err_str or "APIConnectionError" in err_str or "502" in err_str or "503" in err_str or "too large" in err_str.lower() or "context_window" in err_str.lower() or "max_tokens" in err_str.lower() or "BadRequest" in err_str or "InvalidRequest" in err_str or "model_ter" in err_str.lower() or "invalid_request_error" in err_str.lower() or "402" in err_str or "payment" in err_str.lower() or "credits" in err_str.lower() or "purchased" in err_str.lower() or "authenticationerror" in err_str.lower() or "timeout" in err_str.lower():
                     # We fail FAST on hard limits so the Go orchestrator can catch it and route to a new model
                     print(f"[LLM] Hard limit reached on {model}: {err_str[:150]}", file=sys.stderr)
                     sys.exit(1)
@@ -276,11 +278,41 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 print(f"[ARCHITECT] {err_msg}", file=sys.stderr)
                 raise Exception(err_msg) # This triggers the @retry
                 
-            return resp
+            return data
             
-        response = get_architect_response()
+        data = get_architect_response()
         
-        result = response.choices[0].message.content
+        # Spawn parallel prompt engineers for all new agents
+        new_agents = [a for a in data.get("agents", []) if a.get("is_new")]
+        if new_agents:
+            print(f"[{req_id}] Parallelizing prompt engineering for {len(new_agents)} new agents...", file=sys.stderr)
+            import concurrent.futures
+            
+            def generate_prompt(agent):
+                sys_msg = f"You are an expert Prompt Engineer for HyperParallel. The Architect designed this graph:\\n{json.dumps(data.get('nodes', []))}\\n{json.dumps(data.get('edges', []))}\\nYour task is to write the system prompt for the agent '{agent['id']}'. It must be highly detailed and include all 5 requirements: 1. Exact goal 2. Exact files 3. Language/Framework 4. Integration with other agents 5. Technical specs."
+                user_msg = f"Agent Name: {agent.get('name')}\\nAgent Description: {agent.get('description', '')}\\nUser Goal: {user_prompt}\\nWrite the 'system_prompt' for this agent. Output ONLY the prompt text, no markdown blocks."
+                try:
+                    resp = completion(
+                        model=model,
+                        api_key=api_key,
+                        max_tokens=1500,
+                        messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}]
+                    )
+                    return resp.choices[0].message.content.strip()
+                except Exception as e:
+                    print(f"[{agent['id']}] Error generating prompt: {e}", file=sys.stderr)
+                    return "Error generating prompt. You must figure out what to do based on your description: " + agent.get("description", "")
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(new_agents), 20)) as executor:
+                future_to_agent = {executor.submit(generate_prompt, a): a for a in new_agents}
+                for future in concurrent.futures.as_completed(future_to_agent):
+                    a = future_to_agent[future]
+                    try:
+                        a["system_prompt"] = future.result()
+                    except Exception as e:
+                        a["system_prompt"] = "Error"
+        
+        result = json.dumps(data, indent=2)
         
         artifact = {
             "id": f"{req_id}_output",

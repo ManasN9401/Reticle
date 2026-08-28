@@ -44,7 +44,11 @@ def execute_terminal_command(command, workspace_dir, allow_native=False):
         return f"Error executing command: {e}"
 
 def read_file(path, workspace_dir):
-    full_path = os.path.join(workspace_dir, "src", path)
+    clean_path = os.path.normpath(path).replace("\\\\", "/")
+    if clean_path.startswith("skills/"):
+        full_path = os.path.abspath(os.path.join(workspace_dir, "../../..", clean_path))
+    else:
+        full_path = os.path.join(workspace_dir, "src", path)
     if not os.path.exists(full_path):
         return f"Error: File {path} not found."
     try:
@@ -375,12 +379,13 @@ def main():
                     max_tokens=4000,
                     messages=messages,
                     tools=tools,
-                    parallel_tool_calls=False
+                    parallel_tool_calls=False,
+                    timeout=60
                 )
                 return resp
             except Exception as e:
                 err_str = str(e)
-                if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str or "APIError" in err_str or "APIConnectionError" in err_str or "502" in err_str or "503" in err_str or "too large" in err_str.lower() or "context_window" in err_str.lower() or "max_tokens" in err_str.lower():
+                if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str or "APIError" in err_str or "APIConnectionError" in err_str or "502" in err_str or "503" in err_str or "too large" in err_str.lower() or "context_window" in err_str.lower() or "max_tokens" in err_str.lower() or "BadRequest" in err_str or "InvalidRequest" in err_str or "model_ter" in err_str.lower() or "invalid_request_error" in err_str.lower() or "402" in err_str or "payment" in err_str.lower() or "credits" in err_str.lower() or "purchased" in err_str.lower() or "authenticationerror" in err_str.lower() or "timeout" in err_str.lower():
                     # We fail FAST on hard limits so the Go orchestrator can catch it and route to a new model
                     print(f"[LLM] Hard limit reached on {{model}}: {{err_str[:150]}}", file=sys.stderr)
                     sys.exit(1)
@@ -436,6 +441,10 @@ def main():
         else:
             user_msg += "\\n## Workspace State\\nThe `src/` directory is automatically managed for you. Do not worry about creating it. It is currently empty.\\n"
             
+        skills_txt = build_tree(os.path.abspath(os.path.join(workspace_dir, "../../..", "skills")))
+        if skills_txt.strip():
+            user_msg += "\\n## Available Skills\\nYou have access to specialized skills in the `skills/` directory. Use the `read_file` tool on `skills/[SKILL]/SKILL.md` to learn how to use them. Here are the available skills:\\n" + skills_txt + "\\n"
+            
         user_msg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. You must maintain a standard project directory structure. Place source code inside the `src/` directory (e.g. `src/main.py`, `src/utils.py`) and top-level configs in the root. Use `read_file` to inspect existing files before modifying them. If you need to test your code using external libraries, you MUST run 'uv pip install --system <library>' using the 'execute_terminal_command' tool BEFORE running your script! Do not assume third-party packages are pre-installed."
         
         messages = [
@@ -487,7 +496,7 @@ def main():
                         if tool_schema and "required" in tool_schema:
                             missing = [req for req in tool_schema["required"] if req not in args]
                             if missing:
-                                raise ValueError(f"Schema Validation Failed: Missing required arguments: {missing}. Please fix and try again.")
+                                raise ValueError(f"Schema Validation Failed: Missing required arguments: {{missing}}. Please fix and try again.")
                         
                         if func_name == "execute_terminal_command":
                             res = execute_terminal_command(args.get("command"), workspace_dir, allow_native_execution)

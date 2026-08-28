@@ -1,0 +1,274 @@
+workflow:
+  id: advanced-statistics-book
+  name: Advanced Statistics Textbook Generation Pipeline
+  description: Massive 30-node DAG compiling a 14-chapter PhD textbook in parallel
+    with peer review and LaTeX typesetting.
+  nodes:
+  - id: book-outline
+    agent_id: architect-agent
+    system_prompt: You are the Chief Editor of an Advanced Statistics textbook. Write
+      the comprehensive syllabus for the 14 chapters. Provide strict guidelines on
+      mathematical rigor and formatting.
+    user_prompt: Generate the Advanced Statistics textbook syllabus and style guide.
+    dependencies: []
+  - id: writer-chapter-1
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 1: Introduction to Probability and Measure Theory.
+      Ensure rigorous proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-1
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 1: Introduction to Probability and Measure
+      Theory. Fix any mathematical mistakes and return the final complete chapter
+      text.'
+    dependencies:
+    - writer-chapter-1
+  - id: writer-chapter-2
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 2: Random Variables and Expectations. Ensure rigorous
+      proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-2
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 2: Random Variables and Expectations.
+      Fix any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-2
+  - id: writer-chapter-3
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 3: Convergence of Random Variables. Ensure rigorous
+      proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-3
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 3: Convergence of Random Variables. Fix
+      any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-3
+  - id: writer-chapter-4
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 4: Conditional Expectation and Martingales. Ensure
+      rigorous proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-4
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 4: Conditional Expectation and Martingales.
+      Fix any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-4
+  - id: writer-chapter-5
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 5: Markov Chains and Random Walks. Ensure rigorous
+      proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-5
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 5: Markov Chains and Random Walks. Fix
+      any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-5
+  - id: writer-chapter-6
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 6: Continuous-Time Markov Processes. Ensure rigorous
+      proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-6
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 6: Continuous-Time Markov Processes. Fix
+      any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-6
+  - id: writer-chapter-7
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 7: Brownian Motion and Stochastic Calculus. Ensure
+      rigorous proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-7
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 7: Brownian Motion and Stochastic Calculus.
+      Fix any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-7
+  - id: writer-chapter-8
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 8: Information Theory and Entropy. Ensure rigorous
+      proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-8
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 8: Information Theory and Entropy. Fix
+      any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-8
+  - id: writer-chapter-9
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 9: Bayesian Inference Fundamentals. Ensure rigorous
+      proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-9
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 9: Bayesian Inference Fundamentals. Fix
+      any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-9
+  - id: writer-chapter-10
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 10: Advanced Markov Chain Monte Carlo (MCMC). Ensure
+      rigorous proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-10
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 10: Advanced Markov Chain Monte Carlo
+      (MCMC). Fix any mathematical mistakes and return the final complete chapter
+      text.'
+    dependencies:
+    - writer-chapter-10
+  - id: writer-chapter-11
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 11: Variational Inference and Optimization. Ensure
+      rigorous proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-11
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 11: Variational Inference and Optimization.
+      Fix any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-11
+  - id: writer-chapter-12
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 12: Time Series Analysis and Forecasting. Ensure rigorous
+      proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-12
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 12: Time Series Analysis and Forecasting.
+      Fix any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-12
+  - id: writer-chapter-13
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 13: Spatial Statistics and Random Fields. Ensure rigorous
+      proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-13
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 13: Spatial Statistics and Random Fields.
+      Fix any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-13
+  - id: writer-chapter-14
+    agent_id: writer-agent
+    system_prompt: You are an expert PhD-level Statistics author. Write a comprehensive,
+      rigorous chapter in Markdown format using LaTeX math equations.
+    user_prompt: 'Write Chapter 14: Deep Generative Models in Statistics. Ensure rigorous
+      proofs, examples, and deep intuition.'
+    dependencies:
+    - book-outline
+  - id: reviewer-chapter-14
+    agent_id: writer-agent
+    system_prompt: You are a PhD-level Peer Reviewer. You must critically audit the
+      provided statistics chapter for mathematical errors, logical leaps, and formatting.
+      You must provide a final polished version of the Markdown chapter.
+    user_prompt: 'Review and polish Chapter 14: Deep Generative Models in Statistics.
+      Fix any mathematical mistakes and return the final complete chapter text.'
+    dependencies:
+    - writer-chapter-14
+  - id: latex-compiler
+    agent_id: latex-agent
+    system_prompt: You are the LaTeX Engine. Combine all 14 reviewed chapters into
+      a single stunning PDF book.
+    user_prompt: Combine all inputs into book.tex. Include TikZ diagrams for normal
+      and poisson distributions in the intro chapter. Compile to PDF.
+    dependencies:
+    - reviewer-chapter-1
+    - reviewer-chapter-2
+    - reviewer-chapter-3
+    - reviewer-chapter-4
+    - reviewer-chapter-5
+    - reviewer-chapter-6
+    - reviewer-chapter-7
+    - reviewer-chapter-8
+    - reviewer-chapter-9
+    - reviewer-chapter-10
+    - reviewer-chapter-11
+    - reviewer-chapter-12
+    - reviewer-chapter-13
+    - reviewer-chapter-14

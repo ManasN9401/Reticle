@@ -478,6 +478,8 @@ func (wm *WaitlistManager) Pump() {
 			
 			// Inject workspace_dir for this execution (and its compiler phase)
 			isolatedWorkspacePath, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", item.ID))
+			os.MkdirAll(isolatedWorkspacePath, 0755)
+			
 			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
 				Scope:   memory.ScopeExecution,
 				ScopeID: item.ID,
