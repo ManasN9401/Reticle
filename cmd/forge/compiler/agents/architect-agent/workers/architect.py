@@ -39,6 +39,15 @@ def main():
         
         available_agents_prompt = available_agents if available_agents and available_agents.strip() != "None" else "None. You MUST create all new specialized agents (set is_new: true for ALL agents)."
 
+        agent_complexity = int(mem.get("agent_complexity", 5))
+        if agent_complexity == 1:
+            complexity_prompt = "CRITICAL REQUIREMENT: You MUST generate EXACTLY 1 single agent that does EVERYTHING linearly. Do NOT use multiple specialized agents. Do not decompose into branches. The graph MUST have exactly 1 node and 0 edges. Make sure to instruct this single agent to bundle all files into its final JSON payload."
+        elif agent_complexity <= 3:
+            complexity_prompt = "CRITICAL REQUIREMENT: You should generate a small graph of 2-5 agents to split the work, but keep individual responsibilities broad. Do NOT create massive parallel branches. A simple linear pipeline or small DAG is preferred."
+        else:
+            complexity_prompt = "CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. HyperParallel is designed for massive parallelism. You MUST decompose EVERY task into a WIDE, MULTI-BRANCH DAG. Do NOT create purely linear pipelines (e.g. A -> B -> C). Even simple tasks must be broken down into at least 3-4 specialized agents. \nFor complex applications, you MUST generate a massively parallel graph with 10, 20, or even 50+ specialized nodes (e.g., one agent per file, one agent per class, one agent per API endpoint). DO NOT anchor to the small 4-node example below; that is just a schema demonstration. Scale the number of agents and nodes to be as large as necessary to achieve extreme modularity. Single-node or purely linear workflows are STRICTLY FORBIDDEN. One of your agents MUST explicitly be responsible for creating the main entrypoint or final assembly."
+
+
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", ".."))
         rfc_008 = ""
         rfc_027 = ""
@@ -77,8 +86,7 @@ CRITICAL DAG RULE: Your graph MUST be a Directed Acyclic Graph. Edges must flow 
 AVAILABLE AGENTS:
 {available_agents_prompt}
 
-CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. HyperParallel is designed for massive parallelism. You MUST decompose EVERY task into a WIDE, MULTI-BRANCH DAG. Do NOT create purely linear pipelines (e.g. A -> B -> C). Even simple tasks must be broken down into at least 3-4 specialized agents. 
-For complex applications, you MUST generate a massively parallel graph with 10, 20, or even 50+ specialized nodes (e.g., one agent per file, one agent per class, one agent per API endpoint). DO NOT anchor to the small 4-node example below; that is just a schema demonstration. Scale the number of agents and nodes to be as large as necessary to achieve extreme modularity. Single-node or purely linear workflows are STRICTLY FORBIDDEN. One of your agents MUST explicitly be responsible for creating the main entrypoint or final assembly.
+{complexity_prompt}
 
 CRITICAL INSTRUCTION: For code, agents MUST build everything from scratch using ONLY standard libraries (e.g. Python with 'pygame'). Do NOT let them hallucinate or import external imaginary engines. Instruct them to write fully robust code with NO PLACEHOLDERS (no 'pass', 'TODO', or '...').
 

@@ -49,6 +49,7 @@ type WaitlistItem struct {
 	Mode        ExecutionMode   `json:"mode"`
 	IDEContext  string          `json:"ide_context,omitempty"`
 	Effort      string          `json:"effort,omitempty"`
+	AgentComplexity int         `json:"agent_complexity,omitempty"`
 	Attachments []Attachment    `json:"attachments,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`
 }
@@ -225,10 +226,23 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 				if modeStr == "sequential" {
 					mode = ModeSequential
 				}
-				wm.Enqueue(prompt, group, mode, ideContext, effort, attachments)
+				
+				agentComplexity := 5
+				if c, ok := payload["agent_complexity"].(float64); ok {
+					agentComplexity = int(c)
+				}
+				
+				wm.Enqueue(prompt, group, mode, ideContext, effort, agentComplexity, attachments)
 			case "remove":
 				id, _ := payload["id"].(string)
 				wm.Remove(id)
+			case "update_settings":
+				if bayesian, ok := payload["use_bayesian_routing"].(bool); ok {
+					if wm.dispatcher != nil && wm.dispatcher.Router != nil {
+						wm.dispatcher.Router.UseBayesianRouting = bayesian
+						wm.orchestrator.Logger.Info("Global settings updated", "use_bayesian_routing", bayesian)
+					}
+				}
 			}
 		}
 	})
@@ -255,12 +269,12 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 	return wm
 }
 
-func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMode, ideContext string, effort string, attachments []Attachment) {
+func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMode, ideContext string, effort string, agentComplexity int, attachments []Attachment) {
 	wm.mu.Lock()
 	
 	id := fmt.Sprintf("exec-%03d", wm.nextID)
 	wm.nextID++
-	
+
 	if mode == "" {
 		mode = ModeParallel
 	}
@@ -269,17 +283,18 @@ func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMo
 	if len(ideContext) > 5000 {
 		ideContext = ideContext[:5000] + "\n\n[WARNING: IDE Context Truncated. Some lines omitted. Use read_file tool to view full file contents if needed!]"
 	}
-	
+
 	item := &WaitlistItem{
-		ID:         id,
-		Prompt:     prompt,
-		Status:     StatusPending,
-		Group:      group,
-		Mode:       mode,
-		IDEContext:  ideContext,
-		Effort:      effort,
-		Attachments: attachments,
-		CreatedAt:   time.Now(),
+		ID:              id,
+		Prompt:          prompt,
+		Status:          StatusPending,
+		Group:           group,
+		Mode:            mode,
+		IDEContext:      ideContext,
+		Effort:          effort,
+		AgentComplexity: agentComplexity,
+		Attachments:     attachments,
+		CreatedAt:       time.Now(),
 	}
 	wm.items = append(wm.items, item)
 	wm.save()
@@ -334,7 +349,7 @@ func (wm *WaitlistManager) load() {
 		dirty := false
 		for _, item := range wm.items {
 			var num int
-			if _, err := fmt.Sscanf(item.ID, "exec-%d", &num); err == nil && num >= wm.nextID {
+			if _, err := fmt.Sscanf(item.ID, "wl-%d", &num); err == nil && num >= wm.nextID {
 				wm.nextID = num + 1
 			}
 			// Reset tasks that were running during previous crash

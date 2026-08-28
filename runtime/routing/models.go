@@ -60,9 +60,9 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 	
 	premiumKeywords := []string{
 		"llama-3.3-70b", "llama-3.1-70b", "llama-3.1-405b", "llama-3-70b",
-		"qwen-2.5-72b", "qwen-2.5-coder-32b", "qwen3.6-27b", "qwen-2.5-32b",
+		"qwen-2.5-72b", "qwen-2.5-coder-32b", "qwen3.6-27b", "qwen-2.5-32b", "qwen-plus", "qwen-max",
 		"gemini-1.5-pro", "gemini-2.0-pro", "gemini-1.5-flash",
-		"claude-3-5-sonnet", "claude-3-opus", "claude-3-5-haiku",
+		"claude-3-5-sonnet", "claude-3.5-sonnet", "claude-3-opus", "claude-3.5-haiku", "claude-3-5-haiku",
 		"gpt-4o", "gpt-4-turbo", "o1", "o3",
 	}
 
@@ -147,7 +147,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			if !loadAll {
 				isPremium := false
 				idLower := strings.ToLower(m.ID)
-				isBad := strings.Contains(idLower, "canopy") || strings.Contains(idLower, "liquid") || strings.Contains(idLower, "guard") || strings.Contains(idLower, "free")
+				isBad := strings.Contains(idLower, "canopy") || strings.Contains(idLower, "liquid") || strings.Contains(idLower, "guard")
 				if !isBad {
 					for _, kw := range premiumKeywords {
 						if strings.Contains(idLower, kw) {
@@ -200,7 +200,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 					if !loadAll {
 						isPremium := false
 						idLower := strings.ToLower(m.ID)
-						isBad := strings.Contains(idLower, "canopy") || strings.Contains(idLower, "liquid") || strings.Contains(idLower, "guard") || strings.Contains(idLower, "free")
+						isBad := strings.Contains(idLower, "canopy") || strings.Contains(idLower, "liquid") || strings.Contains(idLower, "guard")
 						if !isBad {
 							for _, kw := range premiumKeywords {
 								if strings.Contains(idLower, kw) {
