@@ -55,7 +55,7 @@ func truncateMap(m map[string]any) {
 	}
 }
 
-func formatArgsForConsole(msg string, args []any) (string, bool) {
+func formatArgsForConsole(msg string, args []any) (string, bool, bool) {
 	fields := make(map[string]any)
 	for i := 0; i < len(args); i += 2 {
 		if i+1 < len(args) {
@@ -87,7 +87,13 @@ func formatArgsForConsole(msg string, args []any) (string, bool) {
 			}
 		}
 		
-		return fmt.Sprintf("[%s] %v%s", comp, event, payloadStr), true
+		skipConsole := false
+		eventName := fmt.Sprintf("%v", event)
+		if eventName == "WaitlistStateRequested" || eventName == "WorkflowStateRequested" || eventName == "WaitlistUpdated" || eventName == "WorkflowUpdated" {
+			skipConsole = true
+		}
+		
+		return fmt.Sprintf("[%s] %v%s", comp, event, payloadStr), true, skipConsole
 	}
 
 	// Fallback for infrastructure logs (e.g. startup/shutdown)
@@ -108,17 +114,19 @@ func formatArgsForConsole(msg string, args []any) (string, bool) {
 		}
 		out += ")"
 	}
-	return out, false
+	return out, false, false
 }
 
 func (l *Logger) Info(msg string, args ...any) {
-	out, isEvent := formatArgsForConsole(msg, args)
+	out, isEvent, skipConsole := formatArgsForConsole(msg, args)
 	
-	if isEvent {
-		fmt.Printf("[%s] EVENT: %s\n", time.Now().Format("15:04:05"), out)
-	} else {
-		// Extremely clean, human-readable console output
-		fmt.Printf("[%s] INFO: %s\n", time.Now().Format("15:04:05"), out)
+	if !skipConsole {
+		if isEvent {
+			fmt.Printf("[%s] EVENT: %s\n", time.Now().Format("15:04:05"), out)
+		} else {
+			// Extremely clean, human-readable console output
+			fmt.Printf("[%s] INFO: %s\n", time.Now().Format("15:04:05"), out)
+		}
 	}
 	
 	// Structured JSON logging for the file
@@ -128,12 +136,14 @@ func (l *Logger) Info(msg string, args ...any) {
 }
 
 func (l *Logger) Error(msg string, args ...any) {
-	out, isEvent := formatArgsForConsole(msg, args)
+	out, isEvent, skipConsole := formatArgsForConsole(msg, args)
 	
-	if isEvent {
-		fmt.Printf("[%s] EVENT (ERROR): %s\n", time.Now().Format("15:04:05"), out)
-	} else {
-		fmt.Printf("[%s] ERROR: %s\n", time.Now().Format("15:04:05"), out)
+	if !skipConsole {
+		if isEvent {
+			fmt.Printf("[%s] EVENT (ERROR): %s\n", time.Now().Format("15:04:05"), out)
+		} else {
+			fmt.Printf("[%s] ERROR: %s\n", time.Now().Format("15:04:05"), out)
+		}
 	}
 
 	if l.jsonLogger != nil {

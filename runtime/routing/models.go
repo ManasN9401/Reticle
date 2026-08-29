@@ -31,6 +31,8 @@ func (m Model) Key() string {
 
 var AvailableModels = []Model{}
 
+var LockedKeys []string // Tracks API keys that are rate limited or free-tier only
+
 func estimateCapability(id string) float64 {
 	lower := strings.ToLower(id)
 	
@@ -57,13 +59,16 @@ func estimateCapability(id string) float64 {
 // FetchAvailableModels fetches and parses available models dynamically.
 func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 	AvailableModels = make([]Model, 0)
+	LockedKeys = make([]string, 0)
 	
 	premiumKeywords := []string{
 		"llama-3.3-70b", "llama-3.1-70b", "llama-3.1-405b", "llama-3-70b",
-		"qwen-2.5-72b", "qwen-2.5-coder-32b", "qwen3.6-27b", "qwen-2.5-32b", "qwen-plus", "qwen-max",
-		"gemini-1.5-pro", "gemini-2.0-pro", "gemini-1.5-flash",
-		"claude-3-5-sonnet", "claude-3.5-sonnet", "claude-3-opus", "claude-3.5-haiku", "claude-3-5-haiku",
-		"gpt-4o", "gpt-4-turbo", "o1", "o3",
+		"claude-3-5-sonnet", "claude-3-5-haiku", "claude-3.5-sonnet", "claude-3.5-haiku", "claude-3-opus",
+		"gpt-4o", "o1-mini", "o3-mini", "o1-preview",
+		"deepseek-chat", "deepseek-coder",
+		"qwen-plus", "qwen-max", "qwen-2.5-72b",
+		"gemini-1.5-pro", "gemini-2.0-flash",
+		"glm", "gemma",
 	}
 
 	// The default fallback models we know exist
@@ -131,6 +136,10 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			}
 			authResp.Body.Close()
 		}
+		
+		if isFreeKey {
+			LockedKeys = append(LockedKeys, envKey)
+		}
 
 		added := 0
 		for _, m := range allORModels {
@@ -141,9 +150,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			if isFreeKey && cost > 0.0 && !strings.HasSuffix(m.ID, ":free") {
 				continue
 			}
-			if strings.Contains(strings.ToLower(m.ID), "guard") {
-				continue
-			}
+
 			if !loadAll {
 				isPremium := false
 				idLower := strings.ToLower(m.ID)
@@ -225,7 +232,12 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			}
 			resp.Body.Close()
 		} else {
-			log.Error("Failed to fetch Groq models", "key", envKey, "status", resp.StatusCode)
+			LockedKeys = append(LockedKeys, envKey)
+			status := 0
+			if resp != nil {
+				status = resp.StatusCode
+			}
+			log.Error("Failed to fetch Groq models", "key", envKey, "status", status, "error", err)
 		}
 	}
 
@@ -263,7 +275,12 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			}
 			resp.Body.Close()
 		} else {
-			log.Error("Failed to fetch Gemini models", "key", envKey)
+			LockedKeys = append(LockedKeys, envKey)
+			status := 0
+			if resp != nil {
+				status = resp.StatusCode
+			}
+			log.Error("Failed to fetch Gemini models", "key", envKey, "status", status, "error", err)
 		}
 	}
 

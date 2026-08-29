@@ -2186,34 +2186,58 @@
                             <div class="attachment-preview" id="attachmentPreview"></div>
                             <textarea id="waitlistInput" placeholder="Enter prompt…"
                                 onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); submitWaitlistPrompt(); }"></textarea>
-                            <div class="composer-row">
-                                <div class="effort-control">
-                                    <div class="effort-control-top">
-                                        <span class="effort-label">Effort</span>
-                                        <span class="effort-value" id="effortLabel">Auto</span>
+                            <div id="composerSettings" style="display: none; padding: 0.75rem; background: rgba(0, 0, 0, 0.2); border-radius: var(--radius-sm); margin-bottom: 0.5rem; gap: 0.75rem; flex-direction: column; border: 1px solid var(--border);">
+                                <div style="display: flex; gap: 1rem;">
+                                    <div class="effort-control" style="border: none; padding: 0; background: transparent;">
+                                        <div class="effort-control-top">
+                                            <span class="effort-label">Effort</span>
+                                            <span class="effort-value" id="effortLabel">Auto</span>
+                                        </div>
+                                        <input type="range" id="waitlistEffort" class="effort-slider" min="0" max="6"
+                                            value="0" step="1" data-tier="auto" oninput="updateEffortSlider(this)">
+                                        <div class="effort-ticks">
+                                            <span>Auto</span><span>Min</span><span>Low</span><span>Std</span><span>Elev</span><span>High</span><span>Max</span>
+                                        </div>
                                     </div>
-                                    <input type="range" id="waitlistEffort" class="effort-slider" min="0" max="6"
-                                        value="0" step="1" data-tier="auto" oninput="updateEffortSlider(this)">
-                                    <div class="effort-ticks">
-                                        <span>Auto</span><span>Min</span><span>Low</span><span>Std</span><span>Elev</span><span>High</span><span>Max</span>
+                                    <div class="effort-control" style="border: none; padding: 0; background: transparent;">
+                                        <div class="effort-control-top">
+                                            <span class="effort-label">Agent Complexity</span>
+                                            <span class="effort-value" id="complexityLabel">5 (Max DAG)</span>
+                                        </div>
+                                        <input type="range" id="agentComplexity" class="effort-slider" min="1" max="5"
+                                            value="5" step="1" oninput="updateComplexitySlider(this)">
+                                        <div class="effort-ticks">
+                                            <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="effort-control">
-                                    <div class="effort-control-top">
-                                        <span class="effort-label">Agent Complexity</span>
-                                        <span class="effort-value" id="complexityLabel">5 (Max DAG)</span>
-                                    </div>
-                                    <input type="range" id="agentComplexity" class="effort-slider" min="1" max="5"
-                                        value="5" step="1" oninput="updateComplexitySlider(this)">
-                                    <div class="effort-ticks">
-                                        <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span>
-                                    </div>
+                                <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-secondary); cursor: pointer; padding-left: 0.1rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.05);">
+                                    <input type="checkbox" id="bayesianToggle" checked onchange="toggleBayesianRouting(this)">
+                                    Use Bayesian Model Routing
+                                </label>
+                            </div>
+
+                            <div id="composerKeys" style="display: none; padding: 0.75rem; background: rgba(0, 0, 0, 0.2); border-radius: var(--radius-sm); margin-bottom: 0.5rem; gap: 0.75rem; flex-direction: column; border: 1px solid var(--border); border-color: rgba(255, 85, 85, 0.3);">
+                                <div style="font-size: 0.8rem; font-weight: 500; color: #ff5555; display: flex; align-items: center; gap: 0.4rem;">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                    API Keys Locked by Usage Limits
                                 </div>
-                                <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                    <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; color: var(--text-secondary); cursor: pointer;">
-                                        <input type="checkbox" id="bayesianToggle" checked onchange="toggleBayesianRouting(this)">
-                                        Use Bayesian Routing
-                                    </label>
+                                <div id="lockedKeysList" style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+                                    <span style="font-size: 0.75rem; color: var(--text-secondary);">No keys are currently locked.</span>
+                                </div>
+                            </div>
+
+                            <div class="composer-row" style="justify-content: space-between; align-items: center;">
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button class="queue-icon-btn" onclick="toggleComposerSettings()" title="Advanced Settings">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                    </button>
+                                    <button class="queue-icon-btn" onclick="toggleComposerKeys()" title="Locked Keys" id="btnComposerKeys">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                                    </button>
+                                </div>
+                                
+                                <div style="display: flex; gap: 0.5rem;">
                                     <input type="file" id="waitlistFileInput" multiple style="display: none;" onchange="handleFileSelect(event)">
                                     <button class="queue-icon-btn" onclick="document.getElementById('waitlistFileInput').click()" title="Attach files/images">
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
@@ -3019,6 +3043,11 @@
             });
         }
         
+        function gatherIDEContext() {
+            // Stub for IDE context gathering if implemented later
+            return "";
+        }
+        
         async function submitWaitlistPrompt() {
             const input = document.getElementById('waitlistInput');
             const effortSelect = document.getElementById('waitlistEffort');
@@ -3056,7 +3085,6 @@
                 
                 btn.textContent = 'Queue';
                 btn.disabled = false;
-                const effortSelect = document.getElementById('waitlistEffort');
                 const complexitySlider = document.getElementById('agentComplexity');
                 const attachmentsPayload = uploadedAttachments.map(f => ({
                     id: f.id,
@@ -3091,16 +3119,16 @@
             const container = document.getElementById('waitlistItems');
             if (!container) return;
             container.innerHTML = '';
-
+            
             const batchLabel = document.getElementById('runningBatchesLabel');
             if (batchLabel) {
                 batchLabel.textContent = `Running Batches: ${running || 0}/${max || 5}`;
             }
-
+            
             const tabCount = document.getElementById('waitlistCountTab');
             if (tabCount) tabCount.textContent = items.length;
 
-            if (items.length === 0) {
+            if (!items || items.length === 0) {
                 container.innerHTML = '<div class="empty-state" id="waitlistEmptyState">No queued executions.</div>';
                 return;
             }
@@ -3108,24 +3136,53 @@
             items.forEach(item => {
                 const el = document.createElement('div');
                 el.className = 'waitlist-item';
+                
+                // Keep the old sleek color logic
+                let statusUpper = (item.status || 'QUEUED').toUpperCase();
                 let color = 'var(--pending)';
-                if (item.status === 'RUNNING') color = 'var(--running)';
-                if (item.status === 'COMPLETED') color = 'var(--completed)';
-                if (item.status === 'FAILED') color = 'var(--failed)';
+                if (statusUpper === 'RUNNING') color = 'var(--running)';
+                if (statusUpper === 'COMPLETED') color = 'var(--completed)';
+                if (statusUpper === 'FAILED') color = 'var(--failed)';
                 el.style.borderLeftColor = color;
+                
                 el.innerHTML = `
                     <div class="wl-top">
-                        <span class="wl-status" style="color: ${color};">${item.status}</span>
+                        <span class="wl-status" style="color: ${color};">${statusUpper}</span>
                         <span class="wl-id">${item.id}</span>
                     </div>
-                    <div class="wl-prompt">${item.prompt}</div>
+                    <div class="wl-prompt">${escapeHtml(item.prompt || '(No prompt)')}</div>
                     <div class="wl-actions">
-                        ${item.status === 'COMPLETED' ? `<button class="wl-btn wl-view" onclick="openSessionOutputs('${item.id}')">View Outputs</button>` : ''}
+                        ${statusUpper === 'COMPLETED' ? `<button class="wl-btn wl-view" onclick="openSessionOutputs('${item.id}')">View Outputs</button>` : ''}
                         <button class="wl-btn" onclick="removeWaitlistItem('${item.id}')">Remove</button>
                     </div>
                 `;
                 container.appendChild(el);
             });
+        }
+
+        function updateLockedKeys(keys) {
+            const list = document.getElementById('lockedKeysList');
+            const btn = document.getElementById('btnComposerKeys');
+            if (!list || !btn) return;
+            
+            if (!keys || keys.length === 0) {
+                list.innerHTML = '<span style="font-size: 0.75rem; color: var(--text-secondary);">No keys are currently locked.</span>';
+                btn.style.color = 'currentColor'; // Reset icon color
+            } else {
+                list.innerHTML = '';
+                keys.forEach(k => {
+                    const el = document.createElement('span');
+                    el.style.fontSize = '0.75rem';
+                    el.style.padding = '0.2rem 0.4rem';
+                    el.style.background = 'rgba(255, 85, 85, 0.15)';
+                    el.style.color = '#ff5555';
+                    el.style.borderRadius = 'var(--radius-sm)';
+                    el.style.border = '1px solid rgba(255, 85, 85, 0.3)';
+                    el.textContent = k;
+                    list.appendChild(el);
+                });
+                btn.style.color = '#ff5555'; // Highlight the lock icon button if there are locked keys
+            }
         }
 
         /* =========================================================
@@ -3366,8 +3423,14 @@
             else if (payload.node_id) nodeId = payload.node_id;
 
             if (type === 'WaitlistUpdated') {
-                if (Array.isArray(payload)) renderWaitlist(payload);
-                else renderWaitlist(payload.items || [], payload.runningWorkers || 0, payload.maxWorkers || 5);
+                if (Array.isArray(payload)) {
+                    renderWaitlist(payload);
+                } else {
+                    renderWaitlist(payload.items || [], payload.runningWorkers || 0, payload.maxWorkers || 5);
+                    if (payload.lockedKeys) {
+                        updateLockedKeys(payload.lockedKeys);
+                    }
+                }
                 return;
             }
 
@@ -3895,6 +3958,28 @@
             if (val === 1) label.textContent = '1 (Single Agent)';
             else if (val === 5) label.textContent = '5 (Max DAG)';
             else label.textContent = val.toString();
+        }
+
+        function toggleComposerSettings() {
+            const settings = document.getElementById('composerSettings');
+            const keys = document.getElementById('composerKeys');
+            if (settings.style.display === 'none') {
+                settings.style.display = 'flex';
+                keys.style.display = 'none';
+            } else {
+                settings.style.display = 'none';
+            }
+        }
+
+        function toggleComposerKeys() {
+            const settings = document.getElementById('composerSettings');
+            const keys = document.getElementById('composerKeys');
+            if (keys.style.display === 'none') {
+                keys.style.display = 'flex';
+                settings.style.display = 'none';
+            } else {
+                keys.style.display = 'none';
+            }
         }
 
         updateEffortSlider(document.getElementById('waitlistEffort'));

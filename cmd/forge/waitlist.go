@@ -16,6 +16,7 @@ import (
 	"github.com/hyperparallel/runtime/events"
 	"github.com/hyperparallel/runtime/memory"
 	"github.com/hyperparallel/runtime/orchestrator"
+	"github.com/hyperparallel/runtime/routing"
 )
 
 type ExecutionStatus string
@@ -58,6 +59,7 @@ type WaitlistPayload struct {
 	Items          []*WaitlistItem `json:"items"`
 	MaxWorkers     int             `json:"maxWorkers"`
 	RunningWorkers int             `json:"runningWorkers"`
+	LockedKeys     []string        `json:"lockedKeys"`
 }
 
 type WaitlistManager struct {
@@ -379,6 +381,7 @@ func (wm *WaitlistManager) save() {
 		Items:          wm.items,
 		MaxWorkers:     wm.maxWorkers,
 		RunningWorkers: runningTotal,
+		LockedKeys:     routing.LockedKeys,
 	}
 	
 	// Broadcast waitlist to UI
