@@ -168,9 +168,8 @@ func (d *Dispatcher) Start() {
 						strings.Contains(stderrLower, "max_tokens must be less than") ||
 						strings.Contains(stderrLower, "request too large") ||
 						strings.Contains(stderrLower, "maximum context length") {
-						if modelID, ok := t.Parameters["llm_model"].(string); ok && modelID != "" {
-							d.Router.PenalizeModel(modelID)
-						}
+						d.Logger.Error("Fatal task error: context length exceeded. Aborting retries to prevent API spam.", "worker_id", w.ID)
+						break // Do not retry, and do NOT globally penalize the model for a payload size issue
 					}
 					d.Router.UpdateProbability(string(w.ID), string(t.ID), false)
 				}

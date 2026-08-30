@@ -1,0 +1,6 @@
+id: "academic-writing"
+name: "Academic & Research Writing"
+version: "1.0.0"
+description: "Maximum-quality writing standards based on international academic institutions."
+dependencies: []
+env_vars: []

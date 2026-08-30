@@ -11,6 +11,8 @@ inputs:
     type: "application/json"
     description: "The DAG JSON containing all agent definitions"
 outputs:
-  - id: "pdf_artifact"
-    type: "document/pdf"
-    description: "The compiled PDF book"
+  - id: "python_worker_files"
+    type: "application/json"
+    description: "The generated Python worker script for this agent"
+skills:
+  - "academic-writing"

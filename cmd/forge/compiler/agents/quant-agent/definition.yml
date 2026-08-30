@@ -13,3 +13,5 @@ outputs:
   - id: "python_worker_files"
     type: "application/json"
     description: "The generated Python worker script for this agent"
+skills:
+  - "data-analytics-stats"

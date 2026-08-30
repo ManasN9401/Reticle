@@ -11,3 +11,5 @@ inputs:
   - "python_files"
 outputs:
   - "writer_status"
+skills:
+  - "academic-writing"

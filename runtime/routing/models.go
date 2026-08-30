@@ -68,7 +68,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		"deepseek-chat", "deepseek-coder",
 		"qwen-plus", "qwen-max", "qwen-2.5-72b",
 		"gemini-1.5-pro", "gemini-2.0-flash",
-		"glm", "gemma",
+		"glm", "gemma", "qwen3", "gpt-oss", "compound",
 	}
 
 	// The default fallback models we know exist
