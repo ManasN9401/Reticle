@@ -128,22 +128,23 @@ Return the DAG strictly as JSON with the following schema, and NOTHING else (no 
     }}
   ],
   "nodes": [
-    {{ "id": "node-1", "agent_id": "planner-agent" }},
-    {{ "id": "node-2", "agent_id": "worker-a-agent" }},
-    {{ "id": "node-3", "agent_id": "worker-b-agent" }},
-    {{ "id": "node-4", "agent_id": "assembler-agent" }}
+    {{ "id": "planning-step", "agent_id": "planner-agent" }},
+    {{ "id": "frontend-dev", "agent_id": "worker-a-agent" }},
+    {{ "id": "backend-dev", "agent_id": "worker-b-agent" }},
+    {{ "id": "final-assembly", "agent_id": "assembler-agent" }}
   ],
   "edges": [
-    {{ "from": "node-1", "to": "node-2" }},
-    {{ "from": "node-1", "to": "node-3" }},
-    {{ "from": "node-2", "to": "node-4" }},
-    {{ "from": "node-3", "to": "node-4" }}
+    {{ "from": "planning-step", "to": "frontend-dev" }},
+    {{ "from": "planning-step", "to": "backend-dev" }},
+    {{ "from": "frontend-dev", "to": "final-assembly" }},
+    {{ "from": "backend-dev", "to": "final-assembly" }}
   ]
 }}
 
 CRITICAL: Keep agent descriptions EXTREMELY CONCISE. Do not write paragraphs of text. Use bullet points or short sentences. Your output MUST fit within strict token limits.
 CRITICAL: Do NOT write the `system_prompt` yet. The system prompts will be generated in parallel after you design the architecture. For `system_prompt`, you MUST output exactly "TBD" to save tokens!
 CRITICAL: Every node in the `nodes` array MUST have a valid `agent_id` that EXACTLY matches the `id` of an agent defined in the `agents` list or the AVAILABLE AGENTS list. NEVER leave `agent_id` blank or null.
+CRITICAL: Node IDs MUST be highly descriptive, semantic, and human-readable (e.g. 'compile-frontend', 'research-sources', 'draft-outline'). DO NOT use generic IDs like 'node-1' or 'node-2'.
 CRITICAL: Every edge in the `edges` array MUST reference `from` and `to` nodes that EXACTLY match the `id` of a node defined in the `nodes` array. NEVER reference a node that does not exist.
 
 Output ONLY the raw JSON. Do not output markdown code blocks.
@@ -172,10 +173,12 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=2, min=5, max=120))
         def get_architect_response():
             try:
+                # Architect output is just a schema with 'TBD' system prompts, so it's very small
+                target_max_tokens = 2000 if "groq" in model.lower() else 6000
                 resp = completion(
                     model=model,
                     api_key=api_key,
-                    max_tokens=6000,
+                    max_tokens=target_max_tokens,
                     messages=conversation,
                     timeout=60
                 )

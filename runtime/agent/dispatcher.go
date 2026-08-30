@@ -160,7 +160,7 @@ func (d *Dispatcher) Start() {
 
 				if d.Router != nil {
 					stderrLower := strings.ToLower(failure.Stderr)
-					if strings.Contains(failure.Stderr, "Insufficient credits") || strings.Contains(failure.Stderr, "invalid api key") || strings.Contains(failure.Stderr, "APIConnectionError") || strings.Contains(stderrLower, "exceeded your current quota") || strings.Contains(stderrLower, "code\":429") || (strings.Contains(stderrLower, "ratelimiterror") && !strings.Contains(stderrLower, "request too large")) || strings.Contains(stderrLower, "403") || strings.Contains(stderrLower, "forbidden") || strings.Contains(stderrLower, "permission denied") {
+					if strings.Contains(failure.Stderr, "Insufficient credits") || strings.Contains(failure.Stderr, "invalid api key") || strings.Contains(failure.Stderr, "APIConnectionError") || strings.Contains(stderrLower, "exceeded your current quota") || strings.Contains(stderrLower, "code\":429") || strings.Contains(stderrLower, "code\": 429") || strings.Contains(stderrLower, "429 too many requests") || (strings.Contains(stderrLower, "ratelimiterror") && !strings.Contains(stderrLower, "request too large")) || strings.Contains(stderrLower, "403") || strings.Contains(stderrLower, "forbidden") || strings.Contains(stderrLower, "permission denied") {
 						if apiKeyEnv, ok := t.Parameters["api_key"].(string); ok && apiKeyEnv != "" {
 							d.Router.PenalizeProvider(string(w.ID), apiKeyEnv)
 						}
@@ -170,6 +170,11 @@ func (d *Dispatcher) Start() {
 						strings.Contains(stderrLower, "maximum context length") {
 						d.Logger.Error("Fatal task error: context length exceeded. Aborting retries to prevent API spam.", "worker_id", w.ID)
 						break // Do not retry, and do NOT globally penalize the model for a payload size issue
+					} else if strings.Contains(stderrLower, "tool calling") && strings.Contains(stderrLower, "not supported") {
+						if modelID, ok := t.Parameters["llm_model"].(string); ok && modelID != "" {
+							d.Logger.Info("Model does not support tool calling, disabling globally", "model", modelID)
+							d.Router.PenalizeModel(modelID)
+						}
 					}
 					d.Router.UpdateProbability(string(w.ID), string(t.ID), false)
 				}
