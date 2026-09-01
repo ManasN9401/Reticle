@@ -1,0 +1,11 @@
+id: "devops-infrastructure"
+name: "Cloud & DevOps Engineering"
+version: "1.0.0"
+description: "Equips the agent with tools and methodologies to provision, validate, and orchestrate cloud infrastructure and containers using IaC."
+dependencies:
+  - "boto3"
+  - "kubernetes"
+  - "docker"
+  - "python-terraform"
+  - "litellm"
+env_vars: []

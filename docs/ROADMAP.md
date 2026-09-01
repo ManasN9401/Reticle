@@ -489,6 +489,18 @@ Defines the upgrade of static Python workers into stateful ReAct agents capable 
 Defines the background telemetry loop where brittle `.yaml` and `worker.py` agent scripts are autonomously rewritten and hot-reloaded by a top-level meta-agent based on empirical failure rates.
 *(See `docs/rfc/RFC-035-Agent-Evolution-Meta-Scaffolder.md` for official specification)*
 
+## RFC-036 — Smart Predictive Rate Limiting
+Defines the predictive token-bucket system in `router.go` to track RPM/TPM and gracefully pause requests before triggering provider 429 Quota Exceeded errors.
+
+## RFC-037 — Dynamic Context Compression (RAG)
+Defines the automatic indexing of workspaces into local vector DBs and context summarization loops for models with strict 8k window limits.
+
+## RFC-038 — Human-in-the-Loop (HitL) Checkpoints
+Defines the `hitl-agent` architecture for explicitly pausing DAG execution to request human approval for high-risk operations (e.g. deployments).
+
+## RFC-039 — Advanced Engineering Skills
+Defines the formal inclusion of `devops-infrastructure`, `vulnerability-assessment`, `ml-engineering`, and `modern-frontend-design` into the core HyperParallel skill ecosystem.
+
 ---
 
 # Roadmap Philosophy

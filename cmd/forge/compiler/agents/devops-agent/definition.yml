@@ -1,0 +1,19 @@
+id: "devops-agent"
+name: "DevOps & Infrastructure Expert"
+description: "Specialized in generating, validating, and applying Infrastructure-as-Code (Terraform, Docker, Kubernetes) and CI/CD pipelines."
+version: "1.0.0"
+capabilities:
+  - "infrastructure_as_code"
+  - "cloud_deployment"
+  - "containerization"
+  - "ci_cd_pipelines"
+skills:
+  - "devops-infrastructure"
+inputs:
+  - id: "infrastructure_requirements"
+    type: "text/plain"
+    description: "The description of the infrastructure or pipeline to build"
+outputs:
+  - id: "iac_templates"
+    type: "application/json"
+    description: "The generated infrastructure files and deployment status"
