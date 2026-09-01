@@ -1,0 +1,16 @@
+id: "ml-engineering"
+name: "Machine Learning Engineering"
+version: "1.0.0"
+description: "Equips the agent with PyTorch and HuggingFace ecosystems for training, fine-tuning, and evaluating deep learning models."
+dependencies:
+  - "torch"
+  - "transformers"
+  - "datasets"
+  - "accelerate"
+  - "numpy"
+  - "pandas"
+  - "scikit-learn"
+  - "wandb"
+  - "tensorboard"
+  - "litellm"
+env_vars: []

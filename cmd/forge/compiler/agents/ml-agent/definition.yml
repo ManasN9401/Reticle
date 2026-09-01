@@ -1,0 +1,19 @@
+id: "ml-agent"
+name: "Machine Learning Engineer"
+description: "Specialized in designing, writing, and debugging Deep Learning models exclusively using PyTorch and HuggingFace."
+version: "1.0.0"
+capabilities:
+  - "deep_learning"
+  - "pytorch"
+  - "model_fine_tuning"
+  - "data_engineering"
+skills:
+  - "ml-engineering"
+inputs:
+  - id: "ml_task"
+    type: "text/plain"
+    description: "The machine learning objective or dataset details"
+outputs:
+  - id: "ml_code"
+    type: "document/markdown"
+    description: "The generated training or evaluation scripts"
