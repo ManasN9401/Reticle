@@ -47,6 +47,16 @@ This skill guarantees that all technical documentation, research reports, and an
 You can add new skills at any time to extend the capabilities of the agents.
 
 1. Create a new directory in `d:\HyperParallel\skills\`.
-2. Inside the new directory, create a `SKILL.md` file.
-3. Define the skill's methodology, constraints, required tools, and YAML frontmatter (`name` and `description`).
-4. Agents will automatically read and adhere to these instructions when their tasks align with the skill's description.
+2. Inside the new directory, create a `SKILL.md` file. Define the skill's methodology, constraints, and instructions in this markdown file.
+3. **CRITICAL:** Create a `<skill_name>.yaml` file directly in the `skills/` root directory (e.g. `skills/osint-investigation.yaml`). This file is strictly required by the HyperParallel registry to provision the Python environment with necessary dependencies.
+   ```yaml
+   id: "skill-id"
+   name: "Skill Name"
+   version: "1.0.0"
+   description: "Short description"
+   dependencies:
+     - "package_a"
+     - "package_b"
+   env_vars: []
+   ```
+4. Agents will automatically read the `.yaml` file to provision their environment, and the `SKILL.md` file to enforce their methodology constraints.

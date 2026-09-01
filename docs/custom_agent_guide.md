@@ -12,6 +12,9 @@ description: "Scans code for OWASP vulnerabilities"
 version: 1.0.0
 runtime: python
 entrypoint: workers/security_auditor.py
+skills:
+  - "security-review"
+  - "osint-investigation"
 ```
 
 ## 2. Write the Worker Logic
