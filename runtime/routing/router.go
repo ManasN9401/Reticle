@@ -22,6 +22,10 @@ type ModelRouter struct {
 	// In-flight task tracking: taskID -> modelID
 	inFlight map[string]string
 	
+	// AIMD Congestion Control
+	ProviderCapacity map[string]int
+	ProviderInFlight map[string]int
+	
 	UseBayesianRouting bool
 	
 	mu sync.RWMutex
@@ -35,6 +39,8 @@ func NewRouter(l *logger.Logger, b *events.Bus, loadAll bool) *ModelRouter {
 		Bus:                b,
 		Matrix:             make(map[string]map[string]float64),
 		inFlight:           make(map[string]string),
+		ProviderCapacity:   make(map[string]int),
+		ProviderInFlight:   make(map[string]int),
 		UseBayesianRouting: true,
 	}
 	r.subscribe()
@@ -88,6 +94,34 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 		return // not an LLM task or untracked
 	}
 
+	var provider string
+	for _, m := range AvailableModels {
+		if m.Key() == modelID {
+			provider = m.APIKeyEnv
+			break
+		}
+	}
+	
+	if provider != "" {
+		if r.ProviderInFlight[provider] > 0 {
+			r.ProviderInFlight[provider]--
+		}
+		
+		// Additive Increase: only if successful and we are operating near capacity
+		if success {
+			capacity := r.ProviderCapacity[provider]
+			if capacity == 0 {
+				capacity = 50 // Default starting capacity
+			}
+			// Only push capacity up if we are actually constrained (using at least 50% of the ceiling)
+			if float64(r.ProviderInFlight[provider]) >= float64(capacity) * 0.5 {
+				if capacity < 200 { 
+					r.ProviderCapacity[provider] = capacity + 1
+				}
+			}
+		}
+	}
+
 	if r.Matrix[agentID] == nil {
 		r.Matrix[agentID] = make(map[string]float64)
 	}
@@ -130,6 +164,18 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 		
 		mCopy := m
 		if r.UseBayesianRouting {
+			// Predictive Rate Limiting check
+			capacity := r.ProviderCapacity[mCopy.APIKeyEnv]
+			if capacity == 0 {
+				capacity = 50 // Default
+				r.ProviderCapacity[mCopy.APIKeyEnv] = capacity
+			}
+			
+			if r.ProviderInFlight[mCopy.APIKeyEnv] >= capacity {
+				// Provider is currently at max predictive capacity, skip to prevent 429
+				continue
+			}
+
 			prob, exists := r.Matrix[agentID][mCopy.Key()]
 			if !exists {
 				prob = 0.90 // Optimistic prior for cold starts
@@ -148,6 +194,11 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 	if len(capable) == 0 {
 		for _, m := range AvailableModels {
 			if m.Enabled {
+				// Still respect predictive limits on fallback
+				capacity := r.ProviderCapacity[m.APIKeyEnv]
+				if capacity > 0 && r.ProviderInFlight[m.APIKeyEnv] >= capacity {
+					continue
+				}
 				capable = append(capable, m)
 			}
 		}
@@ -190,6 +241,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 	bestModel := &capable[idx]
 
 	r.inFlight[taskID] = bestModel.Key()
+	r.ProviderInFlight[bestModel.APIKeyEnv]++
 	r.Logger.Info("Model routed", "agent_id", agentID, "model_key", bestModel.Key(), "effort_tier", effortTier, "capability", bestModel.Capability)
 	return bestModel
 }
@@ -204,6 +256,19 @@ func (r *ModelRouter) TrackForcedModel(taskID string, modelKey string) {
 // PenalizeProvider globally disables all models that use the given apiKeyEnv across the entire application, and re-enables them after a 60-second cooldown.
 func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
 	r.mu.Lock()
+	
+	// Multiplicative Decrease (AIMD)
+	capacity := r.ProviderCapacity[apiKeyEnv]
+	if capacity == 0 {
+		capacity = 50
+	}
+	newCapacity := capacity / 2
+	if newCapacity < 1 {
+		newCapacity = 1
+	}
+	r.ProviderCapacity[apiKeyEnv] = newCapacity
+	r.Logger.Info("AIMD Capacity Halved due to 429", "api_key_env", apiKeyEnv, "old", capacity, "new", newCapacity)
+
 	count := 0
 	for i := range AvailableModels {
 		if AvailableModels[i].APIKeyEnv == apiKeyEnv && AvailableModels[i].Enabled {
