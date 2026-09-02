@@ -32,3 +32,14 @@ A fatal flaw in standard orchestration RAG is "chunk dumping"—where the orches
 This violates Context Density principles. Raw chunks often contain boilerplate imports, licensing comments, or half-cut logic.
 
 The `rag-agent` acts as a middleman. It performs the vector query (`top_k=5`), reads the raw chunks, and then uses a rapid `litellm` ReAct loop to **synthesize** the data. The final output passed to the orchestrator is a compressed, human-readable summary of the exact logic requested, effectively compressing 10,000 tokens of raw retrieval down to 500 tokens of pure signal.
+
+## 5. Pre-Flight Predictive Compression (The 3-Stage Heuristic)
+While the `rag-agent` handles explicit codebase queries, downstream execution agents can still suffer catastrophic `400 Token Limit Exceeded` failures if the orchestrator passes them too much upstream history or a massive IDE context.
+
+To prevent this, the `hermes.py` meta-scaffolder dynamically injects a **Pre-Flight Predictive Compression** interceptor into every Python worker. Right before a prompt is sent to `litellm`, the worker mathematically counts the exact token size. If the payload consumes >85% of the model's safe capacity, it triggers a 3-Stage heuristic fallback:
+
+- **Stage 1 (Light Compression):** The agent strips the raw workspace directory tree mapping, saving thousands of tokens on large repositories. The agent can still use `list_dir` if it needs to navigate.
+- **Stage 2 (Medium Compression):** The agent aggressively truncates the historical prompt iterations down to the last 1500 characters, maintaining only immediate short-term memory.
+- **Stage 3 (Heavy Compression):** The agent engages a **Middle-Out** truncation algorithm on the upstream context payload. It mathematically reserves 20% of the remaining token budget for the beginning of the text, and 80% for the end, completely gutting the middle of the payload. (LLMs natively suffer from "Lost in the Middle" syndrome, so preserving the edges retains the highest density of useful signal).
+
+This algorithmic guarantee ensures that the HyperParallel DAG *never* crashes from an accidental token overflow, even when dynamically shifting between an OpenAI 128k context model and a local Ollama 8k context model on the fly.
