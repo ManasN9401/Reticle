@@ -251,24 +251,19 @@ func (r *ModelRouter) TrackForcedModel(taskID string, modelKey string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.inFlight[taskID] = modelKey
+
+	for _, m := range AvailableModels {
+		if m.Key() == modelKey {
+			r.ProviderInFlight[m.APIKeyEnv]++
+			break
+		}
+	}
 }
 
 // PenalizeProvider globally disables all models that use the given apiKeyEnv across the entire application, and re-enables them after a 60-second cooldown.
 func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
 	r.mu.Lock()
 	
-	// Multiplicative Decrease (AIMD)
-	capacity := r.ProviderCapacity[apiKeyEnv]
-	if capacity == 0 {
-		capacity = 50
-	}
-	newCapacity := capacity / 2
-	if newCapacity < 1 {
-		newCapacity = 1
-	}
-	r.ProviderCapacity[apiKeyEnv] = newCapacity
-	r.Logger.Info("AIMD Capacity Halved due to 429", "api_key_env", apiKeyEnv, "old", capacity, "new", newCapacity)
-
 	count := 0
 	for i := range AvailableModels {
 		if AvailableModels[i].APIKeyEnv == apiKeyEnv && AvailableModels[i].Enabled {
@@ -279,6 +274,20 @@ func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
 	r.mu.Unlock()
 
 	if count > 0 {
+		r.mu.Lock()
+		// Multiplicative Decrease (AIMD)
+		capacity := r.ProviderCapacity[apiKeyEnv]
+		if capacity == 0 {
+			capacity = 50
+		}
+		newCapacity := capacity / 2
+		if newCapacity < 1 {
+			newCapacity = 1
+		}
+		r.ProviderCapacity[apiKeyEnv] = newCapacity
+		r.mu.Unlock()
+		
+		r.Logger.Info("AIMD Capacity Halved due to 429", "api_key_env", apiKeyEnv, "old", capacity, "new", newCapacity)
 		r.Logger.Info("Provider penalized globally for ALL agents (60s cooldown)", "api_key_env", apiKeyEnv, "models_disabled", count)
 		
 		// Launch recovery timer
