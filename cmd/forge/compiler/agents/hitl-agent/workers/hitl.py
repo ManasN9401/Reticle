@@ -69,11 +69,15 @@ FEEDBACK:
         status = "PENDING"
         feedback = ""
         
-        for line in current_content.split("\n"):
-            if line.startswith("STATUS:"):
-                status = line.split("STATUS:")[1].strip().upper()
-            if line.startswith("FEEDBACK:"):
-                feedback = line.split("FEEDBACK:")[1].strip()
+        if "STATUS:" in current_content:
+            try:
+                status_line = [l for l in current_content.split("\n") if l.startswith("STATUS:")][0]
+                status = status_line.split("STATUS:")[1].strip().upper()
+            except IndexError:
+                pass
+                
+        if "FEEDBACK:" in current_content:
+            feedback = current_content.split("FEEDBACK:")[1].strip()
                 
         if status == "APPROVED":
             emit_log("Human Authorized: APPROVED. Continuing DAG execution.")
