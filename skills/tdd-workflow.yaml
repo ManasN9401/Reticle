@@ -1,0 +1,6 @@
+id: "tdd-workflow"
+name: "Test-Driven Development Workflow"
+version: "1.0.0"
+description: "Enforces test-driven development with high coverage across unit, integration, and E2E tests."
+dependencies: []
+env_vars: []

@@ -1,0 +1,6 @@
+id: "security-review"
+name: "Security Review Patterns"
+version: "1.0.0"
+description: "Security checklist and patterns for authentication, user input, and sensitive endpoints."
+dependencies: []
+env_vars: []

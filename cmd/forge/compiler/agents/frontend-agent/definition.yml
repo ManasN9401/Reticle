@@ -1,0 +1,14 @@
+id: "frontend-agent"
+name: "Frontend Designer"
+description: "Builds modern, interactive web applications and UI/UX using frontend technologies and local asset generation."
+worker:
+  command: "python"
+  args: ["{AGENT_DIR}/workers/frontend.py"]
+capabilities:
+  - "html"
+  - "css"
+  - "javascript"
+  - "react"
+  - "asset-generation"
+required_skills:
+  - "frontend-uiux"

@@ -1,0 +1,6 @@
+id: "coding-standards"
+name: "Universal Coding Standards"
+version: "1.0.0"
+description: "Universal coding standards, best practices, and patterns for safe and clean development."
+dependencies: []
+env_vars: []

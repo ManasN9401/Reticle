@@ -1,0 +1,6 @@
+id: "backend-patterns"
+name: "Backend Architecture Patterns"
+version: "1.0.0"
+description: "Backend architecture patterns, API design, database optimization, and server-side best practices."
+dependencies: []
+env_vars: []

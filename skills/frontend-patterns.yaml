@@ -1,0 +1,6 @@
+id: "frontend-patterns"
+name: "Frontend Development Patterns"
+version: "1.0.0"
+description: "Frontend development patterns, state management, performance optimization, and UI best practices."
+dependencies: []
+env_vars: []
