@@ -461,9 +461,9 @@ def main():
         def build_messages(t_txt, hist, upstr):
             umsg = ""
             if ide_context:
-                umsg += f"## IDE Context\\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\\n{ide_context}\\n\\n"
+                umsg += f"## IDE Context\\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\\n{{ide_context}}\\n\\n"
             if hist:
-                umsg += f"## Previous Iterations History\\nThis task is a continuation of previous work. Here is the history of previous prompts in this group:\\n{hist}\\n\\n"
+                umsg += f"## Previous Iterations History\\nThis task is a continuation of previous work. Here is the history of previous prompts in this group:\\n{{hist}}\\n\\n"
             umsg += "## User's Goal\\n" + user_prompt + "\\n"
             if upstr:
                 umsg += "\\n## Context From Previous Agents\\n" + upstr
