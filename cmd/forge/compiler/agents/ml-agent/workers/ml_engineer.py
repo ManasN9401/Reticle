@@ -45,8 +45,8 @@ def main():
     # Pre-flight Hardware Warning
     warnings = ""
     if not allow_native_execution:
-        warnings = "CRITICAL WARNING: `allow_native_execution` is FALSE. You are running in an isolated Docker sandbox without GPU passthrough! Any PyTorch training scripts you execute here will fallback to the CPU and fail or take weeks. You MUST write your code safely and instruct the user to run the final script on their host machine, OR ask them to enable native execution."
-        print(f"\n[WARNING] ML Agent detected Docker isolation. GPU passthrough is unavailable. PyTorch will default to CPU.", file=sys.stderr)
+        warnings = "CRITICAL WARNING: `allow_native_execution` is FALSE. You are running in an isolated Docker sandbox without GPU passthrough (which usually requires `--gpus all`). Any PyTorch training scripts you execute here will fallback to the CPU. If you execute a training run here, you MUST artificially limit the dataset (e.g. 100 samples) and train for EXACTLY 1 epoch to prevent freezing the orchestrator. For full runs, instruct the user to run the script natively on their host machine."
+        print(f"\n[WARNING] ML Agent detected Docker isolation without GPU passthrough. PyTorch will default to CPU. To use your GPU, you must run the generated scripts natively on your host machine.", file=sys.stderr)
 
     # Build ReAct Context
     sys_prompt = "You are a Senior Machine Learning Engineer. " + warnings + """
@@ -65,14 +65,68 @@ When finished, call `mark_task_complete` with a summary of the scripts you gener
             upstream_context += f"### From {inp_name}:\n{str(inp_data)[:3000]}\n\n"
             
     user_prompt = mem.get("user_prompt", "Perform an ML Engineering task.")
-    user_msg = f"## User's Goal\n{user_prompt}\n"
-    if upstream_context:
-        user_msg += f"\n## Context From Previous Agents\n{upstream_context}"
+    ide_context = mem.get("ide_context", "")
+    prompt_history = mem.get("prompt_history", "")
+    
+    def build_messages(hist, upstr):
+        umsg = ""
+        if ide_context:
+            umsg += f"## IDE Context\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\n{ide_context}\n\n"
+        if hist:
+            umsg += f"## Previous Iterations History\nThis task is a continuation of previous work. Here is the history of previous prompts in this group:\n{hist}\n\n"
+        umsg += f"## User's Goal\n{user_prompt}\n"
+        if upstr:
+            umsg += f"\n## Context From Previous Agents\n{upstr}"
+        return [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": umsg}
+        ]
 
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": user_msg}
-    ]
+    messages = build_messages(prompt_history, upstream_context)
+
+    # Dynamic Context Compression (4-Stage Heuristic)
+    try:
+        from litellm import token_counter, get_max_tokens
+        max_tokens = get_max_tokens(llm_model)
+        if not max_tokens:
+            max_tokens = 8192
+        
+        curr_tokens = token_counter(model=llm_model, messages=messages)
+        # Stage 1: Handled by skipping Workspace Tree (not present in ML agent by default)
+        
+        if curr_tokens > max_tokens * 0.85:
+            print(f"[LLM] Context overflow detected ({curr_tokens} > {int(max_tokens * 0.85)}). Stage 2 Compression: Truncating Prompt History...", file=sys.stderr)
+            trunc_hist = prompt_history[-1500:] if len(prompt_history) > 1500 else prompt_history
+            messages = build_messages(trunc_hist, upstream_context)
+            curr_tokens = token_counter(model=llm_model, messages=messages)
+            
+        if curr_tokens > max_tokens * 0.85:
+            print(f"[LLM] Still overflowing ({curr_tokens}). Stage 3 Compression: Middle-Out truncation on Upstream Context...", file=sys.stderr)
+            base_tokens = token_counter(model=llm_model, messages=build_messages(trunc_hist, ""))
+            allowed_upstr_tokens = (max_tokens * 0.85) - base_tokens
+            if allowed_upstr_tokens < 100: allowed_upstr_tokens = 100
+            allowed_chars = int(allowed_upstr_tokens * 3.5)
+            
+            if len(upstream_context) > allowed_chars:
+                keep_front = int(allowed_chars * 0.20)
+                keep_back = int(allowed_chars * 0.80)
+                trunc_upstr = upstream_context[:keep_front] + "\n...[CONTENT TRUNCATED FOR CONTEXT LIMIT]...\n" + upstream_context[-keep_back:]
+            else:
+                trunc_upstr = upstream_context[:allowed_chars]
+                
+            messages = build_messages(trunc_hist, trunc_upstr)
+            curr_tokens = token_counter(model=llm_model, messages=messages)
+            
+        if curr_tokens > max_tokens * 0.85:
+            print(f"[LLM] Still overflowing ({curr_tokens}). Stage 4 Compression: Stripping IDE Context...", file=sys.stderr)
+            ide_context = ""
+            messages = build_messages(trunc_hist, trunc_upstr)
+            curr_tokens = token_counter(model=llm_model, messages=messages)
+            
+        print(f"[LLM] Compression successful. Final tokens: {curr_tokens}", file=sys.stderr)
+            
+    except Exception as e:
+        print(f"[LLM] Warning: Dynamic context compression failed: {e}", file=sys.stderr)
 
     @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=2, min=5, max=120))
     def do_completion(messages):

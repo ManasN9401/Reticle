@@ -186,7 +186,8 @@ func (d *Dispatcher) Start() {
 			}
 
 			// All attempts exhausted
-			d.Logger.Error("Worker execution finally failed", "worker_id", w.ID, "reason", lastFailure.Reason, "stderr", lastFailure.Stderr)
+			d.Logger.Error("Worker execution aborted after exhausting all retries. The task could not complete successfully.", "worker_id", w.ID)
+			d.Logger.Error("TROUBLESHOOTING: If the logs show repeated 429 Quota Exceeded errors, your API keys are out of credits or being throttled. Please check your provider billing dashboards or add new API keys to your environment.", "worker_id", w.ID)
 			d.Bus.Publish(events.EventType("WorkerFailed"), events.Component("dispatcher"), map[string]any{
 				"task_id":   string(t.ID),
 				"worker_id": w.ID,
