@@ -12,8 +12,9 @@ This RFC introduces **Smart Predictive Rate Limiting** using the **AIMD (Additiv
 The `routing.ModelRouter` has been expanded to act as a localized token bucket that tracks `ProviderCapacity` and `ProviderInFlight` requests per API Key environment (e.g., `OPENAI_API_KEY`).
 
 ### 2.1 The "Smart" Learning Algorithm
-The router assumes no predetermined capacity limits. It starts at an optimistic default of 50 concurrent requests.
-- **Additive Increase (Cautious Push):** When a worker completes a task successfully, the router checks if the provider was operating near its ceiling (i.e., using >= 50% of the theoretical capacity). If so, it cautiously nudges the capacity ceiling up by `+1` (capped at 200). This guarantees we never artificially constrain a paid-tier user.
+The router assumes no predetermined capacity limits for cloud providers, starting at an optimistic default of 50 concurrent requests. For local/self-hosted models (e.g., Ollama), the router defaults to a highly conservative capacity of `2` to prevent physical hardware exhaustion (VRAM thrashing).
+
+- **Additive Increase (Cautious Push):** When a worker completes a task successfully, the router checks if the provider was operating near its ceiling (i.e., using >= 50% of the theoretical capacity). If so, it cautiously nudges the capacity ceiling up by `+1` (capped at 200). This guarantees we never artificially constrain a paid-tier user, and allows local models to scale up if the hardware allows (e.g. multi-GPU rigs).
 - **Multiplicative Decrease (Instant Protection):** If a worker triggers a `429 Rate Limit` penalty via the `PenalizeProvider` method, the orchestrator instantly divides the provider's `ProviderCapacity` by 2 (minimum 1). 
 - **Death-Spiral Prevention:** To prevent concurrent 429s (from multiple in-flight requests failing at once) from repeatedly halving the capacity down to 1, the Multiplicative Decrease is locked to execute only once per penalty window.
 

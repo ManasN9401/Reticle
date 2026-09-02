@@ -436,17 +436,6 @@ def main():
         user_prompt = mem.get("user_prompt", "Complete your assigned task.")
         ide_context = mem.get("ide_context", "")
         prompt_history = mem.get("prompt_history", "")
-        
-        user_msg = ""
-        if ide_context:
-            user_msg += f"## IDE Context\\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\\n{{ide_context}}\\n\\n"
-        
-        if prompt_history:
-            user_msg += f"## Previous Iterations History\\nThis task is a continuation of previous work. Here is the history of previous prompts in this group:\\n{{prompt_history}}\\n\\n"
-            
-        user_msg += "## User's Goal\\n" + user_prompt + "\\n"
-        if upstream_context:
-            user_msg += "\\n## Context From Previous Agents\\n" + upstream_context
             
         def build_tree(dir_path, prefix=""):
             if not os.path.exists(dir_path):
@@ -459,7 +448,7 @@ def main():
                     path = os.path.join(dir_path, entry)
                     is_last = (i == len(entries) - 1)
                     connector = "└── " if is_last else "├── "
-                    tree_str += f"{{prefix}}{{connector}}{{entry}}\\n"
+                    tree_str += f"{prefix}{connector}{entry}\\n"
                     if os.path.isdir(path):
                         extension = "    " if is_last else "│   "
                         tree_str += build_tree(path, prefix=prefix + extension)
@@ -468,17 +457,70 @@ def main():
             return tree_str
             
         tree_txt = build_tree(os.path.join(workspace_dir, "src"))
-        if tree_txt.strip():
-            user_msg += "\\n## Workspace State\\nThe `src/` directory is automatically managed for you. Do not worry about creating it. Here is the current file tree of `src/`:\\n" + tree_txt + "\\n"
-        else:
-            user_msg += "\\n## Workspace State\\nThe `src/` directory is automatically managed for you. Do not worry about creating it. It is currently empty.\\n"
-            
-        user_msg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. You must maintain a standard project directory structure. Place source code inside the `src/` directory (e.g. `src/main.py`, `src/utils.py`) and top-level configs in the root. Use `read_file` to inspect existing files before modifying them. If you need to test your code using external libraries, you MUST run 'uv pip install --system <library>' using the 'execute_terminal_command' tool BEFORE running your script! Do not assume third-party packages are pre-installed."
         
-        messages = [
-            {{"role": "system", "content": {json.dumps(sys_prompt)}}},
-            {{"role": "user", "content": user_msg}}
-        ]
+        def build_messages(t_txt, hist, upstr):
+            umsg = ""
+            if ide_context:
+                umsg += f"## IDE Context\\nThe user currently has the following workspace context. Use this to infer what they are referring to (e.g., if they say 'this file' or 'this function'):\\n{ide_context}\\n\\n"
+            if hist:
+                umsg += f"## Previous Iterations History\\nThis task is a continuation of previous work. Here is the history of previous prompts in this group:\\n{hist}\\n\\n"
+            umsg += "## User's Goal\\n" + user_prompt + "\\n"
+            if upstr:
+                umsg += "\\n## Context From Previous Agents\\n" + upstr
+            if t_txt.strip():
+                umsg += "\\n## Workspace State\\nThe `src/` directory is automatically managed for you. Do not worry about creating it. Here is the current file tree of `src/`:\\n" + t_txt + "\\n"
+            else:
+                umsg += "\\n## Workspace State\\nThe `src/` directory is automatically managed for you. Do not worry about creating it. It is currently empty.\\n"
+            umsg += "\\n## Your Instructions\\nYou MUST use the `write_file` tool to save your work. You must maintain a standard project directory structure. Place source code inside the `src/` directory (e.g. `src/main.py`, `src/utils.py`) and top-level configs in the root. Use `read_file` to inspect existing files before modifying them. If you need to test your code using external libraries, you MUST run 'uv pip install --system <library>' using the 'execute_terminal_command' tool BEFORE running your script! Do not assume third-party packages are pre-installed."
+            
+            return [
+                {{"role": "system", "content": {json.dumps(sys_prompt)}}},
+                {{"role": "user", "content": umsg}}
+            ]
+        
+        messages = build_messages(tree_txt, prompt_history, upstream_context)
+        
+        # Dynamic Context Compression (RFC-037 Extension)
+        try:
+            from litellm import token_counter, get_max_tokens
+            max_tokens = get_max_tokens(model)
+            if not max_tokens:
+                max_tokens = 8192
+            
+            curr_tokens = token_counter(model=model, messages=messages)
+            if curr_tokens > max_tokens * 0.85:
+                print(f"[LLM] Context overflow detected ({curr_tokens} > {int(max_tokens * 0.85)}). Stage 1 Compression: Stripping Workspace Tree...", file=sys.stderr)
+                messages = build_messages("", prompt_history, upstream_context)
+                curr_tokens = token_counter(model=model, messages=messages)
+                
+            if curr_tokens > max_tokens * 0.85:
+                print(f"[LLM] Still overflowing ({curr_tokens}). Stage 2 Compression: Truncating Prompt History...", file=sys.stderr)
+                trunc_hist = prompt_history[-1500:] if len(prompt_history) > 1500 else prompt_history
+                messages = build_messages("", trunc_hist, upstream_context)
+                curr_tokens = token_counter(model=model, messages=messages)
+                
+            if curr_tokens > max_tokens * 0.85:
+                print(f"[LLM] Still overflowing ({curr_tokens}). Stage 3 Compression: Middle-Out truncation on Upstream Context...", file=sys.stderr)
+                # Calculate how many chars we need to lose. Assume 1 token ~= 3.5 chars for safety margin.
+                base_tokens = token_counter(model=model, messages=build_messages("", trunc_hist, ""))
+                allowed_upstr_tokens = (max_tokens * 0.85) - base_tokens
+                if allowed_upstr_tokens < 100: allowed_upstr_tokens = 100
+                allowed_chars = int(allowed_upstr_tokens * 3.5)
+                
+                if len(upstream_context) > allowed_chars:
+                    # Middle-Out: Keep the first 20% and the last 80% of the ALLOWED chars
+                    keep_front = int(allowed_chars * 0.20)
+                    keep_back = int(allowed_chars * 0.80)
+                    trunc_upstr = upstream_context[:keep_front] + "\\n...[CONTENT TRUNCATED FOR CONTEXT LIMIT]...\\n" + upstream_context[-keep_back:]
+                else:
+                    trunc_upstr = upstream_context[:allowed_chars]
+                    
+                messages = build_messages("", trunc_hist, trunc_upstr)
+                curr_tokens = token_counter(model=model, messages=messages)
+                print(f"[LLM] Compression successful. Final tokens: {curr_tokens}", file=sys.stderr)
+                
+        except Exception as e:
+            print(f"[LLM] Warning: Dynamic context compression failed: {e}", file=sys.stderr)
         
         files_modified = {{}}
         memory_mutations = []

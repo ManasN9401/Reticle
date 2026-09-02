@@ -112,6 +112,9 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 			capacity := r.ProviderCapacity[provider]
 			if capacity == 0 {
 				capacity = 50 // Default starting capacity
+				if provider == "" || strings.Contains(strings.ToLower(provider), "ollama") || strings.Contains(strings.ToLower(provider), "local") {
+					capacity = 2
+				}
 			}
 			// Only push capacity up if we are actually constrained (using at least 50% of the ceiling)
 			if float64(r.ProviderInFlight[provider]) >= float64(capacity) * 0.5 {
@@ -168,6 +171,9 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 			capacity := r.ProviderCapacity[mCopy.APIKeyEnv]
 			if capacity == 0 {
 				capacity = 50 // Default
+				if mCopy.APIKeyEnv == "" || strings.Contains(strings.ToLower(mCopy.APIKeyEnv), "ollama") || strings.Contains(strings.ToLower(mCopy.APIKeyEnv), "local") {
+					capacity = 2
+				}
 				r.ProviderCapacity[mCopy.APIKeyEnv] = capacity
 			}
 			
@@ -279,6 +285,9 @@ func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
 		capacity := r.ProviderCapacity[apiKeyEnv]
 		if capacity == 0 {
 			capacity = 50
+			if apiKeyEnv == "" || strings.Contains(strings.ToLower(apiKeyEnv), "ollama") || strings.Contains(strings.ToLower(apiKeyEnv), "local") {
+				capacity = 2
+			}
 		}
 		newCapacity := capacity / 2
 		if newCapacity < 1 {
