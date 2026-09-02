@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hyperparallel/runtime/logger"
@@ -29,9 +30,11 @@ func (m Model) Key() string {
 	return m.ID
 }
 
-var AvailableModels = []Model{}
-
-var LockedKeys []string // Tracks API keys that are rate limited or free-tier only
+var (
+	AvailableModels []Model
+	LockedKeys      []string // Tracks API keys that are rate limited or free-tier only
+	ModelsMutex     sync.RWMutex
+)
 
 func estimateCapability(id string) float64 {
 	lower := strings.ToLower(id)
@@ -58,8 +61,8 @@ func estimateCapability(id string) float64 {
 
 // FetchAvailableModels fetches and parses available models dynamically.
 func FetchAvailableModels(log *logger.Logger, loadAll bool) {
-	AvailableModels = make([]Model, 0)
-	LockedKeys = make([]string, 0)
+	newAvailableModels := make([]Model, 0)
+	newLockedKeys := make([]string, 0)
 	
 	premiumKeywords := []string{
 		"llama-3.3-70b", "llama-3.1-70b", "llama-3.1-405b", "llama-3-70b",
@@ -138,7 +141,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		}
 		
 		if isFreeKey {
-			LockedKeys = append(LockedKeys, envKey)
+			newLockedKeys = append(newLockedKeys, envKey)
 		}
 
 		added := 0
@@ -168,7 +171,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 				}
 			}
 
-			AvailableModels = append(AvailableModels, Model{
+			newAvailableModels = append(newAvailableModels, Model{
 				ID:         "openrouter/" + m.ID,
 				Cost:       cost,
 				Capability: estimateCapability(m.ID),
@@ -220,7 +223,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 							continue
 						}
 					}
-					AvailableModels = append(AvailableModels, Model{
+					newAvailableModels = append(newAvailableModels, Model{
 						ID:         "groq/" + m.ID,
 						Cost:       0.0, // Groq is currently free tier dominated
 						Capability: estimateCapability(m.ID),
@@ -232,7 +235,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			}
 			resp.Body.Close()
 		} else {
-			LockedKeys = append(LockedKeys, envKey)
+			newLockedKeys = append(newLockedKeys, envKey)
 			status := 0
 			if resp != nil {
 				status = resp.StatusCode
@@ -263,7 +266,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 				for _, m := range gemData.Models {
 					// m.Name is "models/gemini-1.5-flash"
 					id := strings.TrimPrefix(m.Name, "models/")
-					AvailableModels = append(AvailableModels, Model{
+					newAvailableModels = append(newAvailableModels, Model{
 						ID:         "gemini/" + id,
 						Cost:       2.0, // Fixed low cost
 						Capability: estimateCapability(id),
@@ -275,7 +278,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			}
 			resp.Body.Close()
 		} else {
-			LockedKeys = append(LockedKeys, envKey)
+			newLockedKeys = append(newLockedKeys, envKey)
 			status := 0
 			if resp != nil {
 				status = resp.StatusCode
@@ -284,8 +287,13 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		}
 	}
 
-	if len(AvailableModels) == 0 {
+	if len(newAvailableModels) == 0 {
 		log.Error("Failed to load any dynamic models, falling back to defaults")
-		AvailableModels = defaultModels
+		newAvailableModels = defaultModels
 	}
+	
+	ModelsMutex.Lock()
+	AvailableModels = newAvailableModels
+	LockedKeys = newLockedKeys
+	ModelsMutex.Unlock()
 }

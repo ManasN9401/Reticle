@@ -3,6 +3,7 @@ import sys
 import json
 import time
 import uuid
+import re
 
 def emit_log(msg):
     print(f"[TOOL] {msg}", flush=True)
@@ -69,15 +70,13 @@ FEEDBACK:
         status = "PENDING"
         feedback = ""
         
-        if "STATUS:" in current_content:
-            try:
-                status_line = [l for l in current_content.split("\n") if l.startswith("STATUS:")][0]
-                status = status_line.split("STATUS:")[1].strip().upper()
-            except IndexError:
-                pass
-                
-        if "FEEDBACK:" in current_content:
-            feedback = current_content.split("FEEDBACK:")[1].strip()
+        status_match = re.search(r'(?i)status:\s*(.+)', current_content)
+        if status_match:
+            status = status_match.group(1).strip().upper()
+            
+        feedback_match = re.search(r'(?i)feedback:\s*(.*)', current_content, re.DOTALL)
+        if feedback_match:
+            feedback = feedback_match.group(1).strip()
                 
         if status == "APPROVED":
             emit_log("Human Authorized: APPROVED. Continuing DAG execution.")

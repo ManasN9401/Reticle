@@ -95,12 +95,14 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 	}
 
 	var provider string
+	ModelsMutex.RLock()
 	for _, m := range AvailableModels {
 		if m.Key() == modelID {
 			provider = m.APIKeyEnv
 			break
 		}
 	}
+	ModelsMutex.RUnlock()
 	
 	if provider != "" {
 		if r.ProviderInFlight[provider] > 0 {
@@ -160,6 +162,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 	}
 
 	var capable []Model
+	ModelsMutex.RLock()
 	for _, m := range AvailableModels {
 		if !m.Enabled {
 			continue
@@ -195,9 +198,11 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 			capable = append(capable, mCopy)
 		}
 	}
+	ModelsMutex.RUnlock()
 
 	// Fallback to all enabled models if none meet the strict required confidence
 	if len(capable) == 0 {
+		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
 			if m.Enabled {
 				// Still respect predictive limits on fallback
@@ -208,6 +213,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 				capable = append(capable, m)
 			}
 		}
+		ModelsMutex.RUnlock()
 	}
 	
 	if len(capable) == 0 {
@@ -258,6 +264,8 @@ func (r *ModelRouter) TrackForcedModel(taskID string, modelKey string) {
 	defer r.mu.Unlock()
 	r.inFlight[taskID] = modelKey
 
+	ModelsMutex.RLock()
+	defer ModelsMutex.RUnlock()
 	for _, m := range AvailableModels {
 		if m.Key() == modelKey {
 			r.ProviderInFlight[m.APIKeyEnv]++
@@ -271,12 +279,14 @@ func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
 	r.mu.Lock()
 	
 	count := 0
+	ModelsMutex.Lock()
 	for i := range AvailableModels {
 		if AvailableModels[i].APIKeyEnv == apiKeyEnv && AvailableModels[i].Enabled {
 			AvailableModels[i].Enabled = false
 			count++
 		}
 	}
+	ModelsMutex.Unlock()
 	r.mu.Unlock()
 
 	if count > 0 {
@@ -302,8 +312,8 @@ func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
 		// Launch recovery timer
 		go func() {
 			time.Sleep(60 * time.Second)
-			r.mu.Lock()
-			defer r.mu.Unlock()
+			ModelsMutex.Lock()
+			defer ModelsMutex.Unlock()
 			recovered := 0
 			for i := range AvailableModels {
 				if AvailableModels[i].APIKeyEnv == apiKeyEnv && !AvailableModels[i].Enabled {
@@ -318,8 +328,8 @@ func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
 
 // PenalizeModel globally disables a specific model across the entire application.
 func (r *ModelRouter) PenalizeModel(modelID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	ModelsMutex.Lock()
+	defer ModelsMutex.Unlock()
 
 	for i := range AvailableModels {
 		// match by ID or full key

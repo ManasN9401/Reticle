@@ -517,7 +517,14 @@ def main():
                     
                 messages = build_messages("", trunc_hist, trunc_upstr)
                 curr_tokens = token_counter(model=model, messages=messages)
-                print(f"[LLM] Compression successful. Final tokens: {curr_tokens}", file=sys.stderr)
+
+            if curr_tokens > max_tokens * 0.85:
+                print(f"[LLM] Still overflowing ({{curr_tokens}}). Stage 4 Compression: Stripping IDE Context...", file=sys.stderr)
+                ide_context = ""
+                messages = build_messages("", trunc_hist, trunc_upstr)
+                curr_tokens = token_counter(model=model, messages=messages)
+                
+            print(f"[LLM] Compression successful. Final tokens: {{curr_tokens}}", file=sys.stderr)
                 
         except Exception as e:
             print(f"[LLM] Warning: Dynamic context compression failed: {e}", file=sys.stderr)
