@@ -1,6 +1,6 @@
-# HyperParallel Orchestrator
+# Reticle Orchestrator
 
-HyperParallel is an ultra-high performance, polyglot agent orchestration framework designed for massive concurrency. It provides an execution runtime and an autonomous compiler (`forge.exe`) that dynamically provisions and executes swarms of agents tailored to any given prompt.
+Reticle is an ultra-high performance, polyglot agent orchestration framework designed for massive concurrency. It provides an execution runtime and an autonomous compiler (`forge.exe`) that dynamically provisions and executes swarms of agents tailored to any given prompt.
 
 ## Core Features
 
@@ -15,7 +15,7 @@ HyperParallel is an ultra-high performance, polyglot agent orchestration framewo
 
 ## Architecture
 
-HyperParallel consists of two primary systems:
+Reticle consists of two primary systems:
 
 ### 1. The Runtime Engine
 Located in `runtime/`, the Go orchestrator manages the lifecycle, event bus, and execution of DAGs.

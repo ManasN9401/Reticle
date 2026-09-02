@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/logger"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/logger"
 )
 
 // SubscriptionManager evaluates EventBus events against registered Subscriptions.

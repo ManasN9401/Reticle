@@ -1,0 +1,15 @@
+id: workflow_exec-001
+name: Simple Python Unit Test Workflow
+version: 1.0.0
+nodes:
+  - id: node-math-gen
+    agent: math-utils-generator
+    parameters:
+      llm_model: gemini/gemini-3.5-flash
+  - id: node-test-writer
+    agent: test-writer
+    parameters:
+      llm_model: gemini/gemini-3.5-flash
+edges:
+  - from: node-math-gen
+    to: node-test-writer

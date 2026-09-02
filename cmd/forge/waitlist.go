@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hyperparallel/runtime/agent"
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/memory"
-	"github.com/hyperparallel/runtime/orchestrator"
-	"github.com/hyperparallel/runtime/routing"
+	"github.com/reticle/runtime/agent"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/memory"
+	"github.com/reticle/runtime/orchestrator"
+	"github.com/reticle/runtime/routing"
 )
 
 type ExecutionStatus string
@@ -100,14 +100,14 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 					sessionID := strings.TrimPrefix(execID, "compile-")
 					
 					// Load any dynamically generated agents first
-					agentDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", sessionID, "agents"))
+					agentDir, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", sessionID, "agents"))
 					wm.registry.LoadAgents(agentDir)
 					newWorkers := wm.registry.BuildWorkers(wm.orchestrator.Logger, wm.orchestrator.Bus, wm.envManager)
 					for _, w := range newWorkers {
 						wm.dispatcher.RegisterWorker(w)
 					}
 					
-					wfDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", sessionID, "workflows"))
+					wfDir, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", sessionID, "workflows"))
 					loadErr := wm.registry.LoadWorkflows(wfDir)
 					if loadErr == nil {
 						wfName := "workflow_" + sessionID
@@ -129,7 +129,7 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 					exec.Command("docker", "rm", "-f", containerName).Run()
 					
 					// Dump artifacts to the workspace directory
-					srcDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", execID))
+					srcDir, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", execID))
 					workspaceDir := filepath.Dir(wm.filePath)
 					dstDir := filepath.Join(workspaceDir, execID)
 					if entries, err := os.ReadDir(srcDir); err == nil {
@@ -449,8 +449,8 @@ func (wm *WaitlistManager) Pump() {
 			
 			// If we found a previous execution, copy its project files to inherit code
 			if prevExecID != "" {
-				prevSessionDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", prevExecID))
-				newSessionDir, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", item.ID))
+				prevSessionDir, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", prevExecID))
+				newSessionDir, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", item.ID))
 				if entries, err := os.ReadDir(prevSessionDir); err == nil {
 					for _, entry := range entries {
 						if entry.Name() == "agents" || entry.Name() == "workflows" {
@@ -524,7 +524,7 @@ func (wm *WaitlistManager) Pump() {
 			}
 			
 			// Inject workspace_dir for this execution (and its compiler phase)
-			isolatedWorkspacePath, _ := filepath.Abs(filepath.Join("../../", ".hyperparallel", "sessions", item.ID))
+			isolatedWorkspacePath, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", item.ID))
 			os.MkdirAll(isolatedWorkspacePath, 0755)
 
 			// Process Attachments

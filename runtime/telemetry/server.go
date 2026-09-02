@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/routing"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/routing"
 )
 
 //go:embed ui/*
@@ -61,7 +61,7 @@ func (s *Server) Start() error {
 	})
 	
 	// Serve artifacts from the isolated sessions via generic HTTP
-	hyperFS := http.FileServer(http.Dir(filepath.Join(s.rootDir, ".hyperparallel", "sessions")))
+	hyperFS := http.FileServer(http.Dir(filepath.Join(s.rootDir, ".reticle", "sessions")))
 	http.HandleFunc("/artifacts/", func(w http.ResponseWriter, r *http.Request) {
 		http.StripPrefix("/artifacts/", hyperFS).ServeHTTP(w, r)
 	})
@@ -74,7 +74,7 @@ func (s *Server) Start() error {
 			return
 		}
 
-		srcDir := filepath.Join(s.rootDir, ".hyperparallel", "sessions", execID, "src")
+		srcDir := filepath.Join(s.rootDir, ".reticle", "sessions", execID, "src")
 		
 		type OutputFile struct {
 			Path    string `json:"path"`
@@ -117,7 +117,7 @@ func (s *Server) Start() error {
 			return
 		}
 
-		stagingDir := filepath.Join(s.rootDir, ".hyperparallel", "waitlist_staging")
+		stagingDir := filepath.Join(s.rootDir, ".reticle", "waitlist_staging")
 		os.MkdirAll(stagingDir, 0755)
 
 		type UploadedFile struct {

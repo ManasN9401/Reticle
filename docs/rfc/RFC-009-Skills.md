@@ -2,7 +2,7 @@
 
 Status: Stable
 Version: 1.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-03
 
 ---
@@ -34,7 +34,7 @@ Skills are first-class citizens. They define exactly what an agent needs to exec
 3. The Orchestrator must inject aggregated `env_vars` safely into the execution context (the `os.Environ()` wrapper) of the worker sandbox.
 
 ## 7. Rationale
-By utilizing an `EnvironmentManager` to dynamically provision `.hyperparallel/envs/<agent_id>` sandboxes, we ensure that dependencies (like pip packages) are isolated per-agent. This prevents version conflicts between agents that might require different versions of the same library.
+By utilizing an `EnvironmentManager` to dynamically provision `.reticle/envs/<agent_id>` sandboxes, we ensure that dependencies (like pip packages) are isolated per-agent. This prevents version conflicts between agents that might require different versions of the same library.
 
 ## 8. Trade-offs
 - Creating virtual environments and installing dependencies at runtime (JIT provisioning) introduces a startup delay on the first execution. However, this is mitigated by caching the environments.

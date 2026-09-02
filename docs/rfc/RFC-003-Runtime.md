@@ -2,16 +2,16 @@
 
 Status: Stable
 Version: 1.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-03
 
 ---
 
 ## 1. Purpose
-This document defines the architecture and design philosophy of the HyperParallel Runtime Orchestrator. It serves as the blueprint for how the orchestrator manages execution lifecycles, event communication, and component registration.
+This document defines the architecture and design philosophy of the Reticle Runtime Orchestrator. It serves as the blueprint for how the orchestrator manages execution lifecycles, event communication, and component registration.
 
 ## 2. Motivation
-Traditional workflow engines often tightly couple the orchestration logic with the execution logic, leading to rigid, hard-to-maintain systems. HyperParallel requires an orchestrator capable of coordinating thousands of concurrent, highly-isolated worker processes dynamically without creating massive dependency graphs.
+Traditional workflow engines often tightly couple the orchestration logic with the execution logic, leading to rigid, hard-to-maintain systems. Reticle requires an orchestrator capable of coordinating thousands of concurrent, highly-isolated worker processes dynamically without creating massive dependency graphs.
 
 ## 3. Scope
 This RFC covers:

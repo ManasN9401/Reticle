@@ -1,6 +1,6 @@
 import re
 
-with open(r"d:\HyperParallel\cmd\forge\compiler\workers\scaffolder.py", "r", encoding="utf-8") as f:
+with open(r"d:\Reticle\cmd\forge\compiler\workers\scaffolder.py", "r", encoding="utf-8") as f:
     content = f.read()
 
 # 1. Remove file-writer-node from workflow_yaml_str
@@ -33,6 +33,6 @@ if start_idx != -1:
     if end_idx != -1:
         content = content[:start_idx] + content[end_idx+4:]
 
-with open(r"d:\HyperParallel\cmd\forge\compiler\workers\scaffolder.py", "w", encoding="utf-8") as f:
+with open(r"d:\Reticle\cmd\forge\compiler\workers\scaffolder.py", "w", encoding="utf-8") as f:
     f.write(content)
 print("Successfully patched scaffolder.py")

@@ -4,7 +4,7 @@
 **Date:** 2026-09-02
 
 ## 1. Introduction
-This RFC establishes a shared, canonical vocabulary for the HyperParallel Orchestrator Framework. Every future RFC and architectural decision MUST reference these exact definitions to ensure consistency across the ecosystem.
+This RFC establishes a shared, canonical vocabulary for the Reticle Orchestrator Framework. Every future RFC and architectural decision MUST reference these exact definitions to ensure consistency across the ecosystem.
 
 ## 2. Core Entities
 
@@ -21,7 +21,7 @@ A bundle of capabilities that extends the core Framework. Plugins group together
 An executable function exposed to an Agent. Tools bridge the LLM reasoning layer with the host operating system or external services (e.g., `execute_terminal_command`, `write_file`).
 
 ### 2.5. Supervisor
-A special class of Agent responsible for planning, task delegation, and graph construction. Supervisors do not perform work; they instruct Workers. (In HyperParallel, `architect-agent` and `planner-agent` act as temporary supervisors).
+A special class of Agent responsible for planning, task delegation, and graph construction. Supervisors do not perform work; they instruct Workers. (In Reticle, `architect-agent` and `planner-agent` act as temporary supervisors).
 
 ### 2.6. Worker
 An Agent assigned to execute a specific, bounded Task. Workers return Artifacts upon completion.
@@ -38,7 +38,7 @@ A collection of Tasks that together achieve a user's overarching goal.
 A Directed Acyclic Graph (DAG) representing the dependencies and parallel execution paths of Tasks within a Job. 
 
 ### 3.4. Session
-An isolated workspace environment created for a specific Job. Sessions prevent state clashing by sandboxing file mutations (e.g., `.hyperparallel/sessions/exec-001`).
+An isolated workspace environment created for a specific Job. Sessions prevent state clashing by sandboxing file mutations (e.g., `.reticle/sessions/exec-001`).
 
 ## 4. State & Data
 

@@ -1,6 +1,6 @@
 # Core Agents Index
 
-HyperParallel comes with a suite of built-in agents, each specialized in a distinct domain. These agents can be orchestrated together via Directed Acyclic Graphs (DAGs) to solve complex, multi-modal tasks.
+Reticle comes with a suite of built-in agents, each specialized in a distinct domain. These agents can be orchestrated together via Directed Acyclic Graphs (DAGs) to solve complex, multi-modal tasks.
 
 ## System Agents
 

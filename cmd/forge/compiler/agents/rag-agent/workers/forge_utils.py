@@ -15,7 +15,7 @@ except ImportError:
     emit_log("WARNING: chromadb not found. RAG tools will fail.")
 
 def get_chroma_client():
-    db_path = r"d:\HyperParallel\runtime\vector_db"
+    db_path = r"d:\Reticle\runtime\vector_db"
     os.makedirs(db_path, exist_ok=True)
     return chromadb.PersistentClient(path=db_path)
 

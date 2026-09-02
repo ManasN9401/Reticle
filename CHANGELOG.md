@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the HyperParallel Orchestrator Framework will be documented in this file.
+All notable changes to the Reticle Orchestrator Framework will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-08-04
 
 ### Added
-- **Telemetry UI**: Fully interactive Canvas-based Star Map for visualizing execution DAGs in real-time (`hyperparallel.exe -gui=true`).
+- **Telemetry UI**: Fully interactive Canvas-based Star Map for visualizing execution DAGs in real-time (`reticle.exe -gui=true`).
 - **Telemetry UI Controls**: Added drag-to-resize panel dividers, canvas panning, and scroll-wheel zooming for massive graph navigability.
 - **GraphEngine**: Replaced hardcoded orchestration with dynamic YAML-driven Directed Acyclic Graph (DAG) execution.
 - **Worker Fallbacks**: Implemented mock data fallback mechanisms inside python workers (`worker_llm.py`) to prevent massive DAGs from collapsing during LLM rate limits/API key failures.
@@ -30,5 +30,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `RFC-022`: Dashboard & Graph UI
   - `RFC-025`: Dynamic Workflow Compilation (Zero-Boilerplate orchestrator goals)
   - `RFC-026`: Worker Fault Tolerance & Stdout Protocol
-- **Dependency Sandboxing**: Added `.hyperparallel/envs/` directory for environment dependency isolation.
+- **Dependency Sandboxing**: Added `.reticle/envs/` directory for environment dependency isolation.
 - **Worker Communication**: Established the JSON-RPC STDIO IPC communication contract between Go runtime and Polyglot Workers.

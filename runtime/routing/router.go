@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/logger"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/logger"
 )
 
 // ModelRouter manages dynamic LLM selection using Bayesian utility estimates.

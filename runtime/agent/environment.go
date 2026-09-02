@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hyperparallel/runtime/logger"
+	"github.com/reticle/runtime/logger"
 )
 
 type EnvironmentManager struct {
@@ -17,11 +17,11 @@ type EnvironmentManager struct {
 	baseMu  sync.Mutex
 }
 
-// NewEnvironmentManager initializes an environment manager that stores venvs in <root>/.hyperparallel/envs
+// NewEnvironmentManager initializes an environment manager that stores venvs in <root>/.reticle/envs
 func NewEnvironmentManager(l *logger.Logger, rootDir string) *EnvironmentManager {
 	return &EnvironmentManager{
 		Logger:  l,
-		BaseDir: filepath.Join(rootDir, ".hyperparallel", "envs"),
+		BaseDir: filepath.Join(rootDir, ".reticle", "envs"),
 	}
 }
 

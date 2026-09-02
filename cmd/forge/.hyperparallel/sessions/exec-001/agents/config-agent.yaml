@@ -1,0 +1,6 @@
+id: config-agent
+name: "Configuration Designer"
+description: "Designs the game settings, screen dimensions, colors, and global speed constants."
+version: 1.0.0
+runtime: python
+entrypoint: workers/config-agent.py

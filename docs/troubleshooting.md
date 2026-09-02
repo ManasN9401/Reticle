@@ -1,4 +1,4 @@
-# HyperParallel Troubleshooting Guide
+# Reticle Troubleshooting Guide
 
 ## The Application Hangs During Execution
 **Symptom:** You run `forge.exe` and the telemetry UI stops updating. The terminal does not show any errors, but no new files are created in the workspace.
@@ -21,7 +21,7 @@
 ## API Key Locking & Free-Tier Quota Limits
 **Symptom:** The Telemetry UI shows API keys (like OpenRouter) as "Locked" at startup, or workflows instantly fail with `HTTP 429: You exceeded your current quota`.
 **Cause:** 
-1. **$0 Balance Lock:** If an OpenRouter API key has a $0.00 credit balance, HyperParallel detects this at startup and "locks" the key. A locked key is restricted to fetching only the completely free models (e.g., `glm-5.2:free`), which have extremely harsh global rate limits.
+1. **$0 Balance Lock:** If an OpenRouter API key has a $0.00 credit balance, Reticle detects this at startup and "locks" the key. A locked key is restricted to fetching only the completely free models (e.g., `glm-5.2:free`), which have extremely harsh global rate limits.
 2. **Groq Tool Calling:** Groq recently rotated their free tier models. Currently, their free models (e.g. `groq/compound`, `gpt-oss`) **do not support tool calling**. The orchestrator detects this and permanently disables them during workflows.
 3. **Cascading Failure:** Because Groq is disabled, 100% of the workflow load shifts to Gemini and OpenRouter free tiers. When running high-complexity DAGs (e.g. `agent_complexity=5`), dozens of agents launch simultaneously. This instantly triggers 429 Quota Exceeded errors on Gemini's 15 RPM limit and OpenRouter's free limits.
 **Fix:** 

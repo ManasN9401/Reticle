@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hyperparallel/runtime/agent"
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/memory"
-	"github.com/hyperparallel/runtime/orchestrator"
-	"github.com/hyperparallel/runtime/routing"
-	"github.com/hyperparallel/runtime/telemetry"
+	"github.com/reticle/runtime/agent"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/memory"
+	"github.com/reticle/runtime/orchestrator"
+	"github.com/reticle/runtime/routing"
+	"github.com/reticle/runtime/telemetry"
 )
 
 func loadEnv(rootDir string) {
@@ -152,7 +152,7 @@ func main() {
 	}
 
 	fmt.Println("==================================================")
-	fmt.Println("             HyperParallel Forge                  ")
+	fmt.Println("             Reticle Forge                  ")
 	fmt.Println("==================================================")
 	if *workspaceFlag != "" {
 		fmt.Printf("Loading Workspace: %s\n\n", *workspaceFlag)
@@ -167,7 +167,7 @@ func main() {
 
 	if *freshFlag {
 		fmt.Println("[INFO] Wiping all previous isolated sessions...")
-		os.RemoveAll(filepath.Join(rootDir, ".hyperparallel", "sessions"))
+		os.RemoveAll(filepath.Join(rootDir, ".reticle", "sessions"))
 		if *workspaceFlag != "" {
 			workspaceDir, _ := filepath.Abs(*workspaceFlag)
 			os.Remove(filepath.Join(workspaceDir, "waitlist.json"))
@@ -312,7 +312,7 @@ func main() {
 
 	if *isolatedFlag {
 		fmt.Println("\n[INFO] Orchestrator running in Session Isolation Mode")
-		fmt.Println("[INFO] Workspaces will be dynamically generated in .hyperparallel/sessions/")
+		fmt.Println("[INFO] Workspaces will be dynamically generated in .reticle/sessions/")
 	} else {
 		// Legacy Mode (Global Workspace)
 		fmt.Println("\n[INFO] Orchestrator running in Global Workspace Mode")

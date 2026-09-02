@@ -1,5 +1,5 @@
 """
-HyperParallel Worker Script
+Reticle Worker Script
 """
 import sys
 import json

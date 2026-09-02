@@ -1,7 +1,7 @@
 # RFC-039: Smart Predictive Rate Limiting
 
 ## 1. Overview
-As HyperParallel executes highly concurrent Directed Acyclic Graphs (DAGs) across numerous external API providers (Groq, OpenAI, Anthropic), blindly dispatching requests can trigger `429 Quota Exceeded` errors. This wastes tokens, loses progress, and destabilizes the graph. 
+As Reticle executes highly concurrent Directed Acyclic Graphs (DAGs) across numerous external API providers (Groq, OpenAI, Anthropic), blindly dispatching requests can trigger `429 Quota Exceeded` errors. This wastes tokens, loses progress, and destabilizes the graph. 
 
 However, hardcoding rate limits per provider (e.g., assuming a 30 RPM limit) causes **false rate limiting**, punishing users on higher paid tiers. 
 

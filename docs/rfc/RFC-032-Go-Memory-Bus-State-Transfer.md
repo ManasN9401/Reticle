@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-HyperParallel features a bifurcated architecture: the orchestrator and WebSocket engine are written in high-performance Go (`forge.exe`), while the intelligent agents and workflow definitions are executed via Python subprocesses. The orchestrator needs a robust way to pass state (user prompts, active workspace paths, environment variables) to the Python workers without relying on hardcoded file paths or fragile CLI arguments.
+Reticle features a bifurcated architecture: the orchestrator and WebSocket engine are written in high-performance Go (`forge.exe`), while the intelligent agents and workflow definitions are executed via Python subprocesses. The orchestrator needs a robust way to pass state (user prompts, active workspace paths, environment variables) to the Python workers without relying on hardcoded file paths or fragile CLI arguments.
 
 ## Proposal
 Leverage a generic JSON-based Memory Event Bus. 

@@ -236,7 +236,7 @@ if __name__ == "__main__":
         generated_files["workers/utils.py"] = utils_code.strip()
 '''
 
-with open(r"d:\HyperParallel\cmd\forge\compiler\workers\coder.py", "r", encoding="utf-8") as f:
+with open(r"d:\Reticle\cmd\forge\compiler\workers\coder.py", "r", encoding="utf-8") as f:
     orig = f.read()
 
 import re
@@ -253,6 +253,6 @@ else:
     # insert utils_code at top
     new_content = new_content.replace('import json\n\ndef main():', f'import json\n\n{utils_code_str}\n\ndef main():')
 
-    with open(r"d:\HyperParallel\cmd\forge\compiler\workers\coder.py", "w", encoding="utf-8") as f:
+    with open(r"d:\Reticle\cmd\forge\compiler\workers\coder.py", "w", encoding="utf-8") as f:
         f.write(new_content)
     print("Successfully patched coder.py")

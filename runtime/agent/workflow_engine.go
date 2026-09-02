@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/logger"
-	"github.com/hyperparallel/runtime/memory"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/logger"
+	"github.com/reticle/runtime/memory"
 )
 
 type GraphEngine struct {

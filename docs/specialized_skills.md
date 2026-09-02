@@ -1,6 +1,6 @@
-# HyperParallel Specialized Skills Guide
+# Reticle Specialized Skills Guide
 
-HyperParallel empowers agents to perform specialized tasks using pre-configured, production-grade instructions known as "skills." These skills provide strict methodological constraints, standard operating procedures, and automated tooling pathways to ensure agents operate at the highest possible quality.
+Reticle empowers agents to perform specialized tasks using pre-configured, production-grade instructions known as "skills." These skills provide strict methodological constraints, standard operating procedures, and automated tooling pathways to ensure agents operate at the highest possible quality.
 
 Skills are stored in the global `skills/` directory at the root of the project.
 
@@ -46,9 +46,9 @@ This skill guarantees that all technical documentation, research reports, and an
 
 You can add new skills at any time to extend the capabilities of the agents.
 
-1. Create a new directory in `d:\HyperParallel\skills\`.
+1. Create a new directory in `d:\Reticle\skills\`.
 2. Inside the new directory, create a `SKILL.md` file. Define the skill's methodology, constraints, and instructions in this markdown file.
-3. **CRITICAL:** Create a `<skill_name>.yaml` file directly in the `skills/` root directory (e.g. `skills/osint-investigation.yaml`). This file is strictly required by the HyperParallel registry to provision the Python environment with necessary dependencies.
+3. **CRITICAL:** Create a `<skill_name>.yaml` file directly in the `skills/` root directory (e.g. `skills/osint-investigation.yaml`). This file is strictly required by the Reticle registry to provision the Python environment with necessary dependencies.
    ```yaml
    id: "skill-id"
    name: "Skill Name"

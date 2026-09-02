@@ -2,13 +2,13 @@
 
 Status: Draft
 Version: 1.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-04
 
 ---
 
 ## 1. Purpose
-This document defines the "Zero-Boilerplate Orchestrator" capability, detailing how HyperParallel will transition from requiring bespoke Go scripts to accepting natural language prompts that dynamically compile into executed workflows.
+This document defines the "Zero-Boilerplate Orchestrator" capability, detailing how Reticle will transition from requiring bespoke Go scripts to accepting natural language prompts that dynamically compile into executed workflows.
 
 ## 2. Motivation
 In early iterations, developers had to write a `main.go` file to manually bootstrap the `GraphEngine`, configure the `TaskDispatcher`, and point to hardcoded YAML files. To make the orchestrator a truly ubiquitous CLI, it must abstract this boilerplate away.
@@ -30,9 +30,9 @@ The orchestrator should behave as a universal operating system for intelligence.
 
 ## 6. Architectural Laws
 1. A new `Compiler Agent` must sit between the user's CLI prompt and the `GraphEngine`.
-2. The `Compiler Agent` must output valid HyperParallel `Agent Definition Schema` and `Workflow Definition Schema` structures.
+2. The `Compiler Agent` must output valid Reticle `Agent Definition Schema` and `Workflow Definition Schema` structures.
 3. The orchestrator must parse the Compiler's output and dynamically instantiate the `GraphEngine` in memory.
-4. The universal entrypoint will be standard `hyperparallel` commands (e.g., `hyperparallel run -prompt "..."`).
+4. The universal entrypoint will be standard `reticle` commands (e.g., `reticle run -prompt "..."`).
 
 ## 7. Rationale
 By leveraging a meta-agent (the Compiler) to design the workflow, we achieve maximum flexibility. The orchestrator engine itself doesn't need to understand natural language—it only needs to execute the generated DAG. This maintains the strict isolation boundaries defined in RFC-003.

@@ -1,5 +1,5 @@
 """
-HyperParallel Worker Script
+Reticle Worker Script
 MANDATORY READING:
 - RFC-008: Agent Architecture
 - RFC-027: Worker Runtime Contract

@@ -4,11 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"sync"
-	"github.com/hyperparallel/runtime/agent"
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/orchestrator"
-	"github.com/hyperparallel/runtime/routing"
-	"github.com/hyperparallel/runtime/telemetry"
+	"github.com/reticle/runtime/agent"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/orchestrator"
+	"github.com/reticle/runtime/routing"
+	"github.com/reticle/runtime/telemetry"
 	"time"
 )
 

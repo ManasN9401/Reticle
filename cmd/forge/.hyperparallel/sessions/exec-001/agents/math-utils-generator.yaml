@@ -1,0 +1,6 @@
+id: math-utils-generator
+name: "Math Utilities Generator"
+description: "Creates basic math utility functions to serve as the target for testing."
+version: 1.0.0
+runtime: python
+entrypoint: workers/math-utils-generator.py

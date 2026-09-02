@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/logger"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/logger"
 	"gopkg.in/yaml.v3"
 )
 

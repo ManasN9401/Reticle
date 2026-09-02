@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/hyperparallel/runtime/memory"
+import "github.com/reticle/runtime/memory"
 
 type NodeState string
 

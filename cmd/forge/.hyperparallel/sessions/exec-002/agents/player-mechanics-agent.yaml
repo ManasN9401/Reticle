@@ -1,0 +1,6 @@
+id: player-mechanics-agent
+name: "Player Physics & Animation Controller"
+description: "Handles the player sprite, movement, jump physics, state transitions, and collisions."
+version: 1.0.0
+runtime: python
+entrypoint: workers/player-mechanics-agent.py

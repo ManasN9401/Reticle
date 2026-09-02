@@ -2,13 +2,13 @@
 
 Status: Stable
 Version: 1.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-03
 
 ---
 
 ## 1. Purpose
-This document defines the canonical list of domain events emitted and consumed by the HyperParallel framework components. It serves as the authoritative taxonomy for all event-driven communications within the runtime.
+This document defines the canonical list of domain events emitted and consumed by the Reticle framework components. It serves as the authoritative taxonomy for all event-driven communications within the runtime.
 
 ## 2. Motivation
 In a completely decoupled, "Shared-Nothing, Event-Everything" architecture, the Event Bus is the central nervous system. Without a strictly governed taxonomy of events, components could drift out of sync, emit malformed data, or misunderstand event semantics, leading to catastrophic runtime failures.

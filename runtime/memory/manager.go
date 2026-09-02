@@ -1,7 +1,7 @@
 package memory
 
 import (
-	"github.com/hyperparallel/runtime/events"
+	"github.com/reticle/runtime/events"
 )
 
 // Manager is the umbrella structure that holds all state managers.

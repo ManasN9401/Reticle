@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 	"time"
 
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/logger"
-	"github.com/hyperparallel/runtime/memory"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/logger"
+	"github.com/reticle/runtime/memory"
 )
 
 type Orchestrator struct {
@@ -67,11 +67,11 @@ func New() *Orchestrator {
 
 func (o *Orchestrator) Start() {
 	// Infrastructural log, not a domain event
-	o.Logger.Info("HyperParallel Skeleton Runtime Orchestrator started", "session", o.Bus.SessionID())
+	o.Logger.Info("Reticle Skeleton Runtime Orchestrator started", "session", o.Bus.SessionID())
 	o.Bus.Publish(events.EventType("RuntimeStarted"), events.Component("orchestrator"), nil)
 }
 
 func (o *Orchestrator) Shutdown() {
-	o.Logger.Info("HyperParallel Skeleton Runtime Orchestrator shutting down", "session", o.Bus.SessionID())
+	o.Logger.Info("Reticle Skeleton Runtime Orchestrator shutting down", "session", o.Bus.SessionID())
 	o.Bus.Publish(events.EventType("RuntimeShutdown"), events.Component("orchestrator"), nil)
 }

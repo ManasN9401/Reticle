@@ -1,7 +1,7 @@
 # RFC 038: Human-in-the-Loop (HitL) Checkpoints
 
 ## 1. Overview
-As HyperParallel scales to handle massively parallel agent workflows, blindly executing a large Directed Acyclic Graph (DAG) for destructive tasks (e.g., deployments, dropping databases, major refactors) introduces unacceptable risk.
+As Reticle scales to handle massively parallel agent workflows, blindly executing a large Directed Acyclic Graph (DAG) for destructive tasks (e.g., deployments, dropping databases, major refactors) introduces unacceptable risk.
 
 This RFC defines the architecture for the **Human-in-the-Loop (`hitl-agent`) Checkpoint Node**, which provides granular control by suspending graph execution until explicit human authorization is granted. 
 
@@ -11,7 +11,7 @@ To decouple approval logic from the complexities of UI state management and to p
 ### 2.1 Checkpoint Generation
 When the `GraphEngine` schedules a `hitl-agent` node:
 1. The worker parses the incoming payload.
-2. It generates a uniquely identifiable markdown file: `d:\HyperParallel\runtime\checkpoints\approval_req_{task_id}.md`.
+2. It generates a uniquely identifiable markdown file: `d:\Reticle\runtime\checkpoints\approval_req_{task_id}.md`.
 3. The file cleanly formats the upstream Architect's proposed plan, context files, and the original user prompt.
 4. The file terminates with a strict authorization block:
 ```markdown

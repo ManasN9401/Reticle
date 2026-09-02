@@ -6,7 +6,7 @@ status: Draft
 version: 0.1.0
 scope: Repository
 stability: Experimental
-owner: HyperParallel Project
+owner: Reticle Project
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 
@@ -24,7 +24,7 @@ audience:
 ## 1. Purpose
 
 This standard defines the metadata that shall appear at the beginning of
-documents within the HyperParallel repository.
+documents within the Reticle repository.
 
 The purpose of metadata is to allow both humans and software to immediately
 understand the role, authority and lifecycle of a document before reading its
@@ -121,7 +121,7 @@ status: Draft
 version: 0.1.0
 scope: Runtime
 stability: Experimental
-owner: HyperParallel Project
+owner: Reticle Project
 created: 2026-07-29
 updated: 2026-07-29
 

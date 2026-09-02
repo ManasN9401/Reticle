@@ -2,16 +2,16 @@
 
 Status: Draft
 Version: 1.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-04
 
 ---
 
 ## 1. Purpose
-This document specifies the architecture and technical design of the HyperParallel Telemetry Dashboard, responsible for rendering real-time execution graphs and providing observability into the core orchestrator.
+This document specifies the architecture and technical design of the Reticle Telemetry Dashboard, responsible for rendering real-time execution graphs and providing observability into the core orchestrator.
 
 ## 2. Motivation
-Due to the massive concurrency and complex, non-linear dependencies (DAGs) inherent to HyperParallel, developers require a unified visual interface to trace task propagation, inspect standard output, and monitor node states in real-time. A purely CLI-based output is insufficient for debugging large-scale parallel agent workflows.
+Due to the massive concurrency and complex, non-linear dependencies (DAGs) inherent to Reticle, developers require a unified visual interface to trace task propagation, inspect standard output, and monitor node states in real-time. A purely CLI-based output is insufficient for debugging large-scale parallel agent workflows.
 
 ## 3. Scope
 This RFC covers:
@@ -37,7 +37,7 @@ The UI must be ephemeral and completely decoupled from the runtime orchestration
 6. The frontend's detail panel must automatically parse and compact verbose `[TOOL]` JSON executions emitted by the workers into readable semantic action descriptors.
 
 ## 7. Rationale
-Embedding the UI directly into the binary ensures a zero-friction developer experience. A single `hyperparallel.exe -gui=true` command spins up the backend and the observability frontend seamlessly. A WebSocket ensures sub-millisecond latency for real-time task updates.
+Embedding the UI directly into the binary ensures a zero-friction developer experience. A single `reticle.exe -gui=true` command spins up the backend and the observability frontend seamlessly. A WebSocket ensures sub-millisecond latency for real-time task updates.
 
 ## 8. Trade-offs
 - Using a raw HTML5 `<canvas>` instead of a DOM-based framework like React/D3 requires manual handling of render loops, transformations, and coordinate spaces, but provides 60fps performance even with hundreds of nodes.

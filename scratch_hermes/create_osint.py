@@ -1,6 +1,6 @@
 import os
 
-base_dir = r'd:\HyperParallel\cmd\forge\compiler\agents'
+base_dir = r'd:\Reticle\cmd\forge\compiler\agents'
 coder_path = os.path.join(base_dir, 'coder-agent', 'workers', 'coder.py')
 osint_dir = os.path.join(base_dir, 'osint-agent', 'workers')
 os.makedirs(osint_dir, exist_ok=True)

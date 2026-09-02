@@ -2,7 +2,7 @@
 
 Status: Stable
 Version: 1.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-03
 
 ---
@@ -11,7 +11,7 @@ Last Updated: 2026-08-03
 This document defines every layer of the framework's memory. It establishes how state is persisted, shared, and versioned across the lifecycle of agents and workflows.
 
 ## 2. Motivation
-HyperParallel agents are modeled as pure, deterministic functions (Worker Protocol v1). They do not retain persistent dynamic memory across invocations. To orchestrate state between these isolated, ephemeral processes, the runtime must provide a centralized, externally managed Memory System capable of handling both large documents (Artifacts) and rapid scalar variables (Shared Memory).
+Reticle agents are modeled as pure, deterministic functions (Worker Protocol v1). They do not retain persistent dynamic memory across invocations. To orchestrate state between these isolated, ephemeral processes, the runtime must provide a centralized, externally managed Memory System capable of handling both large documents (Artifacts) and rapid scalar variables (Shared Memory).
 
 ## 3. Scope
 This RFC covers:

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hyperparallel/runtime/logger"
+	"github.com/reticle/runtime/logger"
 )
 
 // Model Definition

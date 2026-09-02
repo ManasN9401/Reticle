@@ -1,6 +1,6 @@
-# Creating Custom Agents in HyperParallel
+# Creating Custom Agents in Reticle
 
-HyperParallel allows you to define highly specialized autonomous agents by simply authoring a YAML file and a corresponding Python worker script.
+Reticle allows you to define highly specialized autonomous agents by simply authoring a YAML file and a corresponding Python worker script.
 
 ## 1. Create the Agent Profile
 Create a new file in `compiler/agents/` (e.g., `compiler/agents/security_auditor.yaml`):
@@ -18,7 +18,7 @@ skills:
 ```
 
 ## 2. Write the Worker Logic
-Create the Python worker script in `compiler/workers/security_auditor.py`. Your script MUST follow the HyperParallel `stdin/stdout` contract:
+Create the Python worker script in `compiler/workers/security_auditor.py`. Your script MUST follow the Reticle `stdin/stdout` contract:
 
 1. Read a single JSON line from `sys.stdin`.
 2. Extract the `inputs` and `memory` payload.

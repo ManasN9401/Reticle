@@ -3,12 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/hyperparallel/runtime/agent"
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/memory"
-	"github.com/hyperparallel/runtime/orchestrator"
-	"github.com/hyperparallel/runtime/routing"
-	"github.com/hyperparallel/runtime/telemetry"
+	"github.com/reticle/runtime/agent"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/memory"
+	"github.com/reticle/runtime/orchestrator"
+	"github.com/reticle/runtime/routing"
+	"github.com/reticle/runtime/telemetry"
 	"time"
 )
 
@@ -137,7 +137,7 @@ func main() {
 
 	// Test 4: UpdateVersion (Append-Only)
 	fmt.Println("4. Testing UpdateVersion (Append-Only)...")
-	newArt, err := orch.Artifacts.UpdateVersion(memory.ArtifactID("readme_final"), "# HyperParallel V2\nEven better!")
+	newArt, err := orch.Artifacts.UpdateVersion(memory.ArtifactID("readme_final"), "# Reticle V2\nEven better!")
 	if err == nil {
 		fmt.Printf("   -> Updated artifact: %s to Version %d\n", newArt.ID, newArt.Version)
 		

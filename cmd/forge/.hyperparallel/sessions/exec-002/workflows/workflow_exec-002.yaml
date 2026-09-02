@@ -1,0 +1,49 @@
+id: workflow_exec-002
+name: pygame_platformer_development
+version: 1.0.0
+nodes:
+  - id: node-config
+    agent: config-and-assets-manager
+    parameters:
+      llm_model: gemini/gemini-3.5-flash
+  - id: node-player
+    agent: player-mechanics-agent
+    parameters:
+      llm_model: gemini/gemini-3.5-flash
+  - id: node-level
+    agent: level-generator-agent
+    parameters:
+      llm_model: gemini/gemini-3.5-flash
+  - id: node-enemies
+    agent: enemy-ai-agent
+    parameters:
+      llm_model: gemini/gemini-3.5-flash
+  - id: node-ui
+    agent: ui-and-hud-agent
+    parameters:
+      llm_model: gemini/gemini-3.5-flash
+  - id: node-main
+    agent: main-entrypoint-agent
+    parameters:
+      llm_model: gemini/gemini-3.5-flash
+edges:
+  - from: node-config
+    to: node-player
+  - from: node-config
+    to: node-level
+  - from: node-config
+    to: node-enemies
+  - from: node-config
+    to: node-ui
+  - from: node-player
+    to: node-level
+  - from: node-player
+    to: node-enemies
+  - from: node-level
+    to: node-main
+  - from: node-player
+    to: node-main
+  - from: node-enemies
+    to: node-main
+  - from: node-ui
+    to: node-main

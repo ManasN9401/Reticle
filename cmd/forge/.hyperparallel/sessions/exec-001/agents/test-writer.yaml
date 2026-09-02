@@ -1,0 +1,6 @@
+id: test-writer
+name: "Unit Test Writer"
+description: "Creates standard unit tests for the math utility functions."
+version: 1.0.0
+runtime: python
+entrypoint: workers/test-writer.py

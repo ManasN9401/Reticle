@@ -1,7 +1,7 @@
 import os
 import glob
 
-target_dir = r"d:\HyperParallel\.hyperparallel\sessions\exec-001\agents"
+target_dir = r"d:\Reticle\.reticle\sessions\exec-001\agents"
 
 search_str_1 = """                    messages=messages,
                     tools=tools,

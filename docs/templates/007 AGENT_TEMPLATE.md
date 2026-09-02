@@ -2,8 +2,8 @@
 
 > [!IMPORTANT]
 > **MANDATORY READING:** Before creating or modifying any Agent, you MUST read and fully understand:
-> - **[RFC-008 — Agent Architecture](file:///d:/HyperParallel/docs/rfc/RFC-008-Agent-Architecture.md)**
-> - **[RFC-027 — Worker Runtime Contract](file:///d:/HyperParallel/docs/rfc/RFC-027-Worker-Runtime-Contract.md)**
+> - **[RFC-008 — Agent Architecture](file:///d:/Reticle/docs/rfc/RFC-008-Agent-Architecture.md)**
+> - **[RFC-027 — Worker Runtime Contract](file:///d:/Reticle/docs/rfc/RFC-027-Worker-Runtime-Contract.md)**
 
 ## 1. Directory Structure
 Each agent must be self-contained in a directory matching its ID, e.g. `agents/my-worker/`:

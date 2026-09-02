@@ -1,4 +1,4 @@
-module github.com/hyperparallel/runtime
+module github.com/reticle/runtime
 
 go 1.21
 

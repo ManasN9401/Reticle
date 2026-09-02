@@ -15,7 +15,7 @@ This document outlines the rigorous testing strategy for RFC-033. Because `forge
 ## 3. Integration Testing (Session Sandboxing)
 **Component:** `cmd/forge/executor_test.go`
 - **Scenario:** Enqueue two Waitlist items simultaneously (e.g., `exec-001` and `exec-002`).
-- **Assertion 1 (Disk Isolation):** Check the physical file system to ensure exactly two directories exist: `.hyperparallel/sessions/exec-001/` and `.hyperparallel/sessions/exec-002/`.
+- **Assertion 1 (Disk Isolation):** Check the physical file system to ensure exactly two directories exist: `.reticle/sessions/exec-001/` and `.reticle/sessions/exec-002/`.
 - **Assertion 2 (Memory Isolation):** Inspect the `memory.json` dumped in both directories. Verify that keys written by the `exec-001` agent are physically absent from the `exec-002` execution context payload.
 
 ## 4. End-to-End Stress Test (The "Messy Merge" Preventer)

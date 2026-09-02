@@ -1,7 +1,7 @@
 # RFC-031: Artifact Outputs Standard
 
 ## 1. Abstract
-When the HyperParallel Forge orchestrates a complex workflow DAG (e.g. generating a snake game via multiple agents), the end result is a collection of generated code files, documentation, and logic chunks called `Artifacts`. This RFC establishes a standard for extracting these final in-memory artifacts and physically rendering them to the disk.
+When the Reticle Forge orchestrates a complex workflow DAG (e.g. generating a snake game via multiple agents), the end result is a collection of generated code files, documentation, and logic chunks called `Artifacts`. This RFC establishes a standard for extracting these final in-memory artifacts and physically rendering them to the disk.
 
 ## 2. Motivation
 Users often run Forge to produce a final, runnable application. The `MemoryManager` securely holds these artifacts in a transient graph, but to execute the code, the user needs tangible `.py`, `.js`, `.go`, or `.txt` files in their workspace.

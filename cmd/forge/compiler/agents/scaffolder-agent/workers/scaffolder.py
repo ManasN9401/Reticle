@@ -1,5 +1,5 @@
 """
-HyperParallel Worker Script
+Reticle Worker Script
 """
 import sys
 import json
@@ -110,7 +110,7 @@ def main():
     exec_id = req.get("execution", "unknown")
     inputs = req.get("inputs", [])
     mem = req.get("memory", {})
-    workspace_dir = mem.get("workspace_dir", f"./.hyperparallel/sessions/{exec_id}")
+    workspace_dir = mem.get("workspace_dir", f"./.reticle/sessions/{exec_id}")
     src_dir = os.path.join(workspace_dir, "src")
     os.makedirs(src_dir, exist_ok=True)
     

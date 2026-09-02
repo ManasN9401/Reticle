@@ -1,0 +1,6 @@
+id: config-and-assets-manager
+name: "Configuration and Asset Architect"
+description: "Responsible for defining global settings, constants, and procedural asset drawing tools."
+version: 1.0.0
+runtime: python
+entrypoint: workers/config-and-assets-manager.py

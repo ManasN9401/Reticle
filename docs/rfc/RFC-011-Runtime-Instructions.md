@@ -2,13 +2,13 @@
 
 Status: Stable
 Version: 1.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-03
 
 ---
 
 ## 1. Purpose
-This document defines how the HyperParallel framework supports dynamic behavioral modification at runtime via "Runtime Instructions."
+This document defines how the Reticle framework supports dynamic behavioral modification at runtime via "Runtime Instructions."
 
 ## 2. Motivation
 Agents are defined by their YAML and backing code. However, users often need to inject temporary or persistent stylistic overrides (e.g., "Use tabs instead of spaces," "Do not use React classes") without having to hardcode these into the agent's core identity. The system needs a flexible way to overlay human instructions onto agents dynamically.

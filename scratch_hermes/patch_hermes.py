@@ -1,6 +1,6 @@
 import os
 
-base_dir = r'd:\HyperParallel\cmd\forge\compiler\agents'
+base_dir = r'd:\Reticle\cmd\forge\compiler\agents'
 hermes_path = os.path.join(base_dir, 'hermes-coder-agent', 'workers', 'hermes.py')
 
 with open(hermes_path, 'r', encoding='utf-8') as f:

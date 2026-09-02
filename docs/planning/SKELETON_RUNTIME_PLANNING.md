@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the initial implementation milestone for HyperParallel.
+This document defines the initial implementation milestone for Reticle.
 
 Rather than attempting to build the complete platform immediately, the project
 will first develop a minimal "walking skeleton" that exercises the core
@@ -373,7 +373,7 @@ End-to-end demonstration.
 
 # Completion Criteria
 
-This planning document is complete when HyperParallel can demonstrate:
+This planning document is complete when Reticle can demonstrate:
 
 ✓ Multiple concurrent workers
 

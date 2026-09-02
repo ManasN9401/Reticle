@@ -3,10 +3,10 @@ package agent
 import (
 	"strings"
 	"time"
-	"github.com/hyperparallel/runtime/events"
-	"github.com/hyperparallel/runtime/logger"
-	"github.com/hyperparallel/runtime/memory"
-	"github.com/hyperparallel/runtime/routing"
+	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/logger"
+	"github.com/reticle/runtime/memory"
+	"github.com/reticle/runtime/routing"
 )
 
 // Dispatcher listens for TaskReady events and schedules them to the appropriate Worker.

@@ -1,7 +1,7 @@
-# RFC: IDE Context Injection for HyperParallel Agents
+# RFC: IDE Context Injection for Reticle Agents
 
 ## 1. Motivation
-Currently, HyperParallel agents operate entirely headlessly. They know the user's textual prompt (e.g., "Fix the physics bug") but lack the implicit context a human pair-programmer has. When a human asks a pair-programmer to "fix the bug", the programmer knows exactly which bug they are referring to because they can see what file the human has open on their screen and where their cursor is pointing.
+Currently, Reticle agents operate entirely headlessly. They know the user's textual prompt (e.g., "Fix the physics bug") but lack the implicit context a human pair-programmer has. When a human asks a pair-programmer to "fix the bug", the programmer knows exactly which bug they are referring to because they can see what file the human has open on their screen and where their cursor is pointing.
 
 By injecting the user's **Active IDE Context** (open files, active file, cursor position) into the agent's memory, we can enable "zero-context prompting". Users can simply say "Refactor this function" in their IDE, and the autonomous agents will instantly know which file and function to target without explicit instructions.
 

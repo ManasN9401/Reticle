@@ -2,13 +2,13 @@
 
 Status: Stable
 Version: 1.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-03
 
 ---
 
 ## 1. Purpose
-This document defines the graph-based orchestration model of HyperParallel, explaining how static workflows (Directed Acyclic Graphs) are executed and how Supervisor agents can dynamically mutate these graphs at runtime.
+This document defines the graph-based orchestration model of Reticle, explaining how static workflows (Directed Acyclic Graphs) are executed and how Supervisor agents can dynamically mutate these graphs at runtime.
 
 ## 2. Motivation
 While declarative, static DAGs are easy to reason about, they are insufficiently flexible for highly agentic workflows where an intelligence layer (Supervisor) needs to decide *at runtime* how to break down a task, who to assign it to, and when it is complete. We need a system that supports both static predictability and dynamic agentic delegation.

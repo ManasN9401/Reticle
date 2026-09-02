@@ -32,7 +32,7 @@ venv/
 state/
 runtime/logs/
 .gemini/
-.hyperparallel/
+.reticle/
 
 # Go
 *.exe

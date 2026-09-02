@@ -12,7 +12,7 @@ This skill implements a File-Based "GitOps" approval flow. Since direct UI butto
 - If `auto-approve` is True, the agent must instantly exit with success (Code 0) and avoid writing any files.
 
 ## 2. Checkpoint Generation
-- Create the checkpoint at: `d:\HyperParallel\runtime\checkpoints\approval_req_{task_id}.md`
+- Create the checkpoint at: `d:\Reticle\runtime\checkpoints\approval_req_{task_id}.md`
 - The markdown file must contain a clear header: `# 🛑 HUMAN APPROVAL REQUIRED`
 - It must clearly outline the proposed plan from the upstream node (passed via context files or payload).
 - At the very bottom of the file, it must append the exact string block:

@@ -4,7 +4,7 @@
 **Date:** 2026-09-02
 
 ## 1. Introduction
-This RFC provides a high-level architectural "map" of the HyperParallel Orchestrator Framework. It outlines how the foundational systems interact to execute complex, multi-agent LLM workflows securely and concurrently.
+This RFC provides a high-level architectural "map" of the Reticle Orchestrator Framework. It outlines how the foundational systems interact to execute complex, multi-agent LLM workflows securely and concurrently.
 
 ## 2. Runtime Architecture
 The framework is built as a hybrid architecture:
@@ -24,7 +24,7 @@ The system operates entirely on an asynchronous Event Bus. There are no blocking
 5. **Assembly:** As workers finish, they produce `Artifacts`, which are stored in the Memory bus and passed as input context to downstream nodes.
 
 ### 3.3. Memory Architecture
-HyperParallel avoids monolithic memory stores. Instead, memory is tightly scoped:
+Reticle avoids monolithic memory stores. Instead, memory is tightly scoped:
 - **Global Memory:** Configuration, API routing utility matrices, and telemetry.
 - **Execution Memory:** State restricted entirely to the bounds of a specific DAG run.
 - **Artifact Store:** Immutable blobs of data produced by Workers, passed downstream.

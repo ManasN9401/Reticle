@@ -10,10 +10,10 @@ In the current architecture, a "Workspace" represents both the physical project 
 We will decouple the "Project Directory" from the "Workflow Session Sandboxes".
 
 ### 1. Directory Structure Overhaul
-We will transition from a singular global `.hyperparallel` workspace to a nested, session-based execution environment. 
+We will transition from a singular global `.reticle` workspace to a nested, session-based execution environment. 
 - **Global Project Scope:** The underlying codebase (`src/`, `cmd/`, etc.) remains a single shared context.
 - **Isolated Session Sandboxes:** Every execution triggered by the Waitlist generates a unique `session_id` (e.g., `exec-001`). 
-- **Namespaced Metadata:** `scaffolder.py` will no longer generate a global `workflow.yaml`. Instead, it will write to `.hyperparallel/sessions/{session_id}/workflow.yaml`. All artifacts and transient memory states will be strictly bound to this directory.
+- **Namespaced Metadata:** `scaffolder.py` will no longer generate a global `workflow.yaml`. Instead, it will write to `.reticle/sessions/{session_id}/workflow.yaml`. All artifacts and transient memory states will be strictly bound to this directory.
 
 ### 2. Event Bus & Memory Segregation
 - The `WaitlistItem` ID (e.g., `exec-001`) becomes the universal `session_id`.

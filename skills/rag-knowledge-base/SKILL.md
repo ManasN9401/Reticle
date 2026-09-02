@@ -11,7 +11,7 @@ This skill equips the agent to act as a **Knowledge Retrieval Agent**, navigatin
 When instructed to index a directory:
 - **Chunk Size:** Documents and code must be chunked into blocks of ~1000 characters.
 - **Overlap:** Ensure a 200-character overlap between chunks so that functions or sentences are not cleanly severed in the middle of important logic.
-- **Persistence:** All embeddings must be stored in the designated ChromaDB directory: `d:\HyperParallel\runtime\vector_db`.
+- **Persistence:** All embeddings must be stored in the designated ChromaDB directory: `d:\Reticle\runtime\vector_db`.
 
 ## 2. Retrieval Strategy
 When querying for information:

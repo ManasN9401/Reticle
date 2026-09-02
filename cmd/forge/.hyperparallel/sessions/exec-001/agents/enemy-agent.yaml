@@ -1,0 +1,6 @@
+id: enemy-agent
+name: "Enemy Fleet Spawner"
+description: "Handles enemy ship AI, movement patterns, and automated projectile firing."
+version: 1.0.0
+runtime: python
+entrypoint: workers/enemy-agent.py

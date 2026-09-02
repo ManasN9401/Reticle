@@ -1,7 +1,7 @@
 # RFC 036: Human-in-the-Loop & Concentrated Workflows
 
 ## 1. Overview
-As HyperParallel scales to handle massively parallel agent workflows, the need for localized context ("concentrated workflows") and human intervention becomes critical. Blindly executing a 50-node Directed Acyclic Graph (DAG) limits user control and increases the risk of cascading hallucinations.
+As Reticle scales to handle massively parallel agent workflows, the need for localized context ("concentrated workflows") and human intervention becomes critical. Blindly executing a 50-node Directed Acyclic Graph (DAG) limits user control and increases the risk of cascading hallucinations.
 
 This RFC outlines three architectural patterns to inject granular control and logical concentration into the execution graph without violating the stateless, distributed nature of the engine.
 

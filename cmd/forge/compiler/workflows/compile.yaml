@@ -1,5 +1,5 @@
 id: forge-compiler
-name: HyperParallel Forge Compiler
+name: Reticle Forge Compiler
 version: 1.0.0
 nodes:
   - id: arch-1

@@ -6,7 +6,7 @@ status: Accepted
 version: 1.0.0
 scope: Runtime
 stability: Stable
-owner: HyperParallel Project
+owner: Reticle Project
 ---
 
 # 0001 - Skeleton Supervisor Hardcoding and Technical Debt

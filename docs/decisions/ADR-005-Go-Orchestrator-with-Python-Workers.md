@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-HyperParallel requires an orchestration layer capable of managing highly concurrent, multi-agent workflows while simultaneously streaming execution state to a rich UI. At the same time, the individual agents require access to state-of-the-art LLM libraries, web scrapers, and AI-native tooling.
+Reticle requires an orchestration layer capable of managing highly concurrent, multi-agent workflows while simultaneously streaming execution state to a rich UI. At the same time, the individual agents require access to state-of-the-art LLM libraries, web scrapers, and AI-native tooling.
 
 ## Decision
 We decided to split the architecture into two distinct languages:

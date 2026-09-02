@@ -2,7 +2,7 @@
 
 Status: Stable
 Version: 2.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-23
 
 ---
@@ -11,7 +11,7 @@ Last Updated: 2026-08-23
 This document defines the framework's approach to dynamic model selection (Model Routing). It establishes how the runtime determines which Large Language Model (e.g., Local 32B, Gemini Flash, Groq Qwen) should be assigned to execute a specific task at runtime.
 
 ## 2. Motivation
-In agentic systems, hardcoding a frontier API model for every task results in extreme costs and high latency, while hardcoding local models results in task failures for complex logic. HyperParallel relies on a centralized Bayesian router that continuously optimizes the balance between capability and cost, while actively mitigating API rate limits and failures.
+In agentic systems, hardcoding a frontier API model for every task results in extreme costs and high latency, while hardcoding local models results in task failures for complex logic. Reticle relies on a centralized Bayesian router that continuously optimizes the balance between capability and cost, while actively mitigating API rate limits and failures.
 
 ## 3. Scope
 This RFC covers:

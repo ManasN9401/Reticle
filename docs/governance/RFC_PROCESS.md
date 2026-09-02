@@ -1,7 +1,7 @@
 # Request for Comments (RFC) Process
 
 ## What is an RFC?
-The RFC (Request for Comments) process is the formal mechanism for proposing significant changes to the HyperParallel Framework. While internal runtime implementations (like the Go engine or dispatcher algorithms) can evolve fluidly, the public-facing boundaries of the system are **Frozen Contracts**.
+The RFC (Request for Comments) process is the formal mechanism for proposing significant changes to the Reticle Framework. While internal runtime implementations (like the Go engine or dispatcher algorithms) can evolve fluidly, the public-facing boundaries of the system are **Frozen Contracts**.
 
 ## Frozen Contracts
 The following domains are explicitly considered Frozen Interfaces. Any breaking changes to them **must** undergo the RFC process:

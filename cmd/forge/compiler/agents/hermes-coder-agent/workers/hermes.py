@@ -1,5 +1,5 @@
 """
-HyperParallel Worker Script
+Reticle Worker Script
 """
 import sys
 import json
@@ -447,10 +447,10 @@ def main():
                     if entry.startswith(".") and entry != ".env": continue
                     path = os.path.join(dir_path, entry)
                     is_last = (i == len(entries) - 1)
-                    connector = "└── " if is_last else "├── "
-                    tree_str += f"{prefix}{connector}{entry}\\n"
+                    connector = "`-- " if is_last else "|-- "
+                    tree_str += f"{{prefix}}{{connector}}{{entry}}\\n"
                     if os.path.isdir(path):
-                        extension = "    " if is_last else "│   "
+                        extension = "    " if is_last else "|   "
                         tree_str += build_tree(path, prefix=prefix + extension)
             except Exception as e:
                 pass
@@ -489,18 +489,18 @@ def main():
             
             curr_tokens = token_counter(model=model, messages=messages)
             if curr_tokens > max_tokens * 0.85:
-                print(f"[LLM] Context overflow detected ({curr_tokens} > {int(max_tokens * 0.85)}). Stage 1 Compression: Stripping Workspace Tree...", file=sys.stderr)
+                print(f"[LLM] Context overflow detected ({{curr_tokens}} > {{int(max_tokens * 0.85)}}). Stage 1 Compression: Stripping Workspace Tree...", file=sys.stderr)
                 messages = build_messages("", prompt_history, upstream_context)
                 curr_tokens = token_counter(model=model, messages=messages)
                 
             if curr_tokens > max_tokens * 0.85:
-                print(f"[LLM] Still overflowing ({curr_tokens}). Stage 2 Compression: Truncating Prompt History...", file=sys.stderr)
+                print(f"[LLM] Still overflowing ({{curr_tokens}}). Stage 2 Compression: Truncating Prompt History...", file=sys.stderr)
                 trunc_hist = prompt_history[-1500:] if len(prompt_history) > 1500 else prompt_history
                 messages = build_messages("", trunc_hist, upstream_context)
                 curr_tokens = token_counter(model=model, messages=messages)
                 
             if curr_tokens > max_tokens * 0.85:
-                print(f"[LLM] Still overflowing ({curr_tokens}). Stage 3 Compression: Middle-Out truncation on Upstream Context...", file=sys.stderr)
+                print(f"[LLM] Still overflowing ({{curr_tokens}}). Stage 3 Compression: Middle-Out truncation on Upstream Context...", file=sys.stderr)
                 # Calculate how many chars we need to lose. Assume 1 token ~= 3.5 chars for safety margin.
                 base_tokens = token_counter(model=model, messages=build_messages("", trunc_hist, ""))
                 allowed_upstr_tokens = (max_tokens * 0.85) - base_tokens
@@ -527,7 +527,7 @@ def main():
             print(f"[LLM] Compression successful. Final tokens: {{curr_tokens}}", file=sys.stderr)
                 
         except Exception as e:
-            print(f"[LLM] Warning: Dynamic context compression failed: {e}", file=sys.stderr)
+            print(f"[LLM] Warning: Dynamic context compression failed: {{e}}", file=sys.stderr)
         
         files_modified = {{}}
         memory_mutations = []
@@ -573,7 +573,7 @@ def main():
                         if tool_schema and "required" in tool_schema:
                             missing = [req for req in tool_schema["required"] if req not in args]
                             if missing:
-                                raise ValueError(f"Schema Validation Failed: Missing required arguments: {missing}. Please fix and try again.")
+                                raise ValueError(f"Schema Validation Failed: Missing required arguments: {{missing}}. Please fix and try again.")
                         
                         if func_name == "execute_terminal_command":
                             res = execute_terminal_command(args.get("command"), workspace_dir, allow_native_execution)

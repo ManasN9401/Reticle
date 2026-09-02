@@ -1,0 +1,6 @@
+id: asset-agent
+name: "Asset and Sound Manager"
+description: "Generates procedural vector-based sprites and textures for players, enemies, and projectiles."
+version: 1.0.0
+runtime: python
+entrypoint: workers/asset-agent.py

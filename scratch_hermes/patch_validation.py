@@ -1,7 +1,7 @@
 import os
 import glob
 
-base_dir = r'd:\HyperParallel\cmd\forge\compiler\agents'
+base_dir = r'd:\Reticle\cmd\forge\compiler\agents'
 worker_files = glob.glob(os.path.join(base_dir, '*', 'workers', '*.py'))
 
 validator_code = """                        args = json.loads(tool_call.function.arguments)

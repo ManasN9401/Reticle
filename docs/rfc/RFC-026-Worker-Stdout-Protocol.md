@@ -2,7 +2,7 @@
 
 Status: Draft
 Version: 1.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-04
 
 ---

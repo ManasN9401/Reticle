@@ -21,7 +21,7 @@ def run_agent(payload):
     context_files = payload.get("context", [])
 
     task_id = str(uuid.uuid4())[:8]
-    checkpoint_dir = r"d:\HyperParallel\runtime\checkpoints"
+    checkpoint_dir = r"d:\Reticle\runtime\checkpoints"
     os.makedirs(checkpoint_dir, exist_ok=True)
     
     checkpoint_path = os.path.join(checkpoint_dir, f"approval_req_{task_id}.md")

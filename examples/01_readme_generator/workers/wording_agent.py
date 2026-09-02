@@ -1,5 +1,5 @@
 """
-HyperParallel Worker Script
+Reticle Worker Script
 MANDATORY READING:
 - RFC-008: Agent Architecture
 - RFC-027: Worker Runtime Contract
@@ -21,7 +21,7 @@ def main():
             raise ValueError("wording_agent requires an input artifact")
 
         # Mock: improve the wording
-        improved_data = "# HyperParallel Framework\n\n## Introduction\n\n## Quick Start Guide\n\n## Contributing"
+        improved_data = "# Reticle Framework\n\n## Introduction\n\n## Quick Start Guide\n\n## Contributing"
         
         artifact = {
             "id": "readme_final",

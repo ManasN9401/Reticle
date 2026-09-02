@@ -12,7 +12,7 @@ The core problem is **not** the tools, the prompts, or the LLM model. The archit
 
 This is the single biggest problem, and it explains everything.
 
-Look at what `agent-3` (Main Entrypoint Creator) actually receives as its system prompt ([agent-3.py:L57](file:///d:/HyperParallel/cmd/forge/workspaces/forge_workspace_20260811_185059/workers/agent-3.py#L57)):
+Look at what `agent-3` (Main Entrypoint Creator) actually receives as its system prompt ([agent-3.py:L57](file:///d:/Reticle/cmd/forge/workspaces/forge_workspace_20260811_185059/workers/agent-3.py#L57)):
 
 ```
 "Create the game's main entrypoint, including the game loop, event handling,
@@ -20,7 +20,7 @@ and rendering. Ensure that the entrypoint is well-structured, efficient, and
 integrates seamlessly with the game's overall logic."
 ```
 
-And the user message ([agent-3.py:L58](file:///d:/HyperParallel/cmd/forge/workspaces/forge_workspace_20260811_185059/workers/agent-3.py#L58)):
+And the user message ([agent-3.py:L58](file:///d:/Reticle/cmd/forge/workspaces/forge_workspace_20260811_185059/workers/agent-3.py#L58)):
 
 ```
 "Process this request: {json.dumps(req)}. CRITICAL INSTRUCTION: You are an 
@@ -29,7 +29,7 @@ autonomous agent. You MUST use the `write_file` tool..."
 
 **The `req` payload** contains the task ID, the execution ID, memory keys... but **NOT the user's original prompt**. The agent literally doesn't know it's building a "2D platformer game in pixel art graphics". It just sees a vague instruction to "create the game's main entrypoint."
 
-**Why?** The generated agent YAMLs ([agent-3.yaml](file:///d:/HyperParallel/cmd/forge/workspaces/forge_workspace_20260811_185059/agents/agent-3.yaml)) have **no `memory:` field**, so the dispatcher's memory injection ([dispatcher.go:L70-L86](file:///d:/HyperParallel/runtime/agent/dispatcher.go#L70-L86)) skips them entirely. The `workspace_dir` and `user_prompt` keys are never hydrated into `req.Memory`.
+**Why?** The generated agent YAMLs ([agent-3.yaml](file:///d:/Reticle/cmd/forge/workspaces/forge_workspace_20260811_185059/agents/agent-3.yaml)) have **no `memory:` field**, so the dispatcher's memory injection ([dispatcher.go:L70-L86](file:///d:/Reticle/runtime/agent/dispatcher.go#L70-L86)) skips them entirely. The `workspace_dir` and `user_prompt` keys are never hydrated into `req.Memory`.
 
 Compare this to the compiler agents like `architect-agent.yaml`:
 ```yaml
@@ -38,7 +38,7 @@ memory:
   - "available_agents"
 ```
 
-The generated agents have *none of this*. The scaffolder ([scaffolder.py:L32-L38](file:///d:/HyperParallel/cmd/forge/compiler/workers/scaffolder.py#L32-L38)) only generates:
+The generated agents have *none of this*. The scaffolder ([scaffolder.py:L32-L38](file:///d:/Reticle/cmd/forge/compiler/workers/scaffolder.py#L32-L38)) only generates:
 ```yaml
 id: agent-3
 name: "Main Entrypoint Creator"
@@ -51,7 +51,7 @@ entrypoint: workers/agent-3.py
 No `memory:` key. So the agent never sees `user_prompt` or `workspace_dir`.
 
 > [!CAUTION]
-> **Without `workspace_dir`**, the `write_file` tool defaults to writing into `"."` (the CWD), which is the workspace root after `os.Chdir()` in [main.go:L242](file:///d:/HyperParallel/cmd/forge/main.go#L242). So `src/` ends up at `workspace_root/src/` — this works by accident but is fragile.
+> **Without `workspace_dir`**, the `write_file` tool defaults to writing into `"."` (the CWD), which is the workspace root after `os.Chdir()` in [main.go:L242](file:///d:/Reticle/cmd/forge/main.go#L242). So `src/` ends up at `workspace_root/src/` — this works by accident but is fragile.
 > 
 > **Without `user_prompt`**, the agent is flying completely blind. It has NO idea what the user asked for. It only has the vague `system_prompt` the architect wrote.
 
@@ -59,7 +59,7 @@ No `memory:` key. So the agent never sees `user_prompt` or `workspace_dir`.
 
 ### 🔴 2. Agents Can't See Each Other's Work (Broken Data Flow)
 
-The DAG is supposed to pipe artifacts from parent nodes to child nodes. The engine does this correctly in [workflow_engine.go:L219-L233](file:///d:/HyperParallel/runtime/agent/workflow_engine.go#L219-L233):
+The DAG is supposed to pipe artifacts from parent nodes to child nodes. The engine does this correctly in [workflow_engine.go:L219-L233](file:///d:/Reticle/runtime/agent/workflow_engine.go#L219-L233):
 
 ```go
 for _, parentID := range exec.Workflow.Parents[nodeID] {
@@ -73,7 +73,7 @@ for _, parentID := range exec.Workflow.Parents[nodeID] {
 }
 ```
 
-So `node-3` (Main Entrypoint Creator) receives `node-2`'s output artifact as an `input`. But look at the generated worker script ([agent-3.py:L58](file:///d:/HyperParallel/cmd/forge/workspaces/forge_workspace_20260811_185059/workers/agent-3.py#L58)):
+So `node-3` (Main Entrypoint Creator) receives `node-2`'s output artifact as an `input`. But look at the generated worker script ([agent-3.py:L58](file:///d:/Reticle/cmd/forge/workspaces/forge_workspace_20260811_185059/workers/agent-3.py#L58)):
 
 ```python
 {"role": "user", "content": f"Process this request: {json.dumps(req)}.
@@ -112,7 +112,7 @@ The agents don't know what their siblings are building because the architect doe
 
 ### 🔴 4. `write_file` Blocks Collaboration (File Collision Guard Is Too Aggressive)
 
-In [coder.py:L74-L75](file:///d:/HyperParallel/cmd/forge/compiler/workers/coder.py#L74-L75):
+In [coder.py:L74-L75](file:///d:/Reticle/cmd/forge/compiler/workers/coder.py#L74-L75):
 
 ```python
 if os.path.exists(full_path):
@@ -146,20 +146,20 @@ You MUST proactively test your work by using package managers or running python
 scripts to verify them (e.g. `python -m py_compile`).
 ```
 
-But `execute_terminal_command` runs inside Docker ([coder.py:L9-L35](file:///d:/HyperParallel/cmd/forge/compiler/workers/coder.py#L9-L35)):
+But `execute_terminal_command` runs inside Docker ([coder.py:L9-L35](file:///d:/Reticle/cmd/forge/compiler/workers/coder.py#L9-L35)):
 
 ```python
 docker_cmd = ["docker", "exec", container_name, "bash", "-c", command]
 ```
 
-If Docker isn't running, this fails. The agent can't test. If it can't test, it can't call `mark_task_complete`. If it can't call `mark_task_complete`, the loop ([agent-3.py:L140-L152](file:///d:/HyperParallel/cmd/forge/workspaces/forge_workspace_20260811_185059/workers/agent-3.py#L140-L152)) injects:
+If Docker isn't running, this fails. The agent can't test. If it can't test, it can't call `mark_task_complete`. If it can't call `mark_task_complete`, the loop ([agent-3.py:L140-L152](file:///d:/Reticle/cmd/forge/workspaces/forge_workspace_20260811_185059/workers/agent-3.py#L140-L152)) injects:
 
 ```
 "ERROR: You cannot just stop calling tools. You must explicitly call the
 mark_task_complete tool..."
 ```
 
-And the agent loops forever, burning API credits. Even when Docker IS running, Llama 8B often fabricates the test output (as seen in [exec-001_node-1_output.md](file:///d:/HyperParallel/cmd/forge/workspaces/forge_workspace_20260811_185059/outputs/exec-001/exec-001_node-1_output.md#L8)):
+And the agent loops forever, burning API credits. Even when Docker IS running, Llama 8B often fabricates the test output (as seen in [exec-001_node-1_output.md](file:///d:/Reticle/cmd/forge/workspaces/forge_workspace_20260811_185059/outputs/exec-001/exec-001_node-1_output.md#L8)):
 
 ```
 ### Test Output
@@ -191,7 +191,7 @@ For an 8B model with an 8K effective context, this overhead is **devastating**. 
 
 ### Fix 1: Inject `memory` and `user_prompt` into Generated Agent YAMLs
 
-In [scaffolder.py:L32-L38](file:///d:/HyperParallel/cmd/forge/compiler/workers/scaffolder.py#L32-L38), add memory keys:
+In [scaffolder.py:L32-L38](file:///d:/Reticle/cmd/forge/compiler/workers/scaffolder.py#L32-L38), add memory keys:
 
 ```python
 agent_yaml_str = f"""id: {agent_id}
@@ -210,7 +210,7 @@ This single change fixes Root Causes #1 and partially #2.
 
 ### Fix 2: Surface Upstream Artifacts as Clean Context
 
-Instead of dumping `json.dumps(req)` into the user message, extract and format the upstream artifacts cleanly in [coder.py](file:///d:/HyperParallel/cmd/forge/compiler/workers/coder.py):
+Instead of dumping `json.dumps(req)` into the user message, extract and format the upstream artifacts cleanly in [coder.py](file:///d:/Reticle/cmd/forge/compiler/workers/coder.py):
 
 ```python
 # Build context from upstream inputs

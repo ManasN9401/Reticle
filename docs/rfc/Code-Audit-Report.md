@@ -1,4 +1,4 @@
-# HyperParallel Security & Logic Audit Report
+# Reticle Security & Logic Audit Report
 **Date:** 2026-09-02
 **Scope:** `hitl.py`, `router.go`, `hermes.py`, `architect.py`
 

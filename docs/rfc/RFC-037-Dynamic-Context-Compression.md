@@ -1,15 +1,15 @@
 # RFC 037: Dynamic Context Compression & Local RAG
 
 ## 1. Overview
-As HyperParallel scales to handle massive codebases, agents frequently hit strict token context limits (often 8k or 32k for fast local models). Feeding an entire repository into a prompt to answer a simple question results in catastrophic token overflow, high latency, and severe hallucination rates.
+As Reticle scales to handle massive codebases, agents frequently hit strict token context limits (often 8k or 32k for fast local models). Feeding an entire repository into a prompt to answer a simple question results in catastrophic token overflow, high latency, and severe hallucination rates.
 
 This RFC defines the architecture for the **Knowledge Retrieval Agent (`rag-agent`)**, which solves this problem by indexing workspaces into a persistent vector database and performing "Dynamic Context Compression"—synthesizing thousands of lines of code into highly dense summaries.
 
 ## 2. Local Vector Engine Architecture
-To align with HyperParallel's philosophy of hardware acceleration and data privacy, the RAG engine must operate entirely locally without relying on external API endpoints (like OpenAI or Pinecone).
+To align with Reticle's philosophy of hardware acceleration and data privacy, the RAG engine must operate entirely locally without relying on external API endpoints (like OpenAI or Pinecone).
 
 ### Components:
-- **Persistence Layer:** We utilize `ChromaDB`, configured as a `PersistentClient` targeting `d:\HyperParallel\runtime\vector_db`. This ensures the index survives orchestrator restarts.
+- **Persistence Layer:** We utilize `ChromaDB`, configured as a `PersistentClient` targeting `d:\Reticle\runtime\vector_db`. This ensures the index survives orchestrator restarts.
 - **Embedding Engine:** We mandate the use of native Python embeddings via `sentence-transformers/all-MiniLM-L6-v2`. This ensures sub-second embedding speeds using the local CPU/GPU, completely avoiding the network overhead and potential bottlenecks of passing text to an external Ollama or vLLM server that may be occupied with heavier generative tasks.
 
 ## 3. Data Lifecycle & Robust Memory Management
@@ -42,4 +42,4 @@ To prevent this, the `hermes.py` meta-scaffolder dynamically injects a **Pre-Fli
 - **Stage 2 (Medium Compression):** The agent aggressively truncates the historical prompt iterations down to the last 1500 characters, maintaining only immediate short-term memory.
 - **Stage 3 (Heavy Compression):** The agent engages a **Middle-Out** truncation algorithm on the upstream context payload. It mathematically reserves 20% of the remaining token budget for the beginning of the text, and 80% for the end, completely gutting the middle of the payload. (LLMs natively suffer from "Lost in the Middle" syndrome, so preserving the edges retains the highest density of useful signal).
 
-This algorithmic guarantee ensures that the HyperParallel DAG *never* crashes from an accidental token overflow, even when dynamically shifting between an OpenAI 128k context model and a local Ollama 8k context model on the fly.
+This algorithmic guarantee ensures that the Reticle DAG *never* crashes from an accidental token overflow, even when dynamically shifting between an OpenAI 128k context model and a local Ollama 8k context model on the fly.

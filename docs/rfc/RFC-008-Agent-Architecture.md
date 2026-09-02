@@ -2,13 +2,13 @@
 
 Status: Stable
 Version: 1.0.0
-Author: HyperParallel Core
+Author: Reticle Core
 Last Updated: 2026-08-03
 
 ---
 
 ## 1. Purpose
-This document defines the architecture of HyperParallel Agents. It covers the declarative Agent Definition Schema (YAML) and the JSON-based Worker Protocol (v1) that dictates how agents communicate with the Orchestrator runtime.
+This document defines the architecture of Reticle Agents. It covers the declarative Agent Definition Schema (YAML) and the JSON-based Worker Protocol (v1) that dictates how agents communicate with the Orchestrator runtime.
 
 ## 2. Motivation
 To achieve massive parallelism and language-agnostic execution, agents must be completely isolated from the orchestration logic. Defining agents via a declarative YAML schema and communicating over a strict `stdin`/`stdout` JSON protocol ensures that agents are highly portable, ephemeral, and safe to execute in sandboxed environments (processes, containers, or web assembly).
@@ -35,7 +35,7 @@ Agents are modeled as pure, deterministic functions. They do not retain persiste
 3. If a worker fails to execute, it must exit with a non-zero exit code and dump context to standard error.
 
 ## 7. Rationale
-By enforcing strict request/response protocols over standard streams, we decouple the agent's logic from the framework's internal event bus. This makes it trivial to test agents locally (e.g., `echo '{...}' | python agent.py`) without needing to boot the full HyperParallel runtime.
+By enforcing strict request/response protocols over standard streams, we decouple the agent's logic from the framework's internal event bus. This makes it trivial to test agents locally (e.g., `echo '{...}' | python agent.py`) without needing to boot the full Reticle runtime.
 
 ## 8. Trade-offs
 - Parsing JSON over standard streams introduces slight serialization overhead.

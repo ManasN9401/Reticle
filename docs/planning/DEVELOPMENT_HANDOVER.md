@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document provides the current architectural state of HyperParallel and
+This document provides the current architectural state of Reticle and
 defines how development should proceed from this point onward.
 
 It exists to preserve project continuity.
@@ -36,7 +36,7 @@ than reorganising documentation.
 
 # Architectural Direction
 
-HyperParallel is intended to become a graph-supervised multi-agent runtime.
+Reticle is intended to become a graph-supervised multi-agent runtime.
 
 Its distinguishing characteristics include:
 
@@ -297,7 +297,7 @@ These should evolve alongside the runtime.
 
 The long-term objective remains unchanged.
 
-HyperParallel should eventually become a reusable multi-agent runtime capable
+Reticle should eventually become a reusable multi-agent runtime capable
 of coordinating large numbers of specialised agents through:
 
 - graph supervision

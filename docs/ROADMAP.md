@@ -499,7 +499,7 @@ Defines the automatic indexing of workspaces into local vector DBs and context s
 Defines the `hitl-agent` architecture for explicitly pausing DAG execution to request human approval for high-risk operations (e.g. deployments).
 
 ## RFC-039 — Advanced Engineering Skills
-Defines the formal inclusion of `devops-infrastructure`, `vulnerability-assessment`, `ml-engineering`, and `modern-frontend-design` into the core HyperParallel skill ecosystem.
+Defines the formal inclusion of `devops-infrastructure`, `vulnerability-assessment`, `ml-engineering`, and `modern-frontend-design` into the core Reticle skill ecosystem.
 
 ---
 
