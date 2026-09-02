@@ -47,7 +47,10 @@ def main():
         else:
             complexity_prompt = "CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. HyperParallel is designed for massive parallelism. You MUST decompose EVERY task into a WIDE, MULTI-BRANCH DAG. Do NOT create purely linear pipelines (e.g. A -> B -> C). Even simple tasks must be broken down into at least 3-4 specialized agents. \nFor complex applications, you MUST generate a massively parallel graph with 10, 20, or even 50+ specialized nodes (e.g., one agent per file, one agent per class, one agent per API endpoint). DO NOT anchor to the small 4-node example below; that is just a schema demonstration. Scale the number of agents and nodes to be as large as necessary to achieve extreme modularity. Single-node or purely linear workflows are STRICTLY FORBIDDEN. One of your agents MUST explicitly be responsible for creating the main entrypoint or final assembly."
 
-
+        auto_approve_flag = "-auto-approve" in user_prompt or req.get("parameters", {}).get("auto_approve", False)
+        hitl_rule = ""
+        if not auto_approve_flag:
+            hitl_rule = "\nCRITICAL DAG RULE: You MUST inject a node using the 'hitl-agent' immediately before any node that performs destructive or high-risk actions (e.g. deployments, dropping databases, major refactors). This forces a Human-in-the-Loop approval checkpoint before the action executes.\n"
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", ".."))
         rfc_008 = ""
         rfc_027 = ""
@@ -87,7 +90,7 @@ AVAILABLE AGENTS:
 {available_agents_prompt}
 
 {complexity_prompt}
-
+{hitl_rule}
 CRITICAL INSTRUCTION: For code, agents MUST build everything from scratch using ONLY standard libraries (e.g. Python with 'pygame'). Do NOT let them hallucinate or import external imaginary engines. Instruct them to write fully robust code with NO PLACEHOLDERS (no 'pass', 'TODO', or '...').
 
 SYSTEM PROMPT QUALITY REQUIREMENT: Each agent's `system_prompt` MUST be at least 3-5 sentences and MUST include ALL of the following:

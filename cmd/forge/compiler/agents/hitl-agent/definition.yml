@@ -1,0 +1,11 @@
+id: "hitl-agent"
+name: "Human Checkpoint Agent"
+description: "Pauses DAG execution and forces human authorization before continuing."
+worker:
+  command: "python"
+  args: ["{AGENT_DIR}/workers/hitl.py"]
+capabilities:
+  - "checkpoint"
+  - "approval"
+required_skills:
+  - "hitl-checkpoint"

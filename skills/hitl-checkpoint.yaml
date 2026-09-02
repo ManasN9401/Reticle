@@ -1,0 +1,6 @@
+id: "hitl-checkpoint"
+name: "Human-in-the-Loop Approval"
+version: "1.0.0"
+description: "Equips the agent with the ability to pause DAG execution and request human authorization via file-based checkpoints."
+dependencies: []
+env_vars: []
