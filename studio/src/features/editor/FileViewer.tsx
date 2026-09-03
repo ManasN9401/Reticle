@@ -5,7 +5,8 @@ import { EmptyState, IconButton, Spinner, Tooltip } from '@/design/primitives'
 import { formatBytes } from '@/design/status'
 import { bridge } from '@/state/bridge'
 import { revealInExplorer } from '@/state/actions'
-import { RETICLE_THEME, languageFor, setupMonaco } from './monacoSetup'
+import { useResolvedTheme } from '@/state/theme'
+import { RETICLE_DARK, RETICLE_LIGHT, languageFor, setupMonaco } from './monacoSetup'
 
 /**
  * Read-only source viewer.
@@ -31,10 +32,12 @@ export function FileViewer({
   const [size, setSize] = useState<number | undefined>(inlineContent?.length)
   const [truncated, setTruncated] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const theme = useResolvedTheme()
 
+  // Re-run on theme change so both palettes exist before Monaco is asked for one.
   useEffect(() => {
     setupMonaco()
-  }, [])
+  }, [theme])
 
   useEffect(() => {
     if (inlineContent !== undefined) {
@@ -105,7 +108,7 @@ export function FileViewer({
         ) : (
           <Editor
             height="100%"
-            theme={RETICLE_THEME}
+            theme={theme === 'light' ? RETICLE_LIGHT : RETICLE_DARK}
             language={languageFor(path ?? label)}
             value={content}
             options={{

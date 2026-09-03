@@ -64,7 +64,7 @@ export function GraphOutline() {
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Filter nodes"
           aria-label="Filter nodes"
-          className="h-7 pl-7 text-xs"
+          className="h-7 w-full pl-7 text-xs"
         />
       </div>
 

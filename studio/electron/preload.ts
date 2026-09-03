@@ -16,6 +16,7 @@ import type {
   CommandId,
   ConnectRequest,
   ConnectionState,
+  EnvKeyEntry,
   ForgeOutputChunk,
   ForgeStartRequest,
   ForgeState,
@@ -24,10 +25,12 @@ import type {
   LogBatch,
   LogQuery,
   ModelsResult,
+  NativeAction,
   OutboundCommand,
   OutputFile,
   ProjectionPush,
   ReadFileResult,
+  ResolvedTheme,
   ReticleBridge,
   SettingsPatch,
   StudioSettings,
@@ -126,12 +129,29 @@ const bridge: ReticleBridge = {
     pickFiles: () => ipcRenderer.invoke(IPC.workspacePickFiles) as Promise<string[]>,
   },
 
+  keys: {
+    list: () => ipcRenderer.invoke(IPC.envList) as Promise<ApiResult<EnvKeyEntry[]>>,
+    reveal: (name: string) =>
+      ipcRenderer.invoke(IPC.envReveal, name) as Promise<ApiResult<string>>,
+    set: (name: string, value: string) =>
+      ipcRenderer.invoke(IPC.envSet, name, value) as Promise<ApiResult<void>>,
+    remove: (name: string) =>
+      ipcRenderer.invoke(IPC.envRemove, name) as Promise<ApiResult<void>>,
+    path: () => ipcRenderer.invoke(IPC.envPath) as Promise<string | null>,
+  },
+
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet) as Promise<StudioSettings>,
     patch: (patch: SettingsPatch) =>
       ipcRenderer.invoke(IPC.settingsPatch, patch) as Promise<StudioSettings>,
     onChange: (handler) => subscribe<StudioSettings>(IPC.pushSettings, handler),
   },
+
+  native: (action: NativeAction) =>
+    ipcRenderer.invoke(IPC.nativeAction, action) as Promise<void>,
+
+  setThemeBackground: (theme: ResolvedTheme) =>
+    ipcRenderer.invoke(IPC.themeBackground, theme) as Promise<void>,
 
   onCommand: (handler: (command: CommandId) => void) =>
     subscribe<CommandId>(IPC.pushCommand, handler),

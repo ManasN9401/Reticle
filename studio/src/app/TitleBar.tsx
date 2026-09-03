@@ -6,6 +6,7 @@ import { bridge } from '@/state/bridge'
 import { useActiveRun, useStudio } from '@/state/store'
 import { useNow } from '@/state/useNow'
 import { runTotals } from '@shared/projection'
+import { MenuBar } from './MenuBar'
 import { ReticleMark } from './ReticleMark'
 
 /**
@@ -37,12 +38,15 @@ export function TitleBar() {
         <ReticleMark size={15} />
       </div>
 
-      <span className="shrink-0 text-xs font-semibold tracking-[0.14em] text-fg-2 uppercase">
-        Reticle
-      </span>
+      <MenuBar />
 
-      {/* Centred run summary. Fixed-shape so it never shifts the title bar. */}
-      <div className="pointer-events-none absolute left-1/2 flex -translate-x-1/2 items-center gap-2.5">
+      {/*
+        Centred run summary. Absolute so it stays optically centred regardless
+        of menu width, and held back until xl — below that the menu bar and the
+        window controls would crowd it, and the status bar already carries the
+        same numbers.
+      */}
+      <div className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 items-center gap-2.5 xl:flex">
         {run ? (
           <>
             <StatusPip color={runStatusVar(run.status)} pulse={run.status === 'running'} />

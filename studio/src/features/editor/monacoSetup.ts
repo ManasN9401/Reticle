@@ -43,49 +43,70 @@ window.MonacoEnvironment = {
   },
 }
 
-export const RETICLE_THEME = 'reticle-dark'
-
-/**
- * Editor colours are read from the token layer at runtime so the editor cannot
- * drift from the rest of the app. Monaco needs literal hex, hence the probe.
- */
-function token(name: string, fallback: string): string {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  return value || fallback
-}
+export const RETICLE_DARK = 'reticle-dark'
+export const RETICLE_LIGHT = 'reticle-light'
 
 let configured = false
 
+/**
+ * Both editor themes mirror the values in `src/design/tokens.css`. Monaco needs
+ * literal hex rather than custom properties, so these are kept in step by hand —
+ * if a surface token changes there, change it here too.
+ */
 export function setupMonaco(): void {
-  if (configured) return
-  configured = true
-
-  monaco.editor.defineTheme(RETICLE_THEME, {
+  monaco.editor.defineTheme(RETICLE_DARK, {
     base: 'vs-dark',
     inherit: true,
     rules: [
-      { token: 'comment', foreground: token('--color-fg-4', '#474e59').slice(1) },
+      { token: 'comment', foreground: '5a6472' },
       { token: 'string', foreground: '57e8ab' },
       { token: 'number', foreground: '56d6ff' },
       { token: 'keyword', foreground: '4d8dfd' },
       { token: 'type', foreground: 'f5b544' },
     ],
-    colors: {
-      'editor.background': token('--color-inset', '#08090b'),
-      'editor.foreground': token('--color-fg-1', '#e4e7ec'),
-      'editorLineNumber.foreground': token('--color-fg-4', '#474e59'),
-      'editorLineNumber.activeForeground': token('--color-fg-2', '#98a0ad'),
-      'editor.lineHighlightBackground': token('--color-bg-1', '#101114'),
-      'editorGutter.background': token('--color-inset', '#08090b'),
-      'editorIndentGuide.background1': token('--color-line-1', '#1e2128'),
-      'editorWidget.background': token('--color-bg-2', '#16181c'),
-      'editorWidget.border': token('--color-line-2', '#282c34'),
-      'scrollbarSlider.background': '#282c3488',
-      'scrollbarSlider.hoverBackground': '#383e48aa',
-    },
+    colors: editorColors('#08090b', '#e4e7ec', '#474e59', '#98a0ad', '#101114', '#1e2128', '#16181c', '#282c34'),
   })
 
-  loader.config({ monaco })
+  monaco.editor.defineTheme(RETICLE_LIGHT, {
+    base: 'vs',
+    inherit: true,
+    rules: [
+      { token: 'comment', foreground: '767e8a' },
+      { token: 'string', foreground: '0f7f57' },
+      { token: 'number', foreground: '0a76a8' },
+      { token: 'keyword', foreground: '2563eb' },
+      { token: 'type', foreground: '9a6410' },
+    ],
+    colors: editorColors('#ffffff', '#14171c', '#767e8a', '#454c57', '#f7f8fa', '#e3e6ec', '#eceef2', '#d4d9e1'),
+  })
+
+  if (!configured) {
+    configured = true
+    loader.config({ monaco })
+  }
+}
+
+function editorColors(
+  inset: string,
+  fg1: string,
+  fg4: string,
+  fg2: string,
+  bg1: string,
+  line1: string,
+  bg2: string,
+  line2: string,
+): Record<string, string> {
+  return {
+    'editor.background': inset,
+    'editor.foreground': fg1,
+    'editorLineNumber.foreground': fg4,
+    'editorLineNumber.activeForeground': fg2,
+    'editor.lineHighlightBackground': bg1,
+    'editorGutter.background': inset,
+    'editorIndentGuide.background1': line1,
+    'editorWidget.background': bg2,
+    'editorWidget.border': line2,
+  }
 }
 
 /** Map a filename to a Monaco language id. */

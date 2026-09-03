@@ -42,13 +42,25 @@ let cachedRoot: string | null | undefined
 export function findRepoRoot(): string | null {
   if (cachedRoot !== undefined) return cachedRoot
 
+  // `app` is only available inside Electron. Reading it lazily keeps this
+  // module usable from plain Node (tests, tooling) and means an explicit
+  // RETICLE_ROOT never depends on the Electron runtime being present.
+  let appPaths: string[] = []
+  try {
+    appPaths = [
+      app.isPackaged ? path.dirname(app.getPath('exe')) : '',
+      app.getAppPath(),
+    ]
+  } catch {
+    appPaths = []
+  }
+
   const candidates = [
     process.env.RETICLE_ROOT,
     // Dev: cwd is studio/
     process.cwd(),
     // Packaged: resources/app.asar -> walk out
-    app.isPackaged ? path.dirname(app.getPath('exe')) : undefined,
-    app.getAppPath(),
+    ...appPaths,
   ].filter((c): c is string => typeof c === 'string' && c.length > 0)
 
   for (const candidate of candidates) {

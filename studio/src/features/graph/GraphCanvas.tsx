@@ -11,14 +11,17 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './graph.css'
-import { LayoutGrid, Maximize, Waypoints } from 'lucide-react'
+import { Hexagon, LayoutGrid, Maximize, Rows3, SquareStack, Waypoints } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/design/cn'
 import { EmptyState, IconButton, Tooltip } from '@/design/primitives'
 import { NODE_STATUS_LABEL, NODE_STATUS_VAR } from '@/design/status'
 import { registerGraphHandler } from '@/app/commands'
+import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
+import { useResolvedTheme } from '@/state/theme'
 import { runTotals, type NodeStatus } from '@shared/projection'
+import type { NodeStyle } from '@shared/ipc'
 import { AgentNode } from './AgentNode'
 import { Timeline } from './Timeline'
 import { layoutGraph, type AgentFlowNode, type LayoutDirection } from './layout'
@@ -41,6 +44,8 @@ function GraphCanvasInner() {
   const selectNode = useStudio((s) => s.selectNode)
   const { fitView } = useReactFlow()
 
+  const nodeStyle = useStudio((s) => s.settings?.appearance.nodeStyle ?? 'detailed')
+  const theme = useResolvedTheme()
   const [direction, setDirection] = useState<LayoutDirection>('TB')
   const [hidden, setHidden] = useState<Set<NodeStatus>>(new Set())
   /** Manual positions survive re-renders but are cleared by an explicit re-layout. */
@@ -58,7 +63,7 @@ function GraphCanvasInner() {
 
   const { nodes, edges } = useMemo(() => {
     if (!run) return { nodes: [] as AgentFlowNode[], edges: [] as Edge[] }
-    const laid = layoutGraph(run, direction, pinned)
+    const laid = layoutGraph(run, direction, nodeStyle, pinned)
     if (hidden.size === 0) return laid
 
     const visible = new Set(
@@ -68,7 +73,7 @@ function GraphCanvasInner() {
       nodes: laid.nodes.filter((n) => visible.has(n.id)),
       edges: laid.edges.filter((e) => visible.has(e.source) && visible.has(e.target)),
     }
-  }, [run, direction, pinned, hidden])
+  }, [run, direction, nodeStyle, pinned, hidden])
 
   const selectedNodes = useMemo(
     () => nodes.map((node) => ({ ...node, selected: node.id === selectedNodeId })),
@@ -88,6 +93,15 @@ function GraphCanvasInner() {
       return next
     })
   }, [])
+
+  const setNodeStyle = useCallback(
+    (style: NodeStyle) => {
+      setPinned({})
+      void bridge?.settings.patch({ appearance: { nodeStyle: style } })
+      requestAnimationFrame(() => fitView({ padding: 0.18, duration: 220 }))
+    },
+    [fitView],
+  )
 
   const relayout = useCallback(() => {
     setPinned({})
@@ -142,6 +156,38 @@ function GraphCanvasInner() {
             />
           </IconButton>
         </Tooltip>
+
+        <span className="mx-1 h-4 w-px bg-line-2" />
+
+        {/* Presentation switch. Persisted, so it survives a restart. */}
+        <div className="flex items-center gap-px rounded-[var(--radius-control)] border border-line-2 p-px">
+          {(
+            [
+              ['detailed', 'Detailed nodes', SquareStack],
+              ['compact', 'Compact nodes', Rows3],
+              ['hex', 'Hexagonal nodes', Hexagon],
+            ] as const
+          ).map(([style, label, Icon]) => (
+            <button
+              key={style}
+              type="button"
+              aria-pressed={nodeStyle === style}
+              title={label}
+              disabled={!run}
+              onClick={() => setNodeStyle(style)}
+              className={cn(
+                'flex h-[22px] w-[26px] items-center justify-center rounded-[3px]',
+                '[transition-property:background-color,color] duration-[var(--dur-fast)]',
+                'disabled:pointer-events-none disabled:opacity-30',
+                nodeStyle === style
+                  ? 'bg-bg-3 text-fg-1'
+                  : 'text-fg-4 hover:bg-bg-2 hover:text-fg-2',
+              )}
+            >
+              <Icon size={13} strokeWidth={1.8} />
+            </button>
+          ))}
+        </div>
 
         <span className="mx-1 h-4 w-px bg-line-2" />
 
@@ -227,7 +273,9 @@ function GraphCanvasInner() {
               pannable
               zoomable
               position="bottom-right"
-              maskColor="rgba(8,9,11,0.72)"
+              maskColor={
+                theme === 'light' ? 'rgba(238,240,244,0.75)' : 'rgba(8,9,11,0.72)'
+              }
               nodeColor={(node) =>
                 NODE_STATUS_VAR[
                   ((node as AgentFlowNode).data?.node.status ?? 'pending') as NodeStatus

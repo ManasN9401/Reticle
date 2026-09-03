@@ -61,6 +61,13 @@ export const IPC = {
   workspacePickDirectory: 'workspace:pick-directory',
   workspacePickFiles: 'workspace:pick-files',
 
+  // --- API keys (.env) -------------------------------------------------------
+  envList: 'env:list',
+  envReveal: 'env:reveal',
+  envSet: 'env:set',
+  envRemove: 'env:remove',
+  envPath: 'env:path',
+
   // --- settings -------------------------------------------------------------
   settingsGet: 'settings:get',
   settingsPatch: 'settings:patch',
@@ -68,6 +75,8 @@ export const IPC = {
 
   // --- native menu ----------------------------------------------------------
   pushCommand: 'push:command',
+  nativeAction: 'app:native-action',
+  themeBackground: 'app:theme-background',
 } as const
 
 export type IpcChannel = (typeof IPC)[keyof typeof IPC]
@@ -250,6 +259,26 @@ export interface AgentCard {
   hasEnv: boolean
 }
 
+/** Providers the router knows how to route to. */
+export type KeyProvider = 'openrouter' | 'groq' | 'gemini' | 'other'
+
+export interface EnvKeyEntry {
+  /** The environment variable name, e.g. OPENROUTER_API_KEY_2. */
+  name: string
+  provider: KeyProvider
+  /** Which slot in the provider's rotation this is. */
+  slotLabel?: string
+  /**
+   * False for variables the router never reads — the key-slot names are
+   * hardcoded (routing/models.go:100, :194, :255).
+   */
+  known: boolean
+  present: boolean
+  /** Obfuscated for display; the plaintext requires an explicit reveal. */
+  masked: string
+  length: number
+}
+
 export interface TreeEntry {
   name: string
   path: string
@@ -263,6 +292,17 @@ export interface ReadFileResult {
   truncated: boolean
   size: number
 }
+
+export type ThemePreference = 'system' | 'dark' | 'light'
+export type ResolvedTheme = 'dark' | 'light'
+
+/**
+ * Node map presentation.
+ *  - detailed: full card — agent, node id, model, artifacts, retries, duration
+ *  - compact:  one line — status, agent, duration. For large graphs.
+ *  - hex:      hexagon echoing the embedded telemetry star map. Densest.
+ */
+export type NodeStyle = 'detailed' | 'compact' | 'hex'
 
 export interface StudioSettings {
   connection: {
@@ -281,8 +321,12 @@ export interface StudioSettings {
     allModels: boolean
   }
   appearance: {
+    /** 'system' follows the OS; the shell resolves it before it reaches the DOM. */
+    theme: ThemePreference
     density: 'comfortable' | 'compact'
     reduceMotion: boolean
+    /** How nodes are drawn in the node map. */
+    nodeStyle: NodeStyle
   }
   logs: {
     /** Ring buffer size in the main process. */
@@ -295,7 +339,30 @@ export type SettingsPatch = {
   [K in keyof StudioSettings]?: Partial<StudioSettings[K]>
 }
 
-/** Commands the native menu and keybindings dispatch into the renderer. */
+/**
+ * Actions that only the main process can perform — clipboard and undo stack on
+ * the focused webContents, zoom, fullscreen, devtools, window lifecycle.
+ *
+ * These exist because the in-window menu bar replaces Electron's native menu on
+ * Windows and Linux, and with it the built-in `role` handlers that would
+ * otherwise implement Edit and View.
+ */
+export type NativeAction =
+  | 'undo'
+  | 'redo'
+  | 'cut'
+  | 'copy'
+  | 'paste'
+  | 'selectAll'
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'zoomReset'
+  | 'toggleFullScreen'
+  | 'toggleDevTools'
+  | 'reload'
+  | 'quit'
+
+/** Commands the menu, palette and keybindings dispatch into the renderer. */
 export type CommandId =
   | 'view.runs'
   | 'view.graph'
@@ -317,6 +384,24 @@ export type CommandId =
   | 'graph.relayout'
   | 'graph.fit'
   | 'logs.clear'
+  | 'panel.problems'
+  | 'workspace.reveal'
+  | 'help.docs'
+  | 'help.about'
+  | 'view.zoomIn'
+  | 'view.zoomOut'
+  | 'view.zoomReset'
+  | 'view.fullScreen'
+  | 'view.devTools'
+  | 'view.reload'
+  | 'app.quit'
+  | 'theme.cycle'
+  | 'theme.dark'
+  | 'theme.light'
+  | 'theme.system'
+  | 'graph.styleDetailed'
+  | 'graph.styleCompact'
+  | 'graph.styleHex'
 
 export interface ApiResult<T> {
   ok: boolean
@@ -398,11 +483,32 @@ export interface ReticleBridge {
     pickFiles(): Promise<string[]>
   }
 
+  /**
+   * API keys, stored in the repo-root `.env`. Values are masked by default and
+   * only leave the main process through `reveal`.
+   */
+  keys: {
+    list(): Promise<ApiResult<EnvKeyEntry[]>>
+    reveal(name: string): Promise<ApiResult<string>>
+    set(name: string, value: string): Promise<ApiResult<void>>
+    remove(name: string): Promise<ApiResult<void>>
+    path(): Promise<string | null>
+  }
+
   settings: {
     get(): Promise<StudioSettings>
     patch(patch: SettingsPatch): Promise<StudioSettings>
     onChange(handler: (settings: StudioSettings) => void): Unsubscribe
   }
+
+  /** Actions only the main process can perform (clipboard, zoom, devtools, quit). */
+  native(action: NativeAction): Promise<void>
+
+  /**
+   * Keep the native window background in step with the resolved theme, so a
+   * reload or relaunch does not flash the wrong colour before first paint.
+   */
+  setThemeBackground(theme: ResolvedTheme): Promise<void>
 
   onCommand(handler: (command: CommandId) => void): Unsubscribe
 }

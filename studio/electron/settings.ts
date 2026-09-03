@@ -23,8 +23,10 @@ function defaults(): StudioSettings {
       allModels: false,
     },
     appearance: {
+      theme: 'dark',
       density: 'comfortable',
       reduceMotion: false,
+      nodeStyle: 'detailed',
     },
     logs: {
       bufferSize: 50_000,

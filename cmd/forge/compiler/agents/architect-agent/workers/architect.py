@@ -177,7 +177,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         def get_architect_response():
             try:
                 # Architect output is just a schema with 'TBD' system prompts, so it's very small
-                target_max_tokens = 2000 if "groq" in model.lower() else 6000
+                target_max_tokens = 8000
                 resp = completion(
                     model=model,
                     api_key=api_key,
@@ -197,7 +197,6 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
             
             try:
                 content = resp.choices[0].message.content
-                print(f"[DEBUG LLM OUTPUT] >>{content}<<", file=sys.stderr)
                 raw_content = content.strip() if content else ""
                 
                 # Robust JSON extraction

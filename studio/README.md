@@ -104,6 +104,61 @@ The checkpoint path is scraped from the agent's own
 not exist in this repo and that `os.makedirs` therefore creates outside the tree.
 Reading the path from the log keeps Studio correct either way.
 
+## Settings and API keys
+
+Settings is section-driven (`src/features/settings/`): Appearance, Connection,
+Forge, **API Keys**, **Models**, Logs, About.
+
+**API Keys** reads and writes the repo-root `.env`, which
+`cmd/forge/main.go:23` parses itself — a plain `KEY=VALUE` scan with `#`
+comments and no quote handling. Writes preserve every other line, comment and
+ordering, and go through a temp file plus rename so a crash cannot truncate the
+file. Two facts are surfaced in the panel rather than left to be discovered:
+
+- the router only reads a **fixed set of variable names**
+  (`routing/models.go:100`, `:194`, `:255`) — three OpenRouter slots, three Groq,
+  one Gemini. Anything else is kept in the file but flagged as never read.
+- `.env` is parsed once at boot, so edits need a **forge restart**.
+
+Values are masked to the last four characters. Plaintext only leaves the main
+process through an explicit reveal, which re-hides itself after 20 seconds.
+
+**Models** lists the live catalog from `GET /api/models`, filterable by search,
+provider, **API key slot**, enabled state, and health — where health folds in
+whether that key is rate-limited (from `WaitlistUpdated.lockedKeys`) or missing
+from `.env` entirely. A model bound to a dead key cannot run, and that is
+invisible from the model id alone. Bulk enable/disable applies to the current
+filter.
+
+## Node map presentations
+
+The graph toolbar switches between three, and the choice is persisted:
+
+| Style | Node | Use |
+|---|---|---|
+| **Detailed** | 224x68 card — agent, node id, model, artifacts, retries, duration | default; full triage detail |
+| **Compact** | 168x30 one-liner — status rail, agent, duration | graphs of dozens |
+| **Hexagonal** | 72x58 hexagon — status stroke + core, label beneath | densest; echoes the embedded star map |
+
+All three encode status as saturated colour on an otherwise achromatic shape, so
+run state is readable at zoom levels where no text is. Geometry *and* dagre
+separation are per-style (`NODE_GEOMETRY` in `features/graph/layout.ts`) — the
+spacing that keeps 224px cards legible leaves hexagons swimming.
+
+The hexagon is a single inline `<svg>` `<polygon>` — `clip-path` discards
+borders, so faking an outline with a second clipped layer behind reads as a
+thick soft ring at this size and cannot antialias. Its interior stays empty, as
+in the star map (`runtime/telemetry/ui/index.html:2717-2745`): a dark well
+filled with `--color-inset`, a crisp status stroke, and a small status core —
+solid when done, pulsing when running, hollow when pending or blocked, an `x`
+when failed. Identity lives in the label beneath; state lives in the stroke.
+
+Two details are load-bearing rather than decorative. A mocked node keeps a small
+amber dot on its upper-right vertex, because RFC-026 §8 requires mock output to
+be obviously distinguishable. And a node blocked on a human turns its *label*
+into the Review button rather than floating a pill over it — same footprint, no
+overlap, still one click.
+
 ## Design
 
 Direction is "Instrument": graphite neutrals, hairline borders, no glow. The
@@ -116,6 +171,27 @@ Tokens live in `src/design/tokens.css` (declared inside Tailwind's `@theme`, so
 one definition produces both utilities and raw custom properties). Fonts are
 bundled via `@fontsource-variable`, never fetched — an Electron app must render
 correctly with no network.
+
+### Theming
+
+Dark, Light, or Match System — from Settings → Appearance, the status-bar
+toggle, <kbd>Ctrl+Shift+L</kbd>, or the View menu.
+
+"System" is resolved to a concrete `dark`/`light` in `state/theme.ts` **before**
+it reaches the DOM, so the stylesheet only expresses two palettes and anything
+needing the actual theme (Monaco, the native window background) reads one value.
+`data-theme` is always written explicitly; there is no media query in the CSS.
+
+The light palette is not an inversion. The dark status hues are tuned for a
+near-black ground and several — the cyan especially — all but vanish on white,
+so every saturated value is re-picked for contrast. Shadows are re-picked too,
+shallower and tighter, since dark shadow recipes go muddy on light surfaces.
+
+Two things follow the theme that are easy to miss: the **Electron window
+background** (set at creation from the persisted preference and updated on
+change, so neither a relaunch nor a reload flashes the wrong colour), and
+**Monaco**, which needs literal hex rather than custom properties and so carries
+a hand-maintained mirror of the surface tokens in `features/editor/monacoSetup.ts`.
 
 ## Security
 

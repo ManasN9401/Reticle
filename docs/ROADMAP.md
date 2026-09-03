@@ -552,13 +552,13 @@ RFC-003 Scheduler
    ✓ Artifact Store
 
 2. Define the Worker Runtime Contract
-   (this becomes one of the first RFCs)
+   ✓ (RFC-027-Worker-Runtime-Contract)
 
 3. Build a true Task Graph executor
-   (replace hardcoded orchestration)
+   ✓ (GraphEngine implemented)
 
 4. Introduce Shared Runtime Memory
-   (distinct from artifacts)
+   ✓ (RuntimeState and SessionState via memory event bus)
 
 5. Write the first architectural RFCs
-   documenting what has now proven itself.
+   ✓ (Initial architectural RFCs have been written)

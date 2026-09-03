@@ -10,8 +10,10 @@ import type {
   HitlResolveRequest,
   LogBatch,
   LogQuery,
+  NativeAction,
   OutboundCommand,
   ProjectionPush,
+  ResolvedTheme,
   SettingsPatch,
   StudioSettings,
   WindowState,
@@ -23,6 +25,7 @@ import { ForgeClient } from './forge/client'
 import { ForgeProcess } from './forge/process'
 import { ForgeRest } from './forge/rest'
 import { EventStore } from './forge/store'
+import { envFilePath, listKeys, removeKey, revealKey, setKey } from './env/keys'
 import { readCheckpoint, resolveCheckpoint } from './hitl/checkpoints'
 import { WorkspaceReader } from './workspace/reader'
 
@@ -41,6 +44,11 @@ function send<T>(channel: string, payload: T): void {
   }
 }
 
+/** Mirrors the `--color-bg-0` token for each theme. */
+function groundColor(theme: ResolvedTheme): string {
+  return theme === 'light' ? '#eef0f4' : '#0b0c0e'
+}
+
 function windowState(): WindowState {
   return {
     maximized: mainWindow?.isMaximized() ?? false,
@@ -56,8 +64,11 @@ function createWindow(): void {
     minWidth: 1024,
     minHeight: 640,
     show: false,
-    // Match the app ground token so there is no white flash before first paint.
-    backgroundColor: '#0b0c0e',
+    // Match the --color-bg-0 token of the persisted theme, so there is no
+    // flash of the wrong colour before the renderer paints.
+    backgroundColor: groundColor(
+      settings.get().appearance.theme === 'light' ? 'light' : 'dark',
+    ),
     titleBarStyle: 'hidden',
     frame: false,
     webPreferences: {
@@ -194,6 +205,48 @@ function registerIpc(): void {
       properties: ['openFile', 'multiSelections'],
     })
     return result.canceled ? [] : result.filePaths
+  })
+
+  ipcMain.handle(IPC.envList, () => listKeys())
+  ipcMain.handle(IPC.envReveal, (_e, name: string) => revealKey(name))
+  ipcMain.handle(IPC.envSet, (_e, name: string, value: string) => setKey(name, value))
+  ipcMain.handle(IPC.envRemove, (_e, name: string) => removeKey(name))
+  ipcMain.handle(IPC.envPath, () => envFilePath())
+
+  ipcMain.handle(IPC.themeBackground, (_e, theme: ResolvedTheme) => {
+    mainWindow?.setBackgroundColor(groundColor(theme))
+  })
+
+  ipcMain.handle(IPC.nativeAction, (_e, action: NativeAction) => {
+    const contents = mainWindow?.webContents
+    if (!contents) return
+    switch (action) {
+      // The in-window menu bar replaces Electron's native menu on Windows and
+      // Linux, so the `role` handlers that would normally back Edit and View
+      // have to be driven explicitly.
+      case 'undo': return contents.undo()
+      case 'redo': return contents.redo()
+      case 'cut': return contents.cut()
+      case 'copy': return contents.copy()
+      case 'paste': return contents.paste()
+      case 'selectAll': return contents.selectAll()
+      case 'zoomIn':
+        return void contents.setZoomLevel(Math.min(5, contents.getZoomLevel() + 0.5))
+      case 'zoomOut':
+        return void contents.setZoomLevel(Math.max(-5, contents.getZoomLevel() - 0.5))
+      case 'zoomReset':
+        return void contents.setZoomLevel(0)
+      case 'toggleFullScreen':
+        return mainWindow?.setFullScreen(!mainWindow.isFullScreen())
+      case 'toggleDevTools':
+        return contents.toggleDevTools()
+      case 'reload':
+        return contents.reload()
+      case 'quit':
+        return app.quit()
+      default:
+        return
+    }
   })
 
   ipcMain.handle(IPC.settingsGet, () => settings.get())

@@ -3,6 +3,7 @@ import { AlertOctagon } from 'lucide-react'
 import { EmptyState } from '@/design/primitives'
 import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
+import { useApplyTheme } from '@/state/theme'
 import { useUi } from '@/state/ui'
 import { ActivityRail } from './ActivityRail'
 import { CommandPalette } from './CommandPalette'
@@ -28,6 +29,10 @@ export function Shell() {
   const panelMaximized = useUi((s) => s.panelMaximized)
   const setPanelHeight = useUi((s) => s.setPanelHeight)
   const setPalette = useUi((s) => s.setPalette)
+
+  // Resolves 'system', writes data-theme, and keeps the native window
+  // background in step.
+  useApplyTheme()
 
   useEffect(() => {
     void initialize()

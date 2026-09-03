@@ -199,8 +199,13 @@ export function Chip({
 // Inputs
 // ---------------------------------------------------------------------------
 
+/**
+ * Width is deliberately NOT set here. Baking in `w-full` makes every call-site
+ * override silently lose, because Tailwind resolves conflicting utilities by
+ * stylesheet order rather than by the order they appear in the class string.
+ */
 const FIELD_BASE =
-  'w-full rounded-[var(--radius-control)] border border-line-2 bg-inset px-2 text-sm text-fg-1 placeholder:text-fg-4 disabled:opacity-40'
+  'rounded-[var(--radius-control)] border border-line-2 bg-inset px-2 text-sm text-fg-1 placeholder:text-fg-4 disabled:opacity-40'
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
   function Input({ className, ...rest }, ref) {

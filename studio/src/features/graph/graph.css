@@ -123,3 +123,21 @@
 .node-rail-pulse {
   animation: reticle-rail-pulse 1.8s ease-in-out infinite;
 }
+
+/* Hexagonal nodes are inline SVG, so the shape needs no clipping — only the
+   core's heartbeat, which the reduced-motion guard in tokens.css disables. */
+@keyframes reticle-core-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 0.55;
+  }
+}
+
+.node-core-pulse {
+  animation: reticle-core-pulse 1.6s ease-in-out infinite;
+}

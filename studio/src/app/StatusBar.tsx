@@ -1,4 +1,14 @@
-import { AlertTriangle, Cpu, Play, Square, Wifi, WifiOff } from 'lucide-react'
+import {
+  AlertTriangle,
+  Cpu,
+  Monitor,
+  Moon,
+  Play,
+  Square,
+  Sun,
+  Wifi,
+  WifiOff,
+} from 'lucide-react'
 import { cn } from '@/design/cn'
 import { StatusPip } from '@/design/primitives'
 import { connectionVar } from '@/design/status'
@@ -10,7 +20,9 @@ import {
   startForge,
   stopForge,
 } from '@/state/actions'
+import { bridge } from '@/state/bridge'
 import { useActiveRun, useStudio } from '@/state/store'
+import { nextTheme } from '@/state/theme'
 import { runTotals } from '@shared/projection'
 import { useUi } from '@/state/ui'
 
@@ -153,11 +165,27 @@ export function StatusBar() {
         ) : null}
 
         <Separator />
+        <ThemeToggle />
+        <Separator />
         <span className="num px-2 text-fg-4" title="Events received per second">
           {connection.eventRate} ev/s
         </span>
       </div>
     </footer>
+  )
+}
+
+function ThemeToggle() {
+  const theme = useStudio((s) => s.settings?.appearance.theme ?? 'dark')
+  const Icon = theme === 'light' ? Sun : theme === 'dark' ? Moon : Monitor
+  const next = nextTheme(theme)
+  return (
+    <StatusItem
+      onClick={() => void bridge?.settings.patch({ appearance: { theme: next } })}
+      title={`Theme: ${theme}. Click for ${next}. (Ctrl+Shift+L)`}
+    >
+      <Icon size={12} strokeWidth={1.7} />
+    </StatusItem>
   )
 }
 

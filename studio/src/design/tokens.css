@@ -84,6 +84,58 @@
   --ease-out-quint: cubic-bezier(0.2, 0, 0, 1);
 }
 
+/**
+ * Light theme.
+ *
+ * Not an inversion — the dark palette's status hues are tuned for a near-black
+ * ground and several of them (the cyan especially) all but vanish on white, so
+ * every saturated value is re-picked for contrast rather than reused. The
+ * organizing rule is unchanged: chrome stays achromatic, colour means status.
+ *
+ * `data-theme` is always written explicitly by the shell — "system" is resolved
+ * to one of these two before it reaches the DOM — so no media query is needed.
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-bg-0: #eef0f4;
+  --color-bg-1: #f7f8fa;
+  --color-bg-2: #eceef2;
+  --color-bg-3: #e2e6ec;
+  --color-inset: #ffffff;
+
+  --color-line-1: #e3e6ec;
+  --color-line-2: #d4d9e1;
+  --color-line-3: #b9c0cb;
+
+  --color-fg-1: #14171c;
+  --color-fg-2: #454c57;
+  --color-fg-3: #5f6772;
+  --color-fg-4: #767e8a;
+
+  --color-accent: #2563eb;
+  --color-accent-fg: #ffffff;
+  --color-accent-weak: rgba(37, 99, 235, 0.1);
+  --color-accent-line: rgba(37, 99, 235, 0.45);
+
+  --color-st-idle: #78818e;
+  --color-st-running: #0a76a8;
+  --color-st-done: #0f7f57;
+  --color-st-failed: #c0362f;
+  --color-st-waiting: #9a6410;
+
+  --color-st-idle-weak: rgba(120, 129, 142, 0.12);
+  --color-st-running-weak: rgba(10, 118, 168, 0.11);
+  --color-st-done-weak: rgba(15, 127, 87, 0.11);
+  --color-st-failed-weak: rgba(192, 54, 47, 0.1);
+  --color-st-waiting-weak: rgba(154, 100, 16, 0.12);
+
+  /* Light surfaces need shallower, tighter shadows to avoid looking muddy. */
+  --shadow-pop: 0 1px 2px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-menu: 0 2px 4px rgba(15, 23, 42, 0.1), 0 8px 24px rgba(15, 23, 42, 0.12);
+  --shadow-modal: 0 4px 8px rgba(15, 23, 42, 0.12), 0 24px 64px rgba(15, 23, 42, 0.18);
+}
+
 :root {
   /* Fixed chrome metrics. Every one of these is a stable dimension: nothing in
      the shell may resize on hover, focus, or label length. */

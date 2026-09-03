@@ -3,35 +3,46 @@ import { IPC } from '../src/shared/ipc'
 import type { CommandId } from '../src/shared/ipc'
 
 /**
- * Native application menu.
+ * Application menu.
  *
- * Every entry dispatches a `CommandId` into the renderer, which resolves it
- * through the same command registry the palette and keybindings use — so an
- * action has exactly one implementation regardless of how it was triggered.
+ * The window is frameless, and a frameless window on Windows and Linux does not
+ * render a native menu bar at all — the menu would exist but be invisible, with
+ * only its accelerators reachable. So on those platforms the menu is removed
+ * entirely and `src/app/MenuBar.tsx` draws it inside the title bar instead,
+ * with the renderer owning the keybindings.
+ *
+ * macOS is different: its menu bar lives at the top of the screen rather than in
+ * the window, so it works fine with a frameless window and users expect it to be
+ * there. It keeps the native menu, and the in-window bar hides itself.
  */
 export function installMenu(getWindow: () => BrowserWindow | null): void {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+    return
+  }
+
   const send = (command: CommandId) => () => {
     getWindow()?.webContents.send(IPC.pushCommand, command)
   }
 
-  const isMac = process.platform === 'darwin'
-
   const template: MenuItemConstructorOptions[] = [
-    ...(isMac
-      ? ([{ role: 'appMenu' }] satisfies MenuItemConstructorOptions[])
-      : []),
+    { role: 'appMenu' },
     {
-      label: '&File',
+      label: 'File',
       submenu: [
         { label: 'New Run…', accelerator: 'CmdOrCtrl+N', click: send('run.new') },
         { type: 'separator' },
         { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: send('view.settings') },
+        {
+          label: 'Reveal Workspace in Finder',
+          click: send('workspace.reveal'),
+        },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
+        { role: 'close' },
       ],
     },
     {
-      label: '&Edit',
+      label: 'Edit',
       submenu: [
         { role: 'undo' },
         { role: 'redo' },
@@ -43,19 +54,26 @@ export function installMenu(getWindow: () => BrowserWindow | null): void {
       ],
     },
     {
-      label: '&View',
+      label: 'View',
       submenu: [
-        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+Shift+P', click: send('palette.open') },
+        {
+          label: 'Command Palette…',
+          accelerator: 'CmdOrCtrl+Shift+P',
+          click: send('palette.open'),
+        },
         { type: 'separator' },
         { label: 'Runs', accelerator: 'CmdOrCtrl+1', click: send('view.runs') },
-        { label: 'Graph', accelerator: 'CmdOrCtrl+2', click: send('view.graph') },
+        { label: 'Node Map', accelerator: 'CmdOrCtrl+2', click: send('view.graph') },
         { label: 'Agents', accelerator: 'CmdOrCtrl+3', click: send('view.agents') },
         { label: 'Artifacts', accelerator: 'CmdOrCtrl+4', click: send('view.artifacts') },
         { label: 'Explorer', accelerator: 'CmdOrCtrl+5', click: send('view.explorer') },
         { type: 'separator' },
-        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: send('sidebar.toggle') },
+        {
+          label: 'Toggle Sidebar',
+          accelerator: 'CmdOrCtrl+B',
+          click: send('sidebar.toggle'),
+        },
         { label: 'Toggle Panel', accelerator: 'CmdOrCtrl+J', click: send('panel.toggle') },
-        { label: 'Logs', accelerator: 'CmdOrCtrl+Shift+U', click: send('panel.logs') },
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
@@ -66,7 +84,7 @@ export function installMenu(getWindow: () => BrowserWindow | null): void {
       ],
     },
     {
-      label: '&Run',
+      label: 'Run',
       submenu: [
         { label: 'Start Forge', accelerator: 'F5', click: send('run.startForge') },
         { label: 'Stop Forge', accelerator: 'Shift+F5', click: send('run.stopForge') },
@@ -74,14 +92,35 @@ export function installMenu(getWindow: () => BrowserWindow | null): void {
         { label: 'Connect', click: send('connection.connect') },
         { label: 'Disconnect', click: send('connection.disconnect') },
         { type: 'separator' },
-        { label: 'Re-layout Graph', accelerator: 'CmdOrCtrl+Alt+L', click: send('graph.relayout') },
-        { label: 'Fit Graph', accelerator: 'CmdOrCtrl+Alt+F', click: send('graph.fit') },
+        {
+          label: 'Re-layout Node Map',
+          accelerator: 'CmdOrCtrl+Alt+L',
+          click: send('graph.relayout'),
+        },
+        {
+          label: 'Fit Node Map',
+          accelerator: 'CmdOrCtrl+Alt+F',
+          click: send('graph.fit'),
+        },
+      ],
+    },
+    {
+      label: 'Terminal',
+      submenu: [
+        {
+          label: 'Show Terminal',
+          accelerator: 'CmdOrCtrl+`',
+          click: send('panel.terminal'),
+        },
+        { label: 'Show Logs', accelerator: 'CmdOrCtrl+Shift+U', click: send('panel.logs') },
+        { label: 'Show Problems', click: send('panel.problems') },
+        { label: 'Show Preview', click: send('panel.preview') },
         { type: 'separator' },
         { label: 'Clear Logs', click: send('logs.clear') },
       ],
     },
     {
-      label: '&Help',
+      label: 'Help',
       submenu: [
         {
           label: 'Reticle Documentation',
@@ -89,6 +128,7 @@ export function installMenu(getWindow: () => BrowserWindow | null): void {
             void shell.openExternal('https://github.com/')
           },
         },
+        { label: 'About Reticle Studio', click: send('help.about') },
       ],
     },
   ]

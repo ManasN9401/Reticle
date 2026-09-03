@@ -7,8 +7,12 @@ import {
   startForge,
   stopForge,
 } from '@/state/actions'
+import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
 import { useUi } from '@/state/ui'
+import { useSettingsUi } from '@/features/settings/state'
+import { nextTheme } from '@/state/theme'
+import type { NodeStyle, ThemePreference } from '@shared/ipc'
 
 /**
  * The single command registry.
@@ -192,7 +196,138 @@ export const COMMANDS: Command[] = [
     section: 'Run',
     run: () => useStudio.getState().clearLogs(),
   },
+  {
+    id: 'panel.problems',
+    title: 'Show Problems',
+    section: 'View',
+    run: () => useUi.getState().setPanelTab('problems'),
+  },
+  {
+    id: 'workspace.reveal',
+    title: 'Reveal Forge Folder',
+    section: 'File',
+    run: () => {
+      const cwd = useStudio.getState().settings?.forge.cwd
+      if (cwd) void bridge?.workspace.reveal(cwd)
+    },
+    enabled: () => Boolean(useStudio.getState().settings?.forge.cwd),
+    disabledReason: 'No forge working directory is configured.',
+  },
+  {
+    id: 'help.docs',
+    title: 'Reticle Documentation',
+    section: 'Help',
+    run: () => void bridge?.workspace.openExternal('https://github.com/'),
+  },
+  {
+    id: 'help.about',
+    title: 'About Reticle Studio',
+    section: 'Help',
+    run: () => {
+      useSettingsUi.getState().setSection('about')
+      useUi.getState().setView('settings')
+    },
+  },
+
+  // Window-level actions. These are commands rather than bare menu entries so
+  // that the menu bar, the palette and the keybindings all resolve them the
+  // same way — there is no native menu on Windows or Linux to provide them.
+  {
+    id: 'view.zoomIn',
+    title: 'Zoom In',
+    section: 'View',
+    keys: 'Ctrl+=',
+    run: () => void bridge?.native('zoomIn'),
+  },
+  {
+    id: 'view.zoomOut',
+    title: 'Zoom Out',
+    section: 'View',
+    keys: 'Ctrl+-',
+    run: () => void bridge?.native('zoomOut'),
+  },
+  {
+    id: 'view.zoomReset',
+    title: 'Reset Zoom',
+    section: 'View',
+    keys: 'Ctrl+0',
+    run: () => void bridge?.native('zoomReset'),
+  },
+  {
+    id: 'view.fullScreen',
+    title: 'Toggle Full Screen',
+    section: 'View',
+    keys: 'F11',
+    run: () => void bridge?.native('toggleFullScreen'),
+  },
+  {
+    id: 'view.devTools',
+    title: 'Toggle Developer Tools',
+    section: 'View',
+    keys: 'Ctrl+Shift+I',
+    run: () => void bridge?.native('toggleDevTools'),
+  },
+  {
+    id: 'view.reload',
+    title: 'Reload Window',
+    section: 'View',
+    keys: 'Ctrl+R',
+    run: () => void bridge?.native('reload'),
+  },
+  {
+    id: 'app.quit',
+    title: 'Exit',
+    section: 'File',
+    run: () => void bridge?.native('quit'),
+  },
+
+  {
+    id: 'theme.cycle',
+    title: 'Cycle Theme',
+    section: 'View',
+    keys: 'Ctrl+Shift+L',
+    run: () => setTheme(nextTheme(currentTheme())),
+  },
+  { id: 'theme.dark', title: 'Theme: Dark', section: 'View', run: () => setTheme('dark') },
+  { id: 'theme.light', title: 'Theme: Light', section: 'View', run: () => setTheme('light') },
+  {
+    id: 'theme.system',
+    title: 'Theme: Match System',
+    section: 'View',
+    run: () => setTheme('system'),
+  },
+
+  {
+    id: 'graph.styleDetailed',
+    title: 'Node Map: Detailed Nodes',
+    section: 'Graph',
+    run: () => setNodeStyle('detailed'),
+  },
+  {
+    id: 'graph.styleCompact',
+    title: 'Node Map: Compact Nodes',
+    section: 'Graph',
+    run: () => setNodeStyle('compact'),
+  },
+  {
+    id: 'graph.styleHex',
+    title: 'Node Map: Hexagonal Nodes',
+    section: 'Graph',
+    run: () => setNodeStyle('hex'),
+  },
 ]
+
+function currentTheme(): ThemePreference {
+  return useStudio.getState().settings?.appearance.theme ?? 'dark'
+}
+
+function setTheme(theme: ThemePreference): void {
+  void bridge?.settings.patch({ appearance: { theme } })
+}
+
+function setNodeStyle(nodeStyle: NodeStyle): void {
+  void bridge?.settings.patch({ appearance: { nodeStyle } })
+}
 
 const BY_ID = new Map(COMMANDS.map((command) => [command.id, command]))
 

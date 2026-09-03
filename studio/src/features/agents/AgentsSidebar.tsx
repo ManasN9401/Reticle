@@ -76,7 +76,7 @@ export function AgentsSidebar() {
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Filter agents"
           aria-label="Filter agents"
-          className="h-7 pl-7 text-xs"
+          className="h-7 w-full pl-7 text-xs"
         />
       </div>
 
