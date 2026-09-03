@@ -1,0 +1,418 @@
+/**
+ * The complete IPC contract between main and renderer.
+ *
+ * Single source of truth: `preload.ts` exposes exactly these, and the renderer
+ * may not reach the OS, the filesystem, or the orchestrator by any other route.
+ * Channels prefixed `push:` flow main → renderer; everything else is invoke.
+ */
+
+import type { RuntimeEvent, RoutingModel, WaitlistItem } from './events'
+import type { ProjectionState } from './projection'
+
+export const IPC = {
+  // --- window ------------------------------------------------------------
+  windowMinimize: 'window:minimize',
+  windowMaximize: 'window:maximize',
+  windowClose: 'window:close',
+  windowState: 'window:state',
+  pushWindowState: 'push:window-state',
+
+  // --- orchestrator connection -------------------------------------------
+  connectionGet: 'connection:get',
+  connectionConnect: 'connection:connect',
+  connectionDisconnect: 'connection:disconnect',
+  connectionSend: 'connection:send',
+  pushConnectionState: 'push:connection-state',
+
+  // --- managed forge.exe process ------------------------------------------
+  forgeStart: 'forge:start',
+  forgeStop: 'forge:stop',
+  forgeGet: 'forge:get',
+  pushForgeState: 'push:forge-state',
+  pushForgeOutput: 'push:forge-output',
+
+  // --- projection ----------------------------------------------------------
+  projectionSnapshot: 'projection:snapshot',
+  projectionClear: 'projection:clear',
+  projectionEvents: 'projection:events',
+  pushProjection: 'push:projection',
+
+  // --- logs ----------------------------------------------------------------
+  logsQuery: 'logs:query',
+  logsScope: 'logs:scope',
+  pushLogs: 'push:logs',
+
+  // --- human-in-the-loop checkpoints ---------------------------------------
+  hitlRead: 'hitl:read',
+  hitlResolve: 'hitl:resolve',
+
+  // --- REST passthrough (main owns the base URL) ---------------------------
+  apiModels: 'api:models',
+  apiModelToggle: 'api:model-toggle',
+  apiOutputs: 'api:outputs',
+  apiUpload: 'api:upload',
+
+  // --- workspace / filesystem ----------------------------------------------
+  workspaceAgents: 'workspace:agents',
+  workspaceTree: 'workspace:tree',
+  workspaceRead: 'workspace:read',
+  workspaceReveal: 'workspace:reveal',
+  workspaceOpenExternal: 'workspace:open-external',
+  workspacePickDirectory: 'workspace:pick-directory',
+  workspacePickFiles: 'workspace:pick-files',
+
+  // --- settings -------------------------------------------------------------
+  settingsGet: 'settings:get',
+  settingsPatch: 'settings:patch',
+  pushSettings: 'push:settings',
+
+  // --- native menu ----------------------------------------------------------
+  pushCommand: 'push:command',
+} as const
+
+export type IpcChannel = (typeof IPC)[keyof typeof IPC]
+
+// ---------------------------------------------------------------------------
+// Payloads
+// ---------------------------------------------------------------------------
+
+/** Narrowed here rather than using NodeJS.Platform: this type crosses into the
+ *  renderer, which has no @types/node. */
+export type Platform =
+  | 'aix'
+  | 'android'
+  | 'darwin'
+  | 'freebsd'
+  | 'haiku'
+  | 'linux'
+  | 'openbsd'
+  | 'sunos'
+  | 'win32'
+  | 'cygwin'
+  | 'netbsd'
+
+export interface WindowState {
+  maximized: boolean
+  focused: boolean
+  platform: Platform
+}
+
+export type ConnectionPhase =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'error'
+
+export interface ConnectionState {
+  phase: ConnectionPhase
+  host: string
+  port: number
+  /** Present when phase is 'error'. */
+  message?: string
+  connectedAt?: number
+  attempt: number
+  /** Events per second over the last sampling window. */
+  eventRate: number
+}
+
+export interface ConnectRequest {
+  host: string
+  port: number
+}
+
+/**
+ * The runtime whitelists inbound commands to exactly these two
+ * (runtime/telemetry/server.go:250). Anything else is silently dropped by the
+ * server, so the type refuses to express it.
+ */
+export type OutboundCommand =
+  | {
+      action: 'enqueue'
+      prompt: string
+      group?: string
+      mode?: 'parallel' | 'sequential'
+      ide_context?: string
+      effort?: string
+      agent_complexity?: number
+      attachments?: WaitlistItem['attachments']
+    }
+  | { action: 'remove'; id: string }
+
+export type ForgePhase = 'stopped' | 'starting' | 'running' | 'exited' | 'error'
+
+export interface ForgeState {
+  phase: ForgePhase
+  pid?: number
+  exitCode?: number | null
+  /** Resolved absolute path of the binary that was launched. */
+  binaryPath?: string
+  /** Resolved cwd — must be <repo>/cmd/forge or the runtime resolves paths wrongly. */
+  cwd?: string
+  args?: string[]
+  startedAt?: number
+  message?: string
+}
+
+export interface ForgeStartRequest {
+  port: number
+  /** Concurrent workflows (-batch). */
+  batch?: number
+  /** Per-node retry budget (-retries). */
+  retries?: number
+  isolated?: boolean
+  fresh?: boolean
+  allModels?: boolean
+  /** Initial prompt; forge auto-enqueues it when non-empty. */
+  prompt?: string
+}
+
+export interface ForgeOutputChunk {
+  stream: 'stdout' | 'stderr'
+  line: string
+  at: number
+}
+
+/** A coalesced push of new events plus the state they produce. */
+export interface ProjectionPush {
+  state: ProjectionState
+  /** Only the events since the last push, for the timeline strip. */
+  events: RuntimeEvent[]
+}
+
+export interface LogRecord {
+  seq: number
+  at: number
+  level: 'info' | 'warn' | 'error'
+  execId?: string
+  nodeId?: string
+  agentId?: string
+  message: string
+  /** Bus event type when the line came from the stream rather than a worker. */
+  eventType?: string
+  isLlm: boolean
+}
+
+export interface LogQuery {
+  execId?: string
+  nodeId?: string
+  /** Case-insensitive substring match over the message. */
+  search?: string
+  levels?: LogRecord['level'][]
+  limit?: number
+  /** Return records with seq strictly greater than this. */
+  after?: number
+}
+
+export interface LogBatch {
+  records: LogRecord[]
+  /** True when older records were evicted from the ring buffer. */
+  truncated: boolean
+}
+
+export interface HitlCheckpoint {
+  path: string
+  exists: boolean
+  /** Full markdown body, for rendering the plan under review. */
+  content: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'UNKNOWN'
+  feedback: string
+}
+
+export interface HitlResolveRequest {
+  path: string
+  decision: 'APPROVED' | 'REJECTED'
+  feedback?: string
+}
+
+export interface OutputFile {
+  path: string
+  content: string
+}
+
+export interface AgentCard {
+  id: string
+  name?: string
+  description?: string
+  version?: string
+  runtime?: string
+  entrypoint?: string
+  skills: string[]
+  memory: string[]
+  capabilities: string[]
+  inputs: string[]
+  outputs: string[]
+  /** Absolute path of the manifest this was parsed from. */
+  manifestPath: string
+  /** Session-generated agents differ from the built-in compiler catalog. */
+  origin: 'builtin' | 'session'
+  /** A provisioned venv exists under .reticle/envs/<id>. */
+  hasEnv: boolean
+}
+
+export interface TreeEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+  size?: number
+}
+
+export interface ReadFileResult {
+  path: string
+  content: string
+  truncated: boolean
+  size: number
+}
+
+export interface StudioSettings {
+  connection: {
+    host: string
+    port: number
+    autoConnect: boolean
+  }
+  forge: {
+    /** Defaults to <repo>/cmd/forge/forge.exe. */
+    binaryPath: string
+    /** Must be <repo>/cmd/forge. */
+    cwd: string
+    batch: number
+    retries: number
+    isolated: boolean
+    allModels: boolean
+  }
+  appearance: {
+    density: 'comfortable' | 'compact'
+    reduceMotion: boolean
+  }
+  logs: {
+    /** Ring buffer size in the main process. */
+    bufferSize: number
+    followTail: boolean
+  }
+}
+
+export type SettingsPatch = {
+  [K in keyof StudioSettings]?: Partial<StudioSettings[K]>
+}
+
+/** Commands the native menu and keybindings dispatch into the renderer. */
+export type CommandId =
+  | 'view.runs'
+  | 'view.graph'
+  | 'view.agents'
+  | 'view.artifacts'
+  | 'view.explorer'
+  | 'view.settings'
+  | 'panel.toggle'
+  | 'panel.logs'
+  | 'panel.terminal'
+  | 'panel.preview'
+  | 'sidebar.toggle'
+  | 'palette.open'
+  | 'run.new'
+  | 'run.stopForge'
+  | 'run.startForge'
+  | 'connection.connect'
+  | 'connection.disconnect'
+  | 'graph.relayout'
+  | 'graph.fit'
+  | 'logs.clear'
+
+export interface ApiResult<T> {
+  ok: boolean
+  data?: T
+  error?: string
+}
+
+export type ModelsResult = ApiResult<RoutingModel[]>
+
+// ---------------------------------------------------------------------------
+// The bridge surface exposed on `window.reticle`
+// ---------------------------------------------------------------------------
+
+/** Unsubscribe handle returned by every `on*` subscription. */
+export type Unsubscribe = () => void
+
+export interface ReticleBridge {
+  readonly version: string
+
+  window: {
+    minimize(): void
+    maximize(): void
+    close(): void
+    getState(): Promise<WindowState>
+    onState(handler: (state: WindowState) => void): Unsubscribe
+  }
+
+  connection: {
+    get(): Promise<ConnectionState>
+    connect(request: ConnectRequest): Promise<ConnectionState>
+    disconnect(): Promise<ConnectionState>
+    /** Resolves false when the socket is not open. */
+    send(command: OutboundCommand): Promise<boolean>
+    onState(handler: (state: ConnectionState) => void): Unsubscribe
+  }
+
+  forge: {
+    get(): Promise<ForgeState>
+    start(request: ForgeStartRequest): Promise<ForgeState>
+    stop(): Promise<ForgeState>
+    onState(handler: (state: ForgeState) => void): Unsubscribe
+    onOutput(handler: (chunk: ForgeOutputChunk) => void): Unsubscribe
+  }
+
+  projection: {
+    snapshot(): Promise<ProjectionState>
+    clear(): Promise<ProjectionState>
+    /** Raw buffered events, for the timeline scrubber's replay. */
+    events(): Promise<RuntimeEvent[]>
+    onPush(handler: (push: ProjectionPush) => void): Unsubscribe
+  }
+
+  logs: {
+    query(query: LogQuery): Promise<LogBatch>
+    /** Narrow the live push stream; omit both fields for everything. */
+    scope(scope: { execId?: string; nodeId?: string }): Promise<void>
+    onBatch(handler: (batch: LogBatch) => void): Unsubscribe
+  }
+
+  hitl: {
+    read(path: string): Promise<HitlCheckpoint>
+    resolve(request: HitlResolveRequest): Promise<ApiResult<HitlCheckpoint>>
+  }
+
+  api: {
+    models(): Promise<ModelsResult>
+    toggleModel(modelKey: string): Promise<ApiResult<void>>
+    outputs(execId: string): Promise<ApiResult<OutputFile[]>>
+    upload(paths: string[]): Promise<ApiResult<WaitlistItem['attachments']>>
+  }
+
+  workspace: {
+    agents(execId?: string): Promise<ApiResult<AgentCard[]>>
+    tree(path?: string): Promise<ApiResult<TreeEntry[]>>
+    read(path: string): Promise<ApiResult<ReadFileResult>>
+    reveal(path: string): Promise<void>
+    openExternal(url: string): Promise<void>
+    pickDirectory(): Promise<string | null>
+    pickFiles(): Promise<string[]>
+  }
+
+  settings: {
+    get(): Promise<StudioSettings>
+    patch(patch: SettingsPatch): Promise<StudioSettings>
+    onChange(handler: (settings: StudioSettings) => void): Unsubscribe
+  }
+
+  onCommand(handler: (command: CommandId) => void): Unsubscribe
+}
+
+declare global {
+  interface Window {
+    /**
+     * Undefined only if the preload failed to load — the shell surfaces that
+     * as a hard error rather than letting controls silently no-op.
+     */
+    reticle?: ReticleBridge
+  }
+}

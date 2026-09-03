@@ -1,0 +1,125 @@
+/* Graph canvas styling. Overrides React Flow's defaults so the canvas inherits
+   the token palette instead of the library's light-mode chrome. */
+
+.reticle-flow {
+  background-color: var(--color-inset);
+}
+
+.reticle-flow .react-flow__edge-path {
+  transition: stroke var(--dur-base) var(--ease-out-quint);
+}
+
+.reticle-flow .react-flow__handle {
+  width: 7px;
+  height: 3px;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  border-radius: 1px;
+  background: var(--color-line-3);
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-out-quint),
+    background-color var(--dur-fast) var(--ease-out-quint);
+}
+
+/* Ports are noise until you are actually wiring something. */
+.reticle-flow .react-flow__node:hover .react-flow__handle,
+.reticle-flow.is-connecting .react-flow__handle {
+  opacity: 1;
+}
+
+.reticle-flow .react-flow__handle.connectingfrom,
+.reticle-flow .react-flow__handle:hover {
+  background: var(--color-accent);
+  opacity: 1;
+}
+
+.reticle-flow .react-flow__handle-top {
+  top: -2px;
+}
+
+.reticle-flow .react-flow__handle-bottom {
+  bottom: -2px;
+}
+
+/* React Flow draws its own focus ring; ours is defined by the node itself. */
+.reticle-flow .react-flow__node:focus,
+.reticle-flow .react-flow__node:focus-visible {
+  outline: none;
+}
+
+.reticle-flow .react-flow__controls {
+  box-shadow: var(--shadow-pop);
+  border: 1px solid var(--color-line-2);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.reticle-flow .react-flow__controls-button {
+  background: var(--color-bg-2);
+  border-bottom: 1px solid var(--color-line-1);
+  fill: var(--color-fg-3);
+  width: 24px;
+  height: 24px;
+  transition:
+    background-color var(--dur-fast) var(--ease-out-quint),
+    fill var(--dur-fast) var(--ease-out-quint);
+}
+
+.reticle-flow .react-flow__controls-button:hover {
+  background: var(--color-bg-3);
+  fill: var(--color-fg-1);
+}
+
+.reticle-flow .react-flow__minimap {
+  background-color: var(--color-bg-1);
+  border: 1px solid var(--color-line-2);
+  border-radius: var(--radius-control);
+}
+
+.reticle-flow .react-flow__attribution {
+  display: none;
+}
+
+/* A 1px sweep along the bottom edge of a running node. Transform-only so it
+   stays on the compositor even with dozens of nodes running at once. */
+@keyframes reticle-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.node-sweep::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-st-running) 45%,
+    var(--color-st-running) 55%,
+    transparent
+  );
+  animation: reticle-sweep 1.6s linear infinite;
+  will-change: transform;
+}
+
+@keyframes reticle-rail-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.node-rail-pulse {
+  animation: reticle-rail-pulse 1.8s ease-in-out infinite;
+}

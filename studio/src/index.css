@@ -1,13 +1,8 @@
-@import "tailwindcss";
+/* Fonts are bundled, never fetched: an Electron app must render correctly with
+   no network. The previous build declared 'Inter' and silently fell back to
+   system-ui because nothing ever loaded it. */
+@import '@fontsource-variable/inter/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
 
-@theme {
-  --font-sans: 'Inter', system-ui, sans-serif;
-}
-
-body {
-  margin: 0;
-  padding: 0;
-  background-color: #020617; /* slate-950 */
-  color: #f8fafc; /* slate-50 */
-  overflow: hidden;
-}
+@import 'tailwindcss';
+@import './design/tokens.css';

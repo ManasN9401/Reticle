@@ -1,0 +1,244 @@
+/**
+ * Reticle Studio design tokens — the "Instrument" direction.
+ *
+ * The organizing rule, and the thing that separates this from a generic dark
+ * theme: **chrome is achromatic; saturated colour means run status and nothing
+ * else.** If a surface is not telling you about the state of a node or a run,
+ * it has no hue. That is what makes a failing node findable at a glance in a
+ * graph of sixty.
+ *
+ * Status hues are deliberately inherited from the embedded telemetry star map
+ * (runtime/telemetry/ui/index.html:3670) so Studio and the in-browser console
+ * agree — switching between them should not require relearning the colours.
+ *
+ * Declared inside Tailwind's `@theme` so one definition produces both the
+ * utility classes (`bg-bg-1`, `text-fg-2`) and the raw custom properties used
+ * by hand-written CSS.
+ */
+
+@theme {
+  /* --- surfaces ---------------------------------------------------------- */
+  --color-bg-0: #0b0c0e; /* app ground */
+  --color-bg-1: #101114; /* panels */
+  --color-bg-2: #16181c; /* toolbars, headers, cards */
+  --color-bg-3: #1d2026; /* popovers, hover on raised surfaces */
+  --color-inset: #08090b; /* canvas, log and editor wells */
+
+  /* --- lines ------------------------------------------------------------- */
+  --color-line-1: #1e2128; /* hairline dividers */
+  --color-line-2: #282c34; /* borders on interactive surfaces */
+  --color-line-3: #383e48; /* strong borders, graph handles */
+
+  /* --- text -------------------------------------------------------------- */
+  --color-fg-1: #e4e7ec;
+  --color-fg-2: #98a0ad;
+  --color-fg-3: #6a727f;
+  --color-fg-4: #474e59;
+
+  /* --- accent: selection, focus, active tab. Never status. --------------- */
+  --color-accent: #4d8dfd;
+  --color-accent-fg: #ffffff;
+  --color-accent-weak: rgba(77, 141, 253, 0.14);
+  --color-accent-line: rgba(77, 141, 253, 0.45);
+
+  /* --- status: the only saturated colour on screen ----------------------- */
+  --color-st-idle: #5b6472;
+  --color-st-running: #56d6ff;
+  --color-st-done: #57e8ab;
+  --color-st-failed: #ff6f6f;
+  --color-st-waiting: #f5b544;
+
+  --color-st-idle-weak: rgba(91, 100, 114, 0.14);
+  --color-st-running-weak: rgba(86, 214, 255, 0.13);
+  --color-st-done-weak: rgba(87, 232, 171, 0.13);
+  --color-st-failed-weak: rgba(255, 111, 111, 0.13);
+  --color-st-waiting-weak: rgba(245, 181, 68, 0.14);
+
+  /* --- type -------------------------------------------------------------- */
+  --font-sans: 'Inter Variable', -apple-system, 'Segoe UI Variable Text', 'Segoe UI',
+    system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'Cascadia Code', ui-monospace, 'SF Mono',
+    Consolas, monospace;
+
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-code: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+
+  /* --- radius: chrome is square, controls are soft ----------------------- */
+  --radius-none: 0px;
+  --radius-control: 4px;
+  --radius-card: 6px;
+  --radius-node: 8px;
+
+  /* --- elevation: neutral only. A coloured shadow is a glow, and glows are
+         what make an interface read as decorative rather than instrumental. -- */
+  --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.32);
+  --shadow-menu: 0 2px 4px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-modal: 0 4px 8px rgba(0, 0, 0, 0.5), 0 24px 64px rgba(0, 0, 0, 0.5);
+
+  /* --- motion ------------------------------------------------------------ */
+  --ease-out-quint: cubic-bezier(0.2, 0, 0, 1);
+}
+
+:root {
+  /* Fixed chrome metrics. Every one of these is a stable dimension: nothing in
+     the shell may resize on hover, focus, or label length. */
+  --h-titlebar: 36px;
+  --h-rail: 48px;
+  --h-toolbar: 36px;
+  --h-tabstrip: 34px;
+  --h-statusbar: 24px;
+  --h-row: 26px;
+  --h-tree-row: 22px;
+
+  --dur-fast: 110ms;
+  --dur-base: 160ms;
+  --dur-slow: 220ms;
+
+  color-scheme: dark;
+}
+
+/* --- base ---------------------------------------------------------------- */
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  background-color: var(--color-bg-0);
+  color: var(--color-fg-1);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+/* Counters, timings, ids and anything that updates in place must not jitter. */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-code);
+}
+
+/* Headings and short labels wrap better balanced; body text reads better
+   with `pretty`. Neither belongs on code or log output. */
+.balance {
+  text-wrap: balance;
+}
+
+.pretty {
+  text-wrap: pretty;
+}
+
+.truncate-1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- focus --------------------------------------------------------------- */
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+  border-radius: var(--radius-control);
+}
+
+/* --- scrollbars ---------------------------------------------------------- */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-3) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-line-2);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-line-3);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* --- selection ----------------------------------------------------------- */
+
+::selection {
+  background: var(--color-accent-weak);
+  color: var(--color-fg-1);
+}
+
+/* --- motion -------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Honour the in-app preference the same way as the OS one. */
+[data-reduce-motion='true'] *,
+[data-reduce-motion='true'] *::before,
+[data-reduce-motion='true'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+/* --- density ------------------------------------------------------------- */
+
+[data-density='compact'] {
+  --h-row: 22px;
+  --h-tree-row: 20px;
+  --h-tabstrip: 30px;
+  --h-toolbar: 32px;
+}
+
+/* --- app-region (custom title bar) --------------------------------------- */
+
+.drag {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
