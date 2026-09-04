@@ -22,8 +22,14 @@ export const NODE_GEOMETRY: Record<
   // The box is wider than the hexagon so the label beneath has room; the shape
   // itself is only ~36x42. Nothing is drawn inside it, which is what lets it be
   // this small.
-  hex: { width: 72, height: 58, rankSep: 30, nodeSep: 10 },
+  // Orthogonal routing needs roughly 2x the corner radius of vertical clearance
+  // to round its elbows; below that it degenerates into flat staples. That, not
+  // the routing mode, is what made the first hexagon pass look wrong at 30px.
+  hex: { width: 72, height: 58, rankSep: 50, nodeSep: 16 },
 }
+
+/** Corner radius for the elbow routing. */
+const EDGE_CORNER_RADIUS = 8
 
 /** Height of the label strip beneath a hexagon, inside its box. */
 export const HEX_LABEL_HEIGHT = 14
@@ -53,17 +59,28 @@ export type AgentFlowNode = Node<AgentNodeData, 'agent'>
 
 export type LayoutDirection = 'TB' | 'LR'
 
+/** Where dagre placed each node, plus the de-duplicated edge list it used. */
+export interface GraphLayout {
+  positions: Record<string, { x: number; y: number }>
+  edgeKeys: string[]
+}
+
 /**
  * Topological layout, satisfying RFC-022's architectural law 3: compute node
  * depth and sort to minimise edge crossover rather than placing nodes
  * arbitrarily.
+ *
+ * Deliberately separate from node construction. Positions depend only on the
+ * *topology* — ids, edges, direction, style, manual overrides — never on
+ * status, duration or artifacts. Keeping dagre behind that boundary is what
+ * stops a live run re-laying out the whole graph on every event batch.
  */
-export function layoutGraph(
+export function layoutPositions(
   run: Run,
   direction: LayoutDirection,
   style: NodeStyle,
   pinned: Record<string, { x: number; y: number }> = {},
-): { nodes: AgentFlowNode[]; edges: Edge[] } {
+): GraphLayout {
   const geometry = NODE_GEOMETRY[style]
   const graph = new dagre.graphlib.Graph()
   graph.setGraph({
@@ -93,36 +110,59 @@ export function layoutGraph(
 
   dagre.layout(graph)
 
-  const nodes: AgentFlowNode[] = nodeIds.map((id) => {
-    const runNode = run.nodes[id]
+  const positions: Record<string, { x: number; y: number }> = {}
+  for (const id of nodeIds) {
     const manual = pinned[id]
+    if (manual) {
+      positions[id] = manual
+      continue
+    }
     const placed = graph.node(id) as { x: number; y: number } | undefined
-    const position = manual ?? {
-      // dagre reports centres; React Flow wants top-left.
+    // dagre reports centres; React Flow wants top-left.
+    positions[id] = {
       x: (placed?.x ?? 0) - geometry.width / 2,
       y: (placed?.y ?? 0) - geometry.height / 2,
     }
-    return {
-      id,
-      type: 'agent',
-      position,
-      data: { node: runNode, blamed: run.failureNodeId === id, style },
-      width: geometry.width,
-      height: geometry.height,
-    }
-  })
+  }
 
-  const edges: Edge[] = [...seen].map((key) => {
+  return { positions, edgeKeys: [...seen] }
+}
+
+/**
+ * Build React Flow nodes and edges from a cached layout plus the live run.
+ * Cheap enough to run on every state push — it is object construction only.
+ */
+export function buildGraph(
+  run: Run,
+  layout: GraphLayout,
+  style: NodeStyle,
+  selectedNodeId: string | null,
+): { nodes: AgentFlowNode[]; edges: Edge[] } {
+  const geometry = NODE_GEOMETRY[style]
+
+  const nodes: AgentFlowNode[] = Object.keys(run.nodes).map((id) => ({
+    id,
+    type: 'agent',
+    position: layout.positions[id] ?? { x: 0, y: 0 },
+    selected: id === selectedNodeId,
+    data: { node: run.nodes[id], blamed: run.failureNodeId === id, style },
+    width: geometry.width,
+    height: geometry.height,
+  }))
+
+  const edges: Edge[] = layout.edgeKeys.map((key) => {
     const [from, to] = key.split('->')
-    const source = run.nodes[from]
     // Animate only edges leaving a node that is genuinely working. The previous
     // build animated every edge unconditionally, which conveyed nothing.
-    const live = source?.status === 'running'
+    const live = run.nodes[from]?.status === 'running'
     return {
       id: key,
       source: from,
       target: to,
+      // Elbow routing with rounded corners. It needs the vertical clearance
+      // that NODE_GEOMETRY reserves — starved of room it flattens into staples.
       type: 'smoothstep',
+      pathOptions: { borderRadius: EDGE_CORNER_RADIUS },
       animated: live,
       style: {
         stroke: live ? 'var(--color-st-running)' : 'var(--color-line-2)',

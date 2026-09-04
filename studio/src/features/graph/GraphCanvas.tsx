@@ -24,7 +24,7 @@ import { runTotals, type NodeStatus } from '@shared/projection'
 import type { NodeStyle } from '@shared/ipc'
 import { AgentNode } from './AgentNode'
 import { Timeline } from './Timeline'
-import { layoutGraph, type AgentFlowNode, type LayoutDirection } from './layout'
+import { buildGraph, layoutPositions, type AgentFlowNode, type LayoutDirection } from './layout'
 import { useScrubbedRun } from './useScrubbedRun'
 
 const NODE_TYPES = { agent: AgentNode }
@@ -61,24 +61,34 @@ function GraphCanvasInner() {
     }
   }, [run?.execId, run, fitView])
 
+  /**
+   * Dagre runs only when the *topology* changes, never when a status or
+   * duration does. The reducer preserves `run.edges` by reference across
+   * copy-on-writes (`draftRun` in shared/projection.ts), so identity here is an
+   * O(1) proxy for "the shape of the graph changed" — and the node count covers
+   * a node seeded outside the edge list. Without this, a live run re-lays out
+   * the whole graph on every event batch and starves zoom and pan of frames.
+   */
+  const nodeCount = run ? Object.keys(run.nodes).length : 0
+  const layout = useMemo(
+    () => (run ? layoutPositions(run, direction, nodeStyle, pinned) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on topology, not on `run` identity
+    [run?.execId, run?.edges, nodeCount, direction, nodeStyle, pinned],
+  )
+
   const { nodes, edges } = useMemo(() => {
-    if (!run) return { nodes: [] as AgentFlowNode[], edges: [] as Edge[] }
-    const laid = layoutGraph(run, direction, nodeStyle, pinned)
-    if (hidden.size === 0) return laid
+    if (!run || !layout) return { nodes: [] as AgentFlowNode[], edges: [] as Edge[] }
+    const built = buildGraph(run, layout, nodeStyle, selectedNodeId)
+    if (hidden.size === 0) return built
 
     const visible = new Set(
-      laid.nodes.filter((n) => !hidden.has(n.data.node.status)).map((n) => n.id),
+      built.nodes.filter((n) => !hidden.has(n.data.node.status)).map((n) => n.id),
     )
     return {
-      nodes: laid.nodes.filter((n) => visible.has(n.id)),
-      edges: laid.edges.filter((e) => visible.has(e.source) && visible.has(e.target)),
+      nodes: built.nodes.filter((n) => visible.has(n.id)),
+      edges: built.edges.filter((e) => visible.has(e.source) && visible.has(e.target)),
     }
-  }, [run, direction, nodeStyle, pinned, hidden])
-
-  const selectedNodes = useMemo(
-    () => nodes.map((node) => ({ ...node, selected: node.id === selectedNodeId })),
-    [nodes, selectedNodeId],
-  )
+  }, [run, layout, nodeStyle, selectedNodeId, hidden])
 
   const onNodesChange = useCallback((changes: NodeChange<AgentFlowNode>[]) => {
     // Only positions are persisted; everything else is derived from the run.
@@ -247,7 +257,7 @@ function GraphCanvasInner() {
         ) : (
           <ReactFlow
             className="reticle-flow"
-            nodes={selectedNodes}
+            nodes={nodes}
             edges={edges}
             nodeTypes={NODE_TYPES}
             onNodesChange={onNodesChange}

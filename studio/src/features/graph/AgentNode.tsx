@@ -25,10 +25,7 @@ import type { RunNode } from '@shared/projection'
  *  - compact:  one line — status, agent, duration. For graphs of dozens
  *  - hex:      a hexagon echoing the embedded telemetry star map. Densest
  */
-export const AgentNode = memo(function AgentNode({
-  data,
-  selected,
-}: NodeProps<AgentFlowNode>) {
+function AgentNodeInner({ data, selected }: NodeProps<AgentFlowNode>) {
   const { node, blamed, style } = data
   const setReviewNode = useUi((s) => s.setReviewNode)
 
@@ -215,6 +212,34 @@ export const AgentNode = memo(function AgentNode({
       <Handle type="source" position={Position.Bottom} />
     </div>
   )
+}
+
+/**
+ * The projection copy-on-writes a fresh `data` object for every event batch, so
+ * the default shallow compare never hits and all N nodes repaint on every push.
+ * Comparing what the node actually draws means only the node that genuinely
+ * changed repaints — which is what keeps zoom and pan smooth mid-run.
+ */
+export const AgentNode = memo(AgentNodeInner, (prev, next) => {
+  if (prev.selected !== next.selected) return false
+  if (prev.data.style !== next.data.style) return false
+  if (prev.data.blamed !== next.data.blamed) return false
+
+  const a = prev.data.node
+  const b = next.data.node
+  return (
+    a.nodeId === b.nodeId &&
+    a.label === b.label &&
+    a.status === b.status &&
+    a.model === b.model &&
+    a.durationMs === b.durationMs &&
+    a.attempts === b.attempts &&
+    a.mocked === b.mocked &&
+    a.artifacts.length === b.artifacts.length &&
+    a.waiting?.kind === b.waiting?.kind &&
+    a.failure?.reason === b.failure?.reason &&
+    a.failure?.exitCode === b.failure?.exitCode
+  )
 })
 
 /**
@@ -267,7 +292,13 @@ function HexNode({
       className="relative flex select-none flex-col items-center"
       style={{ width, height }}
     >
-      <Handle type="target" position={Position.Top} />
+      {/*
+        Both handles are pinned to the hexagon's own vertices rather than the
+        node box. The box is taller than the shape because it carries the label
+        beneath, so a default bottom handle would launch every outgoing edge
+        from under the text instead of from the point of the hexagon.
+      */}
+      <Handle type="target" position={Position.Top} style={{ top: 0 }} />
 
       <svg
         width={width}
@@ -362,15 +393,27 @@ function HexNode({
           Review
         </button>
       ) : (
-        <span
-          className="truncate-1 w-full px-0.5 text-center text-[9px] leading-[14px] text-fg-3"
-          title={node.label}
-        >
-          {node.label}
+        <span className="flex w-full justify-center">
+          {/*
+            Edges leave the hexagon's bottom vertex and pass straight through
+            this strip, so the label carries the canvas colour behind it to
+            interrupt the line. Inline-block keeps that mask the width of the
+            text rather than a 72px band across the graph.
+          */}
+          <span
+            className="truncate-1 max-w-full rounded-[2px] bg-inset px-0.5 text-[9px] leading-[14px] text-fg-3"
+            title={node.label}
+          >
+            {node.label}
+          </span>
         </span>
       )}
 
-      <Handle type="source" position={Position.Bottom} />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{ top: hexHeight, bottom: 'auto' }}
+      />
     </div>
   )
 }

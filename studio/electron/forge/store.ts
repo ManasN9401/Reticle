@@ -13,8 +13,16 @@ import type {
   ProjectionPush,
 } from '../../src/shared/ipc'
 
-/** Coalescing windows. State must feel immediate; logs can lag a frame or six. */
-const STATE_FLUSH_MS = 16
+/**
+ * Coalescing windows.
+ *
+ * State was flushed every frame, which meant a busy run pushed ~60 store updates
+ * a second into the renderer and left the node map with no headroom for zoom or
+ * pan. Node status simply does not change at 60fps; 100ms is imperceptible here
+ * and cuts the churn roughly sixfold. The status bar's event-rate readout is
+ * sampled independently in ForgeClient and is unaffected.
+ */
+const STATE_FLUSH_MS = 100
 const LOG_FLUSH_MS = 100
 
 /**

@@ -159,6 +159,33 @@ be obviously distinguishable. And a node blocked on a human turns its *label*
 into the Review button rather than floating a pill over it — same footprint, no
 overlap, still one click.
 
+Edges are orthogonal elbows with rounded corners, in every style. That routing
+needs roughly `2 x borderRadius` of vertical clearance, which is why
+`NODE_GEOMETRY` reserves 50px of rank separation for hexagons — starved of room
+it flattens into right-angle staples. Both handles are pinned to the hexagon's
+own vertices rather than the node box: the box is taller than the shape because
+it carries the label, so a default bottom handle launches every outgoing edge
+from under the text. The label then carries the canvas colour behind it, so a
+line dropping from the vertex is interrupted at the glyphs instead of striking
+through them.
+
+### Keeping the map responsive under load
+
+`layoutPositions` (dagre) is deliberately separate from `buildGraph`. Positions
+depend only on topology — ids, edges, direction, style, manual overrides — never
+on status or duration, so the layout memo in `GraphCanvas` is keyed on
+`run.edges` identity and the node count rather than on `run` itself. The reducer
+preserves that array reference across copy-on-writes, making it an O(1) proxy
+for "the shape changed".
+
+This matters more than it sounds. Measured at 60 nodes, one dagre pass costs
+~10.8ms; keyed on `run` it ran on every event batch, which at the old 16ms flush
+was **~650ms of layout work per second** — most of a core, and the reason zoom
+and pan stuttered mid-run. `buildGraph` costs 0.03ms by comparison. Two
+supporting changes: `AgentNode` carries an explicit `memo` comparator (fresh
+`data` objects otherwise defeat it, repainting every node on every push), and
+`STATE_FLUSH_MS` is 100ms rather than 16ms.
+
 ## Design
 
 Direction is "Instrument": graphite neutrals, hairline borders, no glow. The
