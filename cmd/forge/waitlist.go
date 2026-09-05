@@ -24,6 +24,7 @@ type ExecutionStatus string
 const (
 	StatusPending   ExecutionStatus = "PENDING"
 	StatusRunning   ExecutionStatus = "RUNNING"
+	StatusPaused    ExecutionStatus = "PAUSED"
 	StatusCompleted ExecutionStatus = "COMPLETED"
 	StatusFailed    ExecutionStatus = "FAILED"
 )
@@ -238,6 +239,18 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 			case "remove":
 				id, _ := payload["id"].(string)
 				wm.Remove(id)
+			case "kill":
+				id, _ := payload["id"].(string)
+				wm.updateStatus(id, StatusFailed)
+				orch.Bus.Publish(events.EventType("ExecutionKilled"), events.Component("waitlist"), map[string]string{"execution": id})
+			case "pause":
+				id, _ := payload["id"].(string)
+				wm.updateStatus(id, StatusPaused)
+				orch.Bus.Publish(events.EventType("ExecutionPaused"), events.Component("waitlist"), map[string]string{"execution": id})
+			case "resume":
+				id, _ := payload["id"].(string)
+				wm.updateStatus(id, StatusRunning)
+				orch.Bus.Publish(events.EventType("ExecutionResumed"), events.Component("waitlist"), map[string]string{"execution": id})
 			case "update_settings":
 				if bayesian, ok := payload["use_bayesian_routing"].(bool); ok {
 					if wm.dispatcher != nil && wm.dispatcher.Router != nil {
