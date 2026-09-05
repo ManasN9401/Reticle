@@ -1,4 +1,4 @@
-import { KeyRound, Trash2 } from 'lucide-react'
+import { KeyRound, Trash2, Pause, Play, XOctagon } from 'lucide-react'
 import { cn } from '@/design/cn'
 import { EmptyState, SectionLabel, StatusPip, Tooltip } from '@/design/primitives'
 import {
@@ -7,7 +7,7 @@ import {
   formatRelative,
   runStatusVar,
 } from '@/design/status'
-import { removeFromQueue } from '@/state/actions'
+import { removeFromQueue, killRun, pauseRun, resumeRun } from '@/state/actions'
 import { useStudio } from '@/state/store'
 import { pendingApprovals, runTotals } from '@shared/projection'
 import { useUi } from '@/state/ui'
@@ -116,16 +116,52 @@ export function RunsSidebar() {
                     </span>
                   </span>
                 </button>
-                <Tooltip content="Remove from queue">
-                  <button
-                    type="button"
-                    aria-label={`Remove ${item.id}`}
-                    onClick={() => removeFromQueue(item.id)}
-                    className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] text-fg-4 opacity-0 group-hover:opacity-100 hover:bg-bg-3 hover:text-st-failed focus-visible:opacity-100"
-                  >
-                    <Trash2 size={11} strokeWidth={1.9} />
-                  </button>
-                </Tooltip>
+                <div className="mt-0.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                  {item.status === 'RUNNING' && (
+                    <Tooltip content="Pause run">
+                      <button
+                        type="button"
+                        onClick={() => pauseRun(item.id)}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] text-fg-4 hover:bg-bg-3 hover:text-fg-1"
+                      >
+                        <Pause size={11} strokeWidth={2} />
+                      </button>
+                    </Tooltip>
+                  )}
+                  {item.status === 'PAUSED' && (
+                    <Tooltip content="Resume run">
+                      <button
+                        type="button"
+                        onClick={() => resumeRun(item.id)}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] text-fg-4 hover:bg-bg-3 hover:text-fg-1"
+                      >
+                        <Play size={11} strokeWidth={2} />
+                      </button>
+                    </Tooltip>
+                  )}
+                  {(item.status === 'RUNNING' || item.status === 'PAUSED') && (
+                    <Tooltip content="Kill run">
+                      <button
+                        type="button"
+                        onClick={() => killRun(item.id)}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] text-fg-4 hover:bg-bg-3 hover:text-st-failed"
+                      >
+                        <XOctagon size={11} strokeWidth={1.9} />
+                      </button>
+                    </Tooltip>
+                  )}
+                  {item.status === 'PENDING' && (
+                    <Tooltip content="Remove from queue">
+                      <button
+                        type="button"
+                        onClick={() => removeFromQueue(item.id)}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] text-fg-4 hover:bg-bg-3 hover:text-st-failed"
+                      >
+                        <Trash2 size={11} strokeWidth={1.9} />
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
               </div>
             ))
           )}

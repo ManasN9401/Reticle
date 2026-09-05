@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"time"
 	"github.com/reticle/runtime/events"
 	"github.com/reticle/runtime/logger"
@@ -17,6 +19,9 @@ type Dispatcher struct {
 	Instructions *InstructionStore
 	Router       *routing.ModelRouter
 	RuntimeState *memory.RuntimeState
+	
+	activeTasksMu sync.Mutex
+	activeTasks   map[string]map[TaskID]context.CancelFunc // ExecutionID -> TaskID -> CancelFunc
 }
 
 func NewDispatcher(l *logger.Logger, b *events.Bus, is *InstructionStore, r *routing.ModelRouter, rs *memory.RuntimeState) *Dispatcher {
@@ -27,6 +32,7 @@ func NewDispatcher(l *logger.Logger, b *events.Bus, is *InstructionStore, r *rou
 		Instructions: is,
 		Router:       r,
 		RuntimeState: rs,
+		activeTasks:  make(map[string]map[TaskID]context.CancelFunc),
 	}
 }
 
@@ -35,6 +41,21 @@ func (d *Dispatcher) RegisterWorker(w *Worker) {
 }
 
 func (d *Dispatcher) Start() {
+	d.Bus.Subscribe(events.EventType("ExecutionKilled"), func(e events.RuntimeEvent) {
+		if payload, ok := e.Payload.(map[string]string); ok {
+			if execID, ok := payload["execution"]; ok {
+				d.activeTasksMu.Lock()
+				if tasks, exists := d.activeTasks[execID]; exists {
+					for _, cancel := range tasks {
+						cancel()
+					}
+					delete(d.activeTasks, execID)
+				}
+				d.activeTasksMu.Unlock()
+			}
+		}
+	})
+
 	d.Bus.Subscribe(events.EventType("TaskCreated"), func(e events.RuntimeEvent) {
 		task, ok := e.Payload.(Task)
 		if !ok {
@@ -146,7 +167,24 @@ func (d *Dispatcher) Start() {
 
 				d.Bus.Publish(events.EventType("TaskDispatched"), events.Component("dispatcher"), payload)
 				
-				_, failure := w.Execute(t)
+				ctx, cancel := context.WithCancel(context.Background())
+				
+				d.activeTasksMu.Lock()
+				if d.activeTasks[t.ExecutionID] == nil {
+					d.activeTasks[t.ExecutionID] = make(map[TaskID]context.CancelFunc)
+				}
+				d.activeTasks[t.ExecutionID][t.ID] = cancel
+				d.activeTasksMu.Unlock()
+				
+				_, failure := w.Execute(ctx, t)
+				
+				d.activeTasksMu.Lock()
+				if d.activeTasks[t.ExecutionID] != nil {
+					delete(d.activeTasks[t.ExecutionID], t.ID)
+				}
+				d.activeTasksMu.Unlock()
+				cancel()
+				
 				if failure == nil {
 					if d.Router != nil {
 						d.Router.UpdateProbability(string(w.ID), string(t.ID), true)

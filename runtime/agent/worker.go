@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -96,13 +97,13 @@ func NewWorker(id WorkerID, executable string, args []string, envVars []string, 
 	}
 }
 
-func (w *Worker) Execute(req Task) (*TaskResponse, *WorkerFailure) {
+func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerFailure) {
 	w.Bus.Publish(events.EventType("WorkerStarted"), events.Component("worker"), map[string]any{
 		"task_id":   req.ID,
 		"worker_id": w.ID,
 	})
 
-	cmd := exec.Command(w.Executable, w.Args...)
+	cmd := exec.CommandContext(ctx, w.Executable, w.Args...)
 	
 	if len(w.EnvVars) > 0 {
 		cmd.Env = append(os.Environ(), w.EnvVars...)

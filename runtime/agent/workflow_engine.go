@@ -183,6 +183,51 @@ func (we *GraphEngine) Start() {
 			})
 		}
 	})
+
+	we.Bus.Subscribe(events.EventType("ExecutionKilled"), func(e events.RuntimeEvent) {
+		if payload, ok := e.Payload.(map[string]string); ok {
+			if execID, ok := payload["execution"]; ok {
+				if exec, exists := we.Executions[execID]; exists {
+					exec.Status = ExecutionCancelled
+					we.Logger.Info("GraphEngine marked execution as cancelled", "exec_id", execID)
+				}
+			}
+		}
+	})
+
+	we.Bus.Subscribe(events.EventType("ExecutionPaused"), func(e events.RuntimeEvent) {
+		if payload, ok := e.Payload.(map[string]string); ok {
+			if execID, ok := payload["execution"]; ok {
+				if exec, exists := we.Executions[execID]; exists {
+					exec.Status = ExecutionPaused
+					we.Logger.Info("GraphEngine marked execution as paused", "exec_id", execID)
+				}
+			}
+		}
+	})
+
+	we.Bus.Subscribe(events.EventType("ExecutionResumed"), func(e events.RuntimeEvent) {
+		if payload, ok := e.Payload.(map[string]string); ok {
+			if execID, ok := payload["execution"]; ok {
+				if exec, exists := we.Executions[execID]; exists {
+					exec.Status = ExecutionRunning
+					we.Logger.Info("GraphEngine marked execution as resumed", "exec_id", execID)
+					// Kickstart any pending nodes that were waiting for resume
+					for _, rootID := range exec.Workflow.Roots {
+						we.checkAndDispatch(exec, rootID)
+					}
+					// Also kickstart all children of completed nodes
+					for nodeID, state := range exec.NodeStates {
+						if state == NodeDone {
+							for _, successorID := range exec.Workflow.Children[nodeID] {
+								we.checkAndDispatch(exec, successorID)
+							}
+						}
+					}
+				}
+			}
+		}
+	})
 }
 
 func (we *GraphEngine) parseTaskID(taskID TaskID) (execID string, nodeID string) {
@@ -212,6 +257,10 @@ func (we *GraphEngine) SubmitWorkflow(wf *WorkflowDefinition, executionID string
 }
 
 func (we *GraphEngine) checkAndDispatch(exec *WorkflowExecution, nodeID string) {
+	if exec.Status == ExecutionPaused || exec.Status == ExecutionCancelled {
+		return // Execution is paused or cancelled, do not dispatch new nodes
+	}
+
 	if exec.NodeStates[nodeID] != NodePending {
 		return
 	}

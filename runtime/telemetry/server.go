@@ -247,7 +247,7 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 		
 		var payload map[string]any
 		if err := json.Unmarshal(msg, &payload); err == nil {
-			if action, ok := payload["action"].(string); ok && (action == "enqueue" || action == "remove") {
+			if action, ok := payload["action"].(string); ok && (action == "enqueue" || action == "remove" || action == "kill" || action == "pause" || action == "resume") {
 				s.bus.Publish(events.EventType("WaitlistCommand"), events.Component("telemetry_ui"), payload)
 			}
 		}

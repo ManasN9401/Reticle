@@ -78,6 +78,21 @@ export async function removeFromQueue(id: string): Promise<boolean> {
   return bridge.connection.send({ action: 'remove', id })
 }
 
+export async function killRun(id: string): Promise<boolean> {
+  if (!bridge) return false
+  return bridge.connection.send({ action: 'kill', id })
+}
+
+export async function pauseRun(id: string): Promise<boolean> {
+  if (!bridge) return false
+  return bridge.connection.send({ action: 'pause', id })
+}
+
+export async function resumeRun(id: string): Promise<boolean> {
+  if (!bridge) return false
+  return bridge.connection.send({ action: 'resume', id })
+}
+
 export async function uploadAttachments() {
   if (!bridge) return { ok: false as const, error: 'bridge unavailable' }
   const paths = await bridge.workspace.pickFiles()

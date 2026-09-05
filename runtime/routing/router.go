@@ -239,6 +239,22 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 		ModelsMutex.RUnlock()
 	}
 	
+	// Final generic fallback (e.g. text -> coding)
+	if len(capable) == 0 {
+		r.Logger.Info("WARNING: No models of requested modality available. Falling back to ANY non-image model.", "agent_id", agentID, "modality", modality)
+		ModelsMutex.RLock()
+		for _, m := range AvailableModels {
+			if m.Enabled && m.Modality != "image" {
+				capacity := r.ProviderCapacity[m.APIKeyEnv]
+				if capacity > 0 && r.ProviderInFlight[m.APIKeyEnv] >= capacity {
+					continue
+				}
+				capable = append(capable, m)
+			}
+		}
+		ModelsMutex.RUnlock()
+	}
+
 	if len(capable) == 0 {
 		r.Logger.Error("No models available for selection", "agent_id", agentID, "effort", effortTier)
 		return nil

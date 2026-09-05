@@ -147,6 +147,9 @@ export type OutboundCommand =
       attachments?: WaitlistItem['attachments']
     }
   | { action: 'remove'; id: string }
+  | { action: 'kill'; id: string }
+  | { action: 'pause'; id: string }
+  | { action: 'resume'; id: string }
 
 export type ForgePhase = 'stopped' | 'starting' | 'running' | 'exited' | 'error'
 
