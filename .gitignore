@@ -29,7 +29,7 @@ venv/
 *.sqlite3
 
 # Agent runtime specific
-state/
+/state/
 runtime/logs/
 .gemini/
 .reticle/
