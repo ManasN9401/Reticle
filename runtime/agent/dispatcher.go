@@ -118,11 +118,11 @@ func (d *Dispatcher) Start() {
 				// Dynamically select model if not forced
 				if d.Router != nil {
 					if !forced {
-						selectedModel := d.Router.SelectModel(string(t.ID), string(w.ID), finalTier, 0.90)
+						selectedModel := d.Router.SelectModel(string(t.ID), string(w.ID), finalTier, 0.90, t.Modality)
 						for selectedModel == nil {
 							d.Logger.Info("All models are currently locked or penalized. Waiting 5 seconds before retrying routing...", "worker_id", w.ID)
 							time.Sleep(5 * time.Second)
-							selectedModel = d.Router.SelectModel(string(t.ID), string(w.ID), finalTier, 0.90)
+							selectedModel = d.Router.SelectModel(string(t.ID), string(w.ID), finalTier, 0.90, t.Modality)
 						}
 						
 						t.Parameters["llm_model"] = selectedModel.ID

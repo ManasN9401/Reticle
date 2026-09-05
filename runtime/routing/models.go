@@ -20,6 +20,7 @@ type Model struct {
 	Cost      float64 `json:"cost"`       // Financial cost
 	Capability float64 `json:"capability"` // Estimated performance capability
 	APIKeyEnv string  `json:"api_key_env,omitempty"`
+	Modality  string  `json:"modality,omitempty"`
 	Enabled   bool    `json:"enabled"`
 }
 
@@ -59,6 +60,17 @@ func estimateCapability(id string) float64 {
 	return 10.0 // Default
 }
 
+func detectModality(id string) string {
+	lower := strings.ToLower(id)
+	if strings.Contains(lower, "dall-e") || strings.Contains(lower, "midjourney") || strings.Contains(lower, "flux") || strings.Contains(lower, "stable-diffusion") || strings.Contains(lower, "sdxl") {
+		return "image"
+	}
+	if strings.Contains(lower, "coder") || strings.Contains(lower, "code") {
+		return "coding"
+	}
+	return "text"
+}
+
 // FetchAvailableModels fetches and parses available models dynamically.
 func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 	newAvailableModels := make([]Model, 0)
@@ -76,11 +88,12 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 
 	// The default fallback models we know exist
 	defaultModels := []Model{
-		{ID: "openrouter/liquid/lfm-2.5-2.6b:free", Cost: 0.0, Capability: 2.6, APIKeyEnv: "OPENROUTER_API_KEY", Enabled: true},
-		{ID: "openrouter/liquid/lfm-2.5-2.6b:free", Cost: 0.0, Capability: 2.6, APIKeyEnv: "OPENROUTER_API_KEY_2", Enabled: true},
-		{ID: "gemini/gemini-3.5-flash-lite", Cost: 0.0, Capability: 8.0, APIKeyEnv: "GEMINI_API_KEY", Enabled: true},
-		{ID: "groq/qwen/qwen3.6-27b", Cost: 0.0, Capability: 27.0, APIKeyEnv: "GROQ_API_KEY", Enabled: true},
-		{ID: "groq/groq/compound-mini", Cost: 0.0, Capability: 8.0, APIKeyEnv: "GROQ_API_KEY_2", Enabled: true},
+		{ID: "openrouter/liquid/lfm-2.5-2.6b:free", Cost: 0.0, Capability: 2.6, APIKeyEnv: "OPENROUTER_API_KEY", Enabled: true, Modality: "text"},
+		{ID: "openrouter/liquid/lfm-2.5-2.6b:free", Cost: 0.0, Capability: 2.6, APIKeyEnv: "OPENROUTER_API_KEY_2", Enabled: true, Modality: "text"},
+		{ID: "gemini/gemini-3.5-flash-lite", Cost: 0.0, Capability: 8.0, APIKeyEnv: "GEMINI_API_KEY", Enabled: true, Modality: "text"},
+		{ID: "groq/qwen/qwen3.6-27b", Cost: 0.0, Capability: 27.0, APIKeyEnv: "GROQ_API_KEY", Enabled: true, Modality: "text"},
+		{ID: "groq/groq/compound-mini", Cost: 0.0, Capability: 8.0, APIKeyEnv: "GROQ_API_KEY_2", Enabled: true, Modality: "text"},
+		{ID: "comfyui/default", Cost: 0.0, Capability: 10.0, APIKeyEnv: "COMFYUI_HOST", Enabled: true, Modality: "image"},
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -177,6 +190,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 				Capability: estimateCapability(m.ID),
 				APIKeyEnv:  envKey,
 				Enabled:    true,
+				Modality:   detectModality(m.ID),
 			})
 			added++
 		}
@@ -229,6 +243,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 						Capability: estimateCapability(m.ID),
 						APIKeyEnv:  envKey,
 						Enabled:    true,
+						Modality:   detectModality(m.ID),
 					})
 				}
 				log.Info("Dynamically loaded Groq models", "key", envKey, "count", len(groqData.Data))
@@ -272,6 +287,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 						Capability: estimateCapability(id),
 						APIKeyEnv:  envKey,
 						Enabled:    true,
+						Modality:   detectModality(id),
 					})
 				}
 				log.Info("Dynamically loaded Gemini models", "key", envKey, "count", len(gemData.Models))
@@ -285,6 +301,41 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			}
 			log.Error("Failed to fetch Gemini models", "key", envKey, "status", status, "error", err)
 		}
+	}
+
+	// 4. Ollama
+	type OllamaModel struct {
+		Name string `json:"name"`
+	}
+	type OllamaResp struct {
+		Models []OllamaModel `json:"models"`
+	}
+
+	ollamaHost := os.Getenv("OLLAMA_HOST")
+	if ollamaHost == "" {
+		ollamaHost = "http://localhost:11434"
+	}
+	
+	reqOllama, _ := http.NewRequest("GET", ollamaHost+"/api/tags", nil)
+	if resp, err := client.Do(reqOllama); err == nil && resp.StatusCode == 200 {
+		var ollamaData OllamaResp
+		if b, _ := io.ReadAll(resp.Body); err == nil {
+			json.Unmarshal(b, &ollamaData)
+			for _, m := range ollamaData.Models {
+				newAvailableModels = append(newAvailableModels, Model{
+					ID:         "ollama/" + m.Name,
+					Cost:       0.0, // Local is free
+					Capability: estimateCapability(m.Name),
+					APIKeyEnv:  "OLLAMA_HOST",
+					Enabled:    true,
+					Modality:   detectModality(m.Name),
+				})
+			}
+			log.Info("Dynamically loaded Ollama models", "host", ollamaHost, "count", len(ollamaData.Models))
+		}
+		resp.Body.Close()
+	} else {
+		log.Info("Ollama not detected or unreachable, skipping local models", "host", ollamaHost)
 	}
 
 	if len(newAvailableModels) == 0 {

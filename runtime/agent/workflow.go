@@ -8,6 +8,7 @@ type WorkflowYAML struct {
 	Nodes []struct {
 		ID         string         `yaml:"id"`
 		Agent      string         `yaml:"agent"`
+		Modality   string         `yaml:"modality"`
 		Parameters map[string]any `yaml:"parameters"`
 	} `yaml:"nodes"`
 
@@ -25,6 +26,7 @@ type WorkflowEdge struct {
 type WorkflowNode struct {
 	ID         string
 	WorkerID   string
+	Modality   string
 	Parameters map[string]any
 }
 

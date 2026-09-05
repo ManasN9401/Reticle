@@ -153,9 +153,13 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 }
 
 // SelectModel returns a model based on the requested effort tier, constrained by confidence.
-func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int, requiredConfidence float64) *Model {
+func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int, requiredConfidence float64, modality string) *Model {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if modality == "" {
+		modality = "text"
+	}
 
 	if r.Matrix[agentID] == nil {
 		r.Matrix[agentID] = make(map[string]float64)
@@ -165,6 +169,9 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 	ModelsMutex.RLock()
 	for _, m := range AvailableModels {
 		if !m.Enabled {
+			continue
+		}
+		if m.Modality != modality {
 			continue
 		}
 		
@@ -204,8 +211,24 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 	if len(capable) == 0 {
 		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
-			if m.Enabled {
+			if m.Enabled && m.Modality == modality {
 				// Still respect predictive limits on fallback
+				capacity := r.ProviderCapacity[m.APIKeyEnv]
+				if capacity > 0 && r.ProviderInFlight[m.APIKeyEnv] >= capacity {
+					continue
+				}
+				capable = append(capable, m)
+			}
+		}
+		ModelsMutex.RUnlock()
+	}
+	
+	// Cross-modality fallback logic (e.g. coding -> text)
+	if len(capable) == 0 && modality == "coding" {
+		r.Logger.Info("WARNING: No 'coding' models available. Falling back to a standard 'text' model.", "agent_id", agentID, "task_id", taskID)
+		ModelsMutex.RLock()
+		for _, m := range AvailableModels {
+			if m.Enabled && m.Modality == "text" {
 				capacity := r.ProviderCapacity[m.APIKeyEnv]
 				if capacity > 0 && r.ProviderInFlight[m.APIKeyEnv] >= capacity {
 					continue

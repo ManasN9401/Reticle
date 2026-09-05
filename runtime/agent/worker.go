@@ -52,6 +52,7 @@ type Task struct {
 	Parameters   map[string]any `json:"parameters,omitempty"`
 	Memory       map[string]any `json:"memory,omitempty"`
 	Instructions []string       `json:"instructions,omitempty"`
+	Modality     string         `json:"modality,omitempty"`
 }
 
 type GraphMutation struct {

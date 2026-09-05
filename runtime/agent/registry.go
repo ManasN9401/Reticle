@@ -189,6 +189,7 @@ func (r *Registry) LoadWorkflows(directory string) error {
 			def.Nodes[nodeYAML.ID] = WorkflowNode{
 				ID:         nodeYAML.ID,
 				WorkerID:   nodeYAML.Agent,
+				Modality:   nodeYAML.Modality,
 				Parameters: nodeYAML.Parameters,
 			}
 		}

@@ -251,6 +251,7 @@ func (we *GraphEngine) dispatchNode(exec *WorkflowExecution, nodeID string, inpu
 		AgentID:     node.WorkerID,
 		Inputs:      inputs,
 		Parameters:  node.Parameters,
+		Modality:    node.Modality,
 		Workflow:    exec.Workflow.ID,
 		ExecutionID: exec.ExecutionID,
 	}
