@@ -139,11 +139,22 @@ func (d *Dispatcher) Start() {
 				// Dynamically select model if not forced
 				if d.Router != nil {
 					if !forced {
+						selectRetries := 0
 						selectedModel := d.Router.SelectModel(string(t.ID), string(w.ID), finalTier, 0.90, t.Modality)
 						for selectedModel == nil {
+							selectRetries++
+							if selectRetries > 24 { // 2 minutes
+								break
+							}
 							d.Logger.Info("All models are currently locked or penalized. Waiting 5 seconds before retrying routing...", "worker_id", w.ID)
 							time.Sleep(5 * time.Second)
 							selectedModel = d.Router.SelectModel(string(t.ID), string(w.ID), finalTier, 0.90, t.Modality)
+						}
+						
+						if selectedModel == nil {
+							d.Logger.Error("No models became available after 2 minutes of waiting. Aborting task.", "worker_id", w.ID)
+							lastFailure = &WorkerFailure{Reason: "no_models_available", ExitCode: 1, Stderr: "No models available for selection. All models might be permanently disabled or rate-limited for too long."}
+							break
 						}
 						
 						t.Parameters["llm_model"] = selectedModel.ID
@@ -183,6 +194,13 @@ func (d *Dispatcher) Start() {
 					delete(d.activeTasks[t.ExecutionID], t.ID)
 				}
 				d.activeTasksMu.Unlock()
+				
+				if ctx.Err() != nil {
+					d.Logger.Info("Worker execution was cancelled (likely killed by user). Aborting retries.", "worker_id", w.ID)
+					lastFailure = &WorkerFailure{Reason: "killed", ExitCode: -1, Stderr: "Context cancelled"}
+					cancel()
+					break
+				}
 				cancel()
 				
 				if failure == nil {
@@ -206,8 +224,8 @@ func (d *Dispatcher) Start() {
 						strings.Contains(stderrLower, "max_tokens must be less than") ||
 						strings.Contains(stderrLower, "request too large") ||
 						strings.Contains(stderrLower, "maximum context length") {
-						d.Logger.Error("Fatal task error: context length exceeded. Aborting retries to prevent API spam.", "worker_id", w.ID)
-						break // Do not retry, and do NOT globally penalize the model for a payload size issue
+						d.Logger.Info("Context length exceeded for this model, penalizing it for this task and trying another.", "worker_id", w.ID)
+						// Fall through to UpdateProbability(..., false) so it picks a different model instead of aborting the whole task
 					} else if strings.Contains(stderrLower, "tool calling") && strings.Contains(stderrLower, "not supported") {
 						if modelID, ok := t.Parameters["llm_model"].(string); ok && modelID != "" {
 							d.Logger.Info("Model does not support tool calling, disabling globally", "model", modelID)

@@ -1,7 +1,10 @@
 package routing
 
 import (
+	"encoding/json"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -43,8 +46,43 @@ func NewRouter(l *logger.Logger, b *events.Bus, loadAll bool) *ModelRouter {
 		ProviderInFlight:   make(map[string]int),
 		UseBayesianRouting: true,
 	}
+	r.loadMatrix()
 	r.subscribe()
 	return r
+}
+
+func (r *ModelRouter) getMatrixPath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ".reticle/routing_matrix.json" // fallback
+	}
+	// Assuming workspace is the current working directory, we look for .reticle
+	cwd, err := os.Getwd()
+	if err == nil {
+		return filepath.Join(cwd, ".reticle", "routing_matrix.json")
+	}
+	return filepath.Join(homeDir, ".reticle", "routing_matrix.json")
+}
+
+func (r *ModelRouter) loadMatrix() {
+	path := r.getMatrixPath()
+	data, err := os.ReadFile(path)
+	if err == nil {
+		var matrix map[string]map[string]float64
+		if err := json.Unmarshal(data, &matrix); err == nil {
+			r.Matrix = matrix
+			r.Logger.Info("Loaded persisted model routing preferences", "path", path)
+		}
+	}
+}
+
+func (r *ModelRouter) saveMatrix() {
+	path := r.getMatrixPath()
+	os.MkdirAll(filepath.Dir(path), 0755)
+	data, err := json.MarshalIndent(r.Matrix, "", "  ")
+	if err == nil {
+		os.WriteFile(path, data, 0644)
+	}
 }
 
 func (r *ModelRouter) subscribe() {
@@ -149,6 +187,8 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 	// Cleanup inflight
 	delete(r.inFlight, taskID)
 	
+	r.saveMatrix()
+	
 	r.Logger.Info("Model utility updated", "agent_id", agentID, "model_key", modelID, "success", success, "new_prob", newProb)
 }
 
@@ -239,7 +279,23 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 		ModelsMutex.RUnlock()
 	}
 	
-	// Final generic fallback (e.g. text -> coding)
+	// Cross-modality fallback logic (e.g. text -> coding)
+	if len(capable) == 0 && modality == "text" {
+		r.Logger.Info("WARNING: No 'text' models available. Falling back to a standard 'coding' model.", "agent_id", agentID, "task_id", taskID)
+		ModelsMutex.RLock()
+		for _, m := range AvailableModels {
+			if m.Enabled && m.Modality == "coding" {
+				capacity := r.ProviderCapacity[m.APIKeyEnv]
+				if capacity > 0 && r.ProviderInFlight[m.APIKeyEnv] >= capacity {
+					continue
+				}
+				capable = append(capable, m)
+			}
+		}
+		ModelsMutex.RUnlock()
+	}
+	
+	// Final generic fallback
 	if len(capable) == 0 {
 		r.Logger.Info("WARNING: No models of requested modality available. Falling back to ANY non-image model.", "agent_id", agentID, "modality", modality)
 		ModelsMutex.RLock()
