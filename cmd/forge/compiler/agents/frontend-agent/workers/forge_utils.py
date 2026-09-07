@@ -54,7 +54,7 @@ def generate_local_asset(prompt: str, output_path: str, width: int = 1024, heigh
         },
         "4": {
             "class_type": "CheckpointLoaderSimple",
-            "inputs": { "ckpt_name": "default" }
+            "inputs": { "ckpt_name": "DreamShaperXL_Turbo_v2_1.safetensors" }
         },
         "5": {
             "class_type": "EmptyLatentImage",
