@@ -1,6 +1,9 @@
 package agent
 
-import "github.com/reticle/runtime/memory"
+import (
+	"encoding/json"
+	"github.com/reticle/runtime/memory"
+)
 
 type NodeState string
 
@@ -14,6 +17,8 @@ const (
 type ExecutionState string
 
 const (
+	ExecutionSucceeded ExecutionState = "completed"
+	ExecutionFailed    ExecutionState = "failed"
 	ExecutionRunning   ExecutionState = "running"
 	ExecutionPaused    ExecutionState = "paused"
 	ExecutionCancelled ExecutionState = "cancelled"
@@ -28,6 +33,15 @@ type WorkflowExecution struct {
 }
 
 func NewWorkflowExecution(id string, wf *WorkflowDefinition) *WorkflowExecution {
+	var own WorkflowDefinition
+	data, err := json.Marshal(wf)
+	if err != nil {
+		panic(err)
+	}
+	if err = json.Unmarshal(data, &own); err != nil {
+		panic(err)
+	}
+	wf = &own
 	states := make(map[string]NodeState)
 	for nodeID := range wf.Nodes {
 		states[nodeID] = NodePending

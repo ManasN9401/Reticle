@@ -1,12 +1,18 @@
-id: "rag-agent"
-name: "Knowledge Retrieval Agent"
-description: "Indexes codebases into a local ChromaDB vector space and retrieves/summarizes dense context for other agents."
-worker:
-  command: "python"
-  args: ["{AGENT_DIR}/workers/rag.py"]
-capabilities:
-  - "vector-search"
-  - "indexing"
-  - "summarization"
-required_skills:
-  - "rag-knowledge-base"
+id: rag-agent
+name: Knowledge Retrieval Agent
+description: Indexes codebases into a local ChromaDB vector space and
+  retrieves/summarizes dense context for other agents.
+version: 1.0.0
+runtime: python
+entrypoint: workers/rag.py
+inputs: []
+outputs: []
+skills:
+  - rag-knowledge-base
+memory:
+  - user_prompt
+  - workspace_dir
+  - allow_native_execution
+  - prompt_attachments
+  - ide_context
+  - global_effort

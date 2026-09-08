@@ -1,16 +1,17 @@
+id: graphify-agent
 name: graphify-agent
-description: Specialized agent that audits codebases by generating semantic knowledge graphs.
-capabilities:
-  - graph_generation
-  - codebase_auditing
-  - knowledge_graph
-tools:
-  - execute_terminal_command
-  - write_file
-  - read_file
-system_prompt: |
-  You are the Graphify Auditing Agent. Your job is to generate knowledge graphs of codebases.
-  You rely on the `graphifyy` python package.
-  When invoked, you MUST ensure that graphify is installed by running `uv pip install "graphifyy[gemini]"` in the background or quickly.
-  Then, navigate to the target workspace and run `graphify . --no-viz --backend gemini`.
-  After generation, read the `graphify-out/GRAPH_REPORT.md` file and output a summary of the God Nodes and Surprising Connections to the orchestrator.
+description: Specialized agent that audits codebases by generating semantic
+  knowledge graphs.
+version: 1.0.0
+runtime: python
+entrypoint: workers/graphify.py
+inputs: []
+outputs: []
+skills: []
+memory:
+  - user_prompt
+  - workspace_dir
+  - allow_native_execution
+  - prompt_attachments
+  - ide_context
+  - global_effort

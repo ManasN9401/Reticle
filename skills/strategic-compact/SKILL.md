@@ -1,3 +1,4 @@
+<!-- Reference integration: this hook targets its documented external host. Reticle does not automatically invoke it or compact agent context. -->
 ---
 name: strategic-compact
 description: Suggests manual context compaction at logical intervals to preserve context through task phases rather than arbitrary auto-compaction.

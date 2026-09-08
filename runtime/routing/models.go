@@ -16,12 +16,13 @@ import (
 
 // Model Definition
 type Model struct {
-	ID        string  `json:"id"`
-	Cost      float64 `json:"cost"`       // Financial cost
-	Capability float64 `json:"capability"` // Estimated performance capability
-	APIKeyEnv string  `json:"api_key_env,omitempty"`
-	Modality  string  `json:"modality,omitempty"`
-	Enabled   bool    `json:"enabled"`
+	CooldownUntil time.Time `json:"cooldown_until,omitempty"`
+	ID            string    `json:"id"`
+	Cost          float64   `json:"cost"`       // USD per 1M tokens, mean of input/output prices; -1 means unknown
+	Capability    float64   `json:"capability"` // Estimated performance capability
+	APIKeyEnv     string    `json:"api_key_env,omitempty"`
+	Modality      string    `json:"modality,omitempty"`
+	Enabled       bool      `json:"enabled"`
 }
 
 func (m Model) Key() string {
@@ -39,24 +40,37 @@ var (
 
 func estimateCapability(id string) float64 {
 	lower := strings.ToLower(id)
-	
-	re := regexp.MustCompile(`([0-9\.]+)[bm]`)
+
+	re := regexp.MustCompile(`([0-9\.]+)([bm])`)
 	matches := re.FindStringSubmatch(lower)
-	if len(matches) == 2 {
+	if len(matches) == 3 {
 		if cap, err := strconv.ParseFloat(matches[1], 64); err == nil {
+			if matches[2] == "m" {
+				cap /= 1000
+			}
 			if cap > 40.0 {
 				cap = 40.0 // Cap at 40 so parameter size doesn't artificially outrank state-of-the-art models like Gemini/Claude
 			}
 			return cap
 		}
 	}
-	
-	if strings.Contains(lower, "claude-3.5-sonnet") || strings.Contains(lower, "claude-3-5-sonnet") { return 100.0 }
-	if strings.Contains(lower, "gemini-1.5-pro") { return 100.0 }
-	if strings.Contains(lower, "gemini-1.5-flash") || strings.Contains(lower, "gemini-3.5-flash") { return 15.0 }
-	if strings.Contains(lower, "mini") || strings.Contains(lower, "lite") { return 8.0 }
-	if strings.Contains(lower, "compound") { return 20.0 }
-	
+
+	if strings.Contains(lower, "claude-3.5-sonnet") || strings.Contains(lower, "claude-3-5-sonnet") {
+		return 100.0
+	}
+	if strings.Contains(lower, "gemini-1.5-pro") {
+		return 100.0
+	}
+	if strings.Contains(lower, "gemini-1.5-flash") || strings.Contains(lower, "gemini-3.5-flash") {
+		return 15.0
+	}
+	if strings.Contains(lower, "mini") || strings.Contains(lower, "lite") {
+		return 8.0
+	}
+	if strings.Contains(lower, "compound") {
+		return 20.0
+	}
+
 	return 10.0 // Default
 }
 
@@ -75,7 +89,7 @@ func detectModality(id string) string {
 func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 	newAvailableModels := make([]Model, 0)
 	newLockedKeys := make([]string, 0)
-	
+
 	premiumKeywords := []string{
 		"llama-3.3-70b", "llama-3.1-70b", "llama-3.1-405b", "llama-3-70b",
 		"claude-3-5-sonnet", "claude-3-5-haiku", "claude-3.5-sonnet", "claude-3.5-haiku", "claude-3-opus",
@@ -84,16 +98,6 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		"qwen-plus", "qwen-max", "qwen-2.5-72b",
 		"gemini-1.5-pro", "gemini-2.0-flash",
 		"glm", "gemma", "qwen3", "gpt-oss", "compound",
-	}
-
-	// The default fallback models we know exist
-	defaultModels := []Model{
-		{ID: "openrouter/liquid/lfm-2.5-2.6b:free", Cost: 0.0, Capability: 2.6, APIKeyEnv: "OPENROUTER_API_KEY", Enabled: true, Modality: "text"},
-		{ID: "openrouter/liquid/lfm-2.5-2.6b:free", Cost: 0.0, Capability: 2.6, APIKeyEnv: "OPENROUTER_API_KEY_2", Enabled: true, Modality: "text"},
-		{ID: "gemini/gemini-3.5-flash-lite", Cost: 0.0, Capability: 8.0, APIKeyEnv: "GEMINI_API_KEY", Enabled: true, Modality: "text"},
-		{ID: "groq/qwen/qwen3.6-27b", Cost: 0.0, Capability: 27.0, APIKeyEnv: "GROQ_API_KEY", Enabled: true, Modality: "text"},
-		{ID: "groq/groq/compound-mini", Cost: 0.0, Capability: 8.0, APIKeyEnv: "GROQ_API_KEY_2", Enabled: true, Modality: "text"},
-		{ID: "comfyui/default", Cost: 0.0, Capability: 10.0, APIKeyEnv: "COMFYUI_HOST", Enabled: true, Modality: "image"},
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -111,10 +115,10 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 	}
 
 	orKeys := []string{"OPENROUTER_API_KEY", "OPENROUTER_API_KEY_2", "OPENROUTER_API_KEY_3"}
-	
+
 	// Fetch all OpenRouter models globally once
 	var allORModels []ORModel
-	req, _ := http.NewRequest("GET", "https://openrouter.ai/api/v1/models", nil)
+	req, _ := http.NewRequest("GET", "https://openrouter.ai/api/v1/models?supported_parameters=tools", nil)
 	if resp, err := client.Do(req); err == nil && resp.StatusCode == 200 {
 		var orData ORResp
 		if b, err := io.ReadAll(resp.Body); err == nil {
@@ -128,7 +132,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		if os.Getenv(envKey) == "" {
 			continue
 		}
-		
+
 		isFreeKey := false
 		authReq, _ := http.NewRequest("GET", "https://openrouter.ai/api/v1/auth/key", nil)
 		authReq.Header.Set("Authorization", "Bearer "+os.Getenv(envKey))
@@ -152,16 +156,18 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			}
 			authResp.Body.Close()
 		}
-		
+
 		if isFreeKey {
 			newLockedKeys = append(newLockedKeys, envKey)
 		}
 
 		added := 0
 		for _, m := range allORModels {
-			cost := 0.0
-			if p, err := strconv.ParseFloat(m.Pricing.Prompt, 64); err == nil {
-				cost += p
+			cost := -1.0
+			input, inputErr := strconv.ParseFloat(m.Pricing.Prompt, 64)
+			output, outputErr := strconv.ParseFloat(m.Pricing.Completion, 64)
+			if inputErr == nil && outputErr == nil && input >= 0 && output >= 0 {
+				cost = (input + output) * 500000
 			}
 			if isFreeKey && cost > 0.0 && !strings.HasSuffix(m.ID, ":free") {
 				continue
@@ -218,7 +224,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			if b, err := io.ReadAll(resp.Body); err == nil {
 				json.Unmarshal(b, &groqData)
 				for _, m := range groqData.Data {
-					if strings.Contains(strings.ToLower(m.ID), "guard") {
+					if strings.Contains(strings.ToLower(m.ID), "guard") || strings.Contains(strings.ToLower(m.ID), "compound") || strings.Contains(strings.ToLower(m.ID), "whisper") || strings.Contains(strings.ToLower(m.ID), "orpheus") {
 						continue
 					}
 					if !loadAll {
@@ -239,7 +245,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 					}
 					newAvailableModels = append(newAvailableModels, Model{
 						ID:         "groq/" + m.ID,
-						Cost:       0.0, // Groq is currently free tier dominated
+						Cost:       -1.0, // Price is not supplied by this catalog endpoint
 						Capability: estimateCapability(m.ID),
 						APIKeyEnv:  envKey,
 						Enabled:    true,
@@ -283,7 +289,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 					id := strings.TrimPrefix(m.Name, "models/")
 					newAvailableModels = append(newAvailableModels, Model{
 						ID:         "gemini/" + id,
-						Cost:       2.0, // Fixed low cost
+						Cost:       -1.0, // Price is not supplied by this catalog endpoint
 						Capability: estimateCapability(id),
 						APIKeyEnv:  envKey,
 						Enabled:    true,
@@ -315,7 +321,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 	if ollamaHost == "" {
 		ollamaHost = "http://localhost:11434"
 	}
-	
+
 	reqOllama, _ := http.NewRequest("GET", ollamaHost+"/api/tags", nil)
 	if resp, err := client.Do(reqOllama); err == nil && resp.StatusCode == 200 {
 		var ollamaData OllamaResp
@@ -335,14 +341,16 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		}
 		resp.Body.Close()
 	} else {
+		if resp != nil {
+			resp.Body.Close()
+		}
 		log.Info("Ollama not detected or unreachable, skipping local models", "host", ollamaHost)
 	}
 
 	if len(newAvailableModels) == 0 {
-		log.Error("Failed to load any dynamic models, falling back to defaults")
-		newAvailableModels = defaultModels
+		log.Error("No models discovered; check provider connectivity and credentials")
 	}
-	
+
 	ModelsMutex.Lock()
 	AvailableModels = newAvailableModels
 	LockedKeys = newLockedKeys

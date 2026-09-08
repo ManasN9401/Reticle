@@ -1,3 +1,5 @@
+> Implementation update (2026-09-08): this historical proposal is superseded where it conflicts with RFC-043 and the current specifications under docs/specifications/. See the audit repair ledger for remaining capability limits.
+
 # RFC-040: Bayesian Model Routing Matrix & Fallback Logic
 
 ## 1. Objective
@@ -9,7 +11,7 @@ Previously, the `SelectModel` logic relied purely on static capacity limits (`Pr
 ## 3. Architecture Overview
 
 ### 3.1 The `Matrix` (Probability State)
-The `ModelRouter` maintains a persistent `.reticle/routing_matrix.json` state which maps `[AgentID][ModelID] -> Probability`. 
+The `ModelRouter` maintains a persistent `.reticle/routing_matrix.json` state which maps `[AgentID][ModelID] -> Probability`.
 * All models start with a base capability/probability score (typically `1.0` or close to it).
 * Upon `WorkerCompleted` (Success): The probability uses Additive Increase (`prob = min(prob + 0.05, 1.0)`).
 * Upon `WorkerFailed` (Failure): The probability uses Multiplicative Decrease (`prob = prob * 0.5`).

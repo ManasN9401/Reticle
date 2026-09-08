@@ -1,3 +1,5 @@
+> Implementation update (2026-09-08): this historical proposal is superseded where it conflicts with RFC-043 and the current specifications under docs/specifications/. See the audit repair ledger for remaining capability limits.
+
 # RFC-033: Isolated Session Workspaces for Concurrent Node Maps
 
 ## Status
@@ -10,9 +12,9 @@ In the current architecture, a "Workspace" represents both the physical project 
 We will decouple the "Project Directory" from the "Workflow Session Sandboxes".
 
 ### 1. Directory Structure Overhaul
-We will transition from a singular global `.reticle` workspace to a nested, session-based execution environment. 
+We will transition from a singular global `.reticle` workspace to a nested, session-based execution environment.
 - **Global Project Scope:** The underlying codebase (`src/`, `cmd/`, etc.) remains a single shared context.
-- **Isolated Session Sandboxes:** Every execution triggered by the Waitlist generates a unique `session_id` (e.g., `exec-001`). 
+- **Isolated Session Sandboxes:** Every execution triggered by the Waitlist generates a unique `session_id` (e.g., `exec-001`).
 - **Namespaced Metadata:** `scaffolder.py` will no longer generate a global `workflow.yaml`. Instead, it will write to `.reticle/sessions/{session_id}/workflow.yaml`. All artifacts and transient memory states will be strictly bound to this directory.
 
 ### 2. Event Bus & Memory Segregation
@@ -32,7 +34,7 @@ To prevent "messy merges" or stale patches, we introduce **Pessimistic File Lock
 ### 4. Agent Workspace Pre-flight Context Injection
 Because sessions are completely isolated, agents must have absolute certainty about the current state of their internal `src/` directory without wasting LLM turns running blind exploratory commands.
 
-Before invoking the LLM, the Python worker script (`coder.py`) will automatically scan the isolated `src/` folder for the session. It recursively builds a visual text-based file tree representing the current codebase topology. This topology is injected directly into the bottom of the System Prompt under `## Workspace State`. 
+Before invoking the LLM, the Python worker script (`coder.py`) will automatically scan the isolated `src/` folder for the session. It recursively builds a visual text-based file tree representing the current codebase topology. This topology is injected directly into the bottom of the System Prompt under `## Workspace State`.
 
 This permanently eliminates the need for agents to start their workflow by executing `list_dir` commands, heavily reducing token usage and speeding up task execution.
 

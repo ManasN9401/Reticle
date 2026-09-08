@@ -1,3 +1,7 @@
+# Current contract
+
+Use schemas/agent.schema.json and docs/specifications/agent-definition/v1/001-schema.md. Entrypoints are relative to the manifest. Put workers beside their owning manifest directory.
+
 # Creating Custom Agents in Reticle
 
 Reticle allows you to define highly specialized autonomous agents by simply authoring a YAML file and a corresponding Python worker script.
@@ -18,7 +22,7 @@ skills:
 ```
 
 ## 2. Write the Worker Logic
-Create the Python worker script in `compiler/workers/security_auditor.py`. Your script MUST follow the Reticle `stdin/stdout` contract:
+Create the Python worker script in `compiler/agents/workers/security_auditor.py`. Your script MUST follow the Reticle `stdin/stdout` contract:
 
 1. Read a single JSON line from `sys.stdin`.
 2. Extract the `inputs` and `memory` payload.
@@ -37,18 +41,18 @@ def main():
     line = sys.stdin.readline()
     if not line: return
     req = json.loads(line)
-    
+
     # Extract upstream context
     source_code = ""
     for inp in req.get("inputs", []):
         source_code += inp.get("data", "")
-        
+
     # Run specialized logic
     resp = completion(
         model="gemini/gemini-3.5-flash",
         messages=[{"role": "user", "content": f"Find vulnerabilities in:\\n{source_code}"}]
     )
-    
+
     # Broadcast result
     print(json.dumps({
         "id": req.get("id"),

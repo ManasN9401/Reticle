@@ -1,0 +1,8 @@
+{
+  "Commit": "9a5fd070fef92da7826698e58ac37ae245a9c252",
+  "FindingCount": 64,
+  "ChangedScope": "docs/audit/2026-09-08 only",
+  "LocalReportLinks": "Validated existence and referenced line bounds",
+  "CloudAndModelExecution": "Not performed",
+  "RaceDetector": "Unavailable: cgo toolchain requirement"
+}

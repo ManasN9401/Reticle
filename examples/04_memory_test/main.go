@@ -3,12 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
-	"sync"
 	"github.com/reticle/runtime/agent"
 	"github.com/reticle/runtime/events"
 	"github.com/reticle/runtime/orchestrator"
 	"github.com/reticle/runtime/routing"
 	"github.com/reticle/runtime/telemetry"
+	"sync"
 	"time"
 )
 
@@ -24,7 +24,7 @@ func main() {
 	orch.Start()
 
 	if *guiMode {
-		telemetryServer := telemetry.NewServer(orch.Bus, ":8080")
+		telemetryServer := telemetry.NewServer(orch.Bus, ":8080", "../..")
 		telemetryServer.Start()
 		telemetryServer.WaitForClient()
 	}
@@ -37,21 +37,21 @@ func main() {
 		orch.Logger.Error("Failed to load agents", "error", err)
 		return
 	}
-	
+
 	if err := registry.LoadWorkflows("./workflows"); err != nil {
 		orch.Logger.Error("Failed to load workflows", "error", err)
 		return
 	}
-	
+
 	envManager := agent.NewEnvironmentManager(orch.Logger, "../../")
 	workers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
-	
+
 	instructionStore := agent.NewInstructionStore()
-	router := routing.NewRouter(orch.Logger, orch.Bus)
+	router := routing.NewRouter(orch.Logger, orch.Bus, false)
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)
-	
+
 	for _, sub := range registry.BuildSubscriptions() {
 		subManager.Register(sub)
 	}
@@ -70,10 +70,10 @@ func main() {
 	}
 
 	fmt.Println("\n--- STARTING MEMORY TEST WORKFLOW ---")
-	
+
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	
+
 	orch.Bus.Subscribe(events.EventType("WorkflowCompleted"), func(e events.RuntimeEvent) {
 		fmt.Println("\n✅ WORKFLOW COMPLETED SUCCESSFULLY!")
 		wg.Done()

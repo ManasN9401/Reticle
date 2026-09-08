@@ -1,0 +1,126 @@
+{
+  "tracked_files": 384,
+  "python_syntax": [],
+  "generators": [
+    {
+      "agent": "coder-agent",
+      "exit": 0,
+      "stderr": "",
+      "generated_syntax": []
+    },
+    {
+      "agent": "hermes-coder-agent",
+      "exit": 0,
+      "stderr": "",
+      "generated_syntax": [
+        "unexpected indent (<unknown>, line 212)",
+        "unterminated string literal (detected at line 123) (<unknown>, line 123)"
+      ]
+    },
+    {
+      "agent": "quant-agent",
+      "exit": 1,
+      "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\nathm\\code\\Reticle\\cmd\\forge\\compiler\\agents\\quant-agent\\workers\\quant.py\", line 736, in <module>\n    main()\n    ~~~~^^\n  File \"C:\\Users\\nathm\\code\\Reticle\\cmd\\forge\\compiler\\agents\\quant-agent\\workers\\quant.py\", line 574, in main\n    raise ValueError(f\"Schema Validation Failed: Missing required arguments: {missing}. Please fix and try again.\")\n                                                                              ^^^^^^^\nNameError: name 'missing' is not defined\n",
+      "generated_syntax": []
+    },
+    {
+      "agent": "osint-agent",
+      "exit": 1,
+      "stderr": "C:\\Users\\nathm\\code\\Reticle\\cmd\\forge\\compiler\\agents\\osint-agent\\workers\\osint.py:148: SyntaxWarning: \"\\s\" is an invalid escape sequence. Such sequences will not work in the future. Did you mean \"\\\\s\"? A raw string is also an option.\n  text_content = re.sub(r'\\s+', ' ', text_content)\nTraceback (most recent call last):\n  File \"C:\\Users\\nathm\\code\\Reticle\\cmd\\forge\\compiler\\agents\\osint-agent\\workers\\osint.py\", line 695, in <module>\n    main()\n    ~~~~^^\n  File \"C:\\Users\\nathm\\code\\Reticle\\cmd\\forge\\compiler\\agents\\osint-agent\\workers\\osint.py\", line 537, in main\n    raise ValueError(f\"Schema Validation Failed: Missing required arguments: {missing}. Please fix and try again.\")\n                                                                              ^^^^^^^\nNameError: name 'missing' is not defined\n",
+      "generated_syntax": []
+    },
+    {
+      "agent": "browser-agent",
+      "exit": 1,
+      "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\nathm\\code\\Reticle\\cmd\\forge\\compiler\\agents\\browser-agent\\workers\\browser.py\", line 646, in <module>\n    main()\n    ~~~~^^\n  File \"C:\\Users\\nathm\\code\\Reticle\\cmd\\forge\\compiler\\agents\\browser-agent\\workers\\browser.py\", line 490, in main\n    raise ValueError(f\"Schema Validation Failed: Missing required arguments: {missing}. Please fix and try again.\")\n                                                                              ^^^^^^^\nNameError: name 'missing' is not defined\n",
+      "generated_syntax": []
+    },
+    {
+      "agent": "scaffolder-agent",
+      "exit": 0,
+      "stderr": "[scaffolder] Initial workspace_dir: C:\\Users\\nathm\\AppData\\Local\\Temp\\reticle-audit-390buxct\\scaffolder-agent\n[scaffolder] Execution ID: compile-exec-audit\n[scaffolder] Writing 3 files to C:\\Users\\nathm\\AppData\\Local\\Temp\\reticle-audit-390buxct\\scaffolder-agent\n",
+      "generated_syntax": [],
+      "workflow": "id: workflow_exec-audit\nname: Audit fixture\nversion: 1.0.0\nnodes:\n  - id: audit-node\n    agent: audit-worker\n    parameters: {}\nedges:"
+    }
+  ],
+  "fixtures": {
+    "traversal_write_result": "Successfully wrote to ../outside-src.txt",
+    "traversal_file_created": true,
+    "absolute_write_result": "Successfully wrote to C:\\Users\\nathm\\AppData\\Local\\Temp\\reticle-audit-390buxct\\absolute.txt",
+    "absolute_file_created": true,
+    "literal_preserved": false,
+    "literal_syntax_valid": false,
+    "terminal_calls": [
+      {
+        "command": "python train.py",
+        "cwd": "C:\\Users\\nathm\\AppData\\Local\\Temp\\reticle-audit-390buxct\\containment\\src"
+      },
+      {
+        "command": [
+          "docker",
+          "ps",
+          "-q",
+          "-f",
+          "name=^forge_containment$"
+        ],
+        "cwd": null
+      },
+      {
+        "command": [
+          "docker",
+          "run",
+          "-d",
+          "--rm",
+          "--name",
+          "forge_containment",
+          "-v",
+          "C:\\Users\\nathm\\AppData\\Local\\Temp\\reticle-audit-390buxct\\containment:/workspace",
+          "-w",
+          "/workspace",
+          "ghcr.io/astral-sh/uv:python3.12-bookworm-slim",
+          "sleep",
+          "infinity"
+        ],
+        "cwd": null
+      },
+      {
+        "command": [
+          "docker",
+          "exec",
+          "forge_containment",
+          "bash",
+          "-c",
+          "python train.py"
+        ],
+        "cwd": null
+      }
+    ],
+    "hitl_stdin": {
+      "exit": 1,
+      "stdout": "Error: No payload provided."
+    }
+  },
+  "python_files_checked": 68,
+  "empty_files": [
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "cmd/forge/state.json",
+    "docs/README.md",
+    "docs/decisions/README.md",
+    "docs/diagrams/runtime/README.md",
+    "docs/diagrams/runtime/execution-lifecycle.drawio",
+    "docs/diagrams/runtime/execution-lifecycle.svg",
+    "docs/diagrams/runtime/runtime-overview.drawio",
+    "docs/diagrams/runtime/runtime-overview.svg",
+    "docs/standards/001 DOCUMENT_WRITING_STANDARD.md",
+    "docs/templates/002 PLANNING_TEMPLATE.md",
+    "docs/templates/003 ADR_TEMPLATE.md",
+    "docs/templates/004 JOURNAL_TEMPLATE.md",
+    "docs/templates/006 SPECIFICATION_TEMPLATE.md",
+    "schemas/agent.schema.json",
+    "schemas/plugin.schema.json",
+    "schemas/task.schema.json"
+  ],
+  "go_tests": [],
+  "ci_workflows": []
+}

@@ -1,3 +1,4 @@
+import { controlHeaders, requireLocalHost } from './auth'
 import { EventEmitter } from 'node:events'
 import WebSocket from 'ws'
 import { decodeSocketEvent, type RuntimeEvent } from '../../src/shared/events'
@@ -46,13 +47,14 @@ export class ForgeClient extends EventEmitter {
   }
 
   connect(host: string, port: number): ConnectionState {
+    requireLocalHost(host)
     this.intentionallyClosed = false
     this.clearReconnect()
 
     const changedTarget = host !== this.state.host || port !== this.state.port
     if (changedTarget) this.teardownSocket()
 
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return this.state
     }
 
@@ -75,11 +77,7 @@ export class ForgeClient extends EventEmitter {
     return this.state
   }
 
-  /**
-   * The runtime whitelists inbound actions to `enqueue` and `remove`
-   * (runtime/telemetry/server.go:250); anything else is accepted by the socket
-   * and then silently dropped, so `OutboundCommand` refuses to express it.
-   */
+  /** Sends a typed queue, lifecycle, or routing-settings command. */
   send(command: OutboundCommand): boolean {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false
     try {
@@ -93,11 +91,11 @@ export class ForgeClient extends EventEmitter {
 
   private open(): void {
     const { host, port } = this.state
-    const url = `ws://${host}:${port}/ws`
+    const url = `ws://${host.includes(':') ? `[${host}]` : host}:${port}/ws`
 
     let socket: WebSocket
     try {
-      socket = new WebSocket(url, { handshakeTimeout: 8_000 })
+      socket = new WebSocket(url, { handshakeTimeout: 8_000, headers: controlHeaders() })
     } catch (error) {
       this.onFailure(error instanceof Error ? error.message : String(error))
       return
@@ -105,6 +103,7 @@ export class ForgeClient extends EventEmitter {
     this.socket = socket
 
     socket.on('open', () => {
+      if (this.socket !== socket) return
       this.setState({
         phase: 'connected',
         attempt: 0,
@@ -115,7 +114,8 @@ export class ForgeClient extends EventEmitter {
     })
 
     socket.on('message', (data) => {
-      // The server replays WaitlistUpdated + WorkflowStarted on connect, so the
+      if (this.socket !== socket) return
+      // The server replays WaitlistUpdated + WorkflowSnapshot on connect, so the
       // first frames after `open` are a partial state snapshot.
       const event = decodeSocketEvent(
         typeof data === 'string' ? data : data.toString('utf8'),
@@ -126,11 +126,13 @@ export class ForgeClient extends EventEmitter {
     })
 
     socket.on('error', (error: Error) => {
+      if (this.socket !== socket) return
       // 'close' always follows; record the reason for the status bar.
       this.setState({ message: error.message })
     })
 
     socket.on('close', () => {
+      if (this.socket !== socket) return
       this.socket = null
       this.stopRateSampling()
       if (this.intentionallyClosed) return

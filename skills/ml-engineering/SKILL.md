@@ -1,39 +1,19 @@
 ---
-name: Machine Learning Engineering
-description: Strict methodology for writing, training, and tracking deep learning models using PyTorch.
+name: ml-engineering
+description: Build and verify PyTorch experiments with explicit data, hardware, environment and recovery requirements.
 ---
+# Machine learning engineering
 
-# Machine Learning Engineering Methodology
+Use PyTorch and the selected Hugging Face libraries for this project's deep-learning work. This is a project consistency choice, not a claim that mixing frameworks necessarily crashes.
 
-This skill equips the agent to act as a Senior Machine Learning Engineer. It strictly enforces standard deep learning practices, preventing common failure points such as VRAM exhaustion, irreproducibility, and framework hallucinations.
+Distinguish generated code, a small smoke run, and a full experiment. Discover the actual device and available memory before choosing batch size, precision or accumulation. Do not assume 16 GB or promise that a small batch cannot run out of memory. Accumulation is optional and must preserve the intended effective batch/optimizer behavior.
 
-## 1. Framework Enforcement (PyTorch Only)
-- The agent is STRICTLY FORBIDDEN from using TensorFlow or Keras. 
-- All deep learning code MUST be written using **PyTorch** (`torch`), `accelerate`, and the HuggingFace ecosystem (`transformers`, `datasets`).
-- Mixing frameworks causes catastrophic crashes and is not allowed.
+Record dataset revision, preprocessing, split construction, baseline, evaluation metrics, model revision, dependency versions and hardware. Avoid train/evaluation leakage. Synthetic data is suitable for smoke checks, not benchmark accuracy claims.
 
-## 2. VRAM Protection & OOM Prevention
-- When writing training loops or using `Trainer`, the agent MUST assume a strict hardware VRAM limit (e.g., 16GB).
-- **Batch Sizes:** The agent MUST use small batch sizes (e.g., `per_device_train_batch_size=2` or `4`).
-- **Gradient Accumulation:** To achieve effective larger batch sizes without crashing the GPU, the agent MUST utilize `gradient_accumulation_steps` (e.g., `8` or `16`).
+Initialize Python, NumPy and Torch RNGs by calling the seed initializer. Configure deterministic algorithms, backend flags and data-loader seeding where appropriate; report unsupported operations and performance tradeoffs. Verify repeatability within stated tolerances in the recorded environment. Cross-platform and cross-version bitwise reproducibility is not guaranteed.
 
-## 3. Reproducibility
-- The agent MUST ensure that all scripts are perfectly deterministic.
-- Every script MUST begin with a seed-setting function:
-```python
-import torch
-import numpy as np
-import random
+Keep visible local metrics/logs. External experiment tracking is optional and requires its own configured credentials. Save checkpoints containing the state needed for the advertised resume behavior, including optimizer/scheduler/RNG state when resuming training. Test interruption/resumption on a small fixture before running a long job.
 
-def set_seed(seed=42):
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.backends.cudnn.deterministic = True
-```
+Honor the execution environment's resource/time limits. A full training run requires a configured training environment and explicit budget. Never turn iteration exhaustion, missing CUDA, missing dependencies or a failed evaluation into success.
 
-## 4. Experiment Tracking & Checkpointing
-- The agent MUST NEVER write a "silent" training loop.
-- All training scripts MUST include logging via Weights & Biases (`wandb`) or `TensorBoard`.
-- The agent MUST save model checkpoints periodically (e.g., at the end of every epoch or every N steps) to prevent data loss in the event of a crash.
+Reference: https://docs.pytorch.org/docs/2.9/notes/randomness.html

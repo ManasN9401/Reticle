@@ -9,33 +9,17 @@ from pathlib import Path
 logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
-def install_graphify():
-    # Install graphify in the background/fast
-    try:
-        # Check if graphify is already installed
-        res = subprocess.run(["graphify", "--help"], capture_output=True, text=True)
-        if res.returncode == 0:
-            return
-    except FileNotFoundError:
-        pass
-
-    try:
-        # Try uv tool install
-        subprocess.run(["uv", "tool", "install", "graphifyy[gemini]", "--force"], check=True, capture_output=True)
-    except Exception as e:
-        logger.error(f"Failed to install graphify: {e}")
-
 def run_graphify(workspace):
     try:
         # Run graphify in the workspace
-        subprocess.run(["graphify", ".", "--no-viz", "--backend", "gemini"], cwd=workspace, check=True, capture_output=True, text=True)
-        
+        subprocess.run(["graphify", ".", "--no-viz", "--backend", "gemini"], cwd=workspace, check=True, capture_output=True, text=True, timeout=180)
+
         report_path = Path(workspace) / "graphify-out" / "GRAPH_REPORT.md"
         if not report_path.exists():
-            return "Graphify failed to generate a report."
-            
+            raise RuntimeError("Graphify did not generate a report")
+
         content = report_path.read_text(encoding="utf-8")
-        
+
         # Extract God Nodes and Surprising Connections
         lines = content.split('\n')
         summary = []
@@ -48,35 +32,34 @@ def run_graphify(workspace):
                 capture = False
             elif capture:
                 summary.append(line)
-                
+
         return "\n".join(summary)
     except subprocess.CalledProcessError as e:
         logger.error(f"Graphify failed: {e.stderr}")
-        return f"Graphify execution failed: {e.stderr}"
+        raise RuntimeError("Graphify execution failed") from e
     except Exception as e:
         logger.error(f"Graphify error: {e}")
-        return str(e)
+        raise
 
 def main():
     line = sys.stdin.readline()
     if not line:
         return
-        
+
     try:
         req = json.loads(line)
         req_id = req.get("id")
-        workspace = req.get("context", {}).get("workspace", ".")
-        
-        install_graphify()
+        workspace = str(Path(req["memory"]["workspace_dir"]) / "src")
+
         summary = run_graphify(workspace)
-        
+
         artifact = {
             "id": f"{req_id}_graph_report",
             "name": "Graphify Architectural Summary",
             "type": "text/markdown",
             "data": summary
         }
-        
+
         print(json.dumps({
             "id": req_id,
             "artifact": artifact

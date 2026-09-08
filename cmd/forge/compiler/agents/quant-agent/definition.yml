@@ -1,17 +1,20 @@
-id: "quant-agent"
-name: "Quantitative Finance Expert"
-description: "A specialized agent equipped with yfinance tools to analyze stock market data, financial statements, and technical indicators."
-version: "1.0.0"
-capabilities:
-  - "financial_analysis"
-  - "stock_market_data"
+id: quant-agent
+name: Quantitative Finance Expert
+description: A specialized agent equipped with yfinance tools to analyze stock
+  market data, financial statements, and technical indicators.
+version: 1.0.0
+runtime: python
+entrypoint: workers/quant.py
 inputs:
-  - id: "dag_json"
-    type: "application/json"
-    description: "The DAG JSON containing all agent definitions"
+  - application/json
 outputs:
-  - id: "python_worker_files"
-    type: "application/json"
-    description: "The generated Python worker script for this agent"
+  - application/json
 skills:
-  - "data-analytics-stats"
+  - data-analytics-stats
+memory:
+  - user_prompt
+  - workspace_dir
+  - allow_native_execution
+  - prompt_attachments
+  - ide_context
+  - global_effort

@@ -81,6 +81,7 @@ export function findRepoRoot(): string | null {
 
 /** Allow the user to override an incorrect or undiscoverable root. */
 export function setRepoRoot(root: string | null): void {
+  if (root && !looksLikeRepoRoot(root)) throw new Error("Select a Reticle checkout containing cmd/forge and runtime")
   cachedRoot = root ?? undefined
 }
 
@@ -116,6 +117,8 @@ export function builtinAgentsDir(root: string): string {
  * path from the renderer could read anything the user can read.
  */
 export function isInside(parent: string, child: string): boolean {
-  const rel = path.relative(path.resolve(parent), path.resolve(child))
+  let canonicalParent: string, canonicalChild: string
+  try {canonicalParent=fs.realpathSync(parent);canonicalChild=fs.realpathSync(child)} catch {return false}
+  const rel = path.relative(canonicalParent, canonicalChild)
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
 }

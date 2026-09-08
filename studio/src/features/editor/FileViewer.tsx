@@ -11,10 +11,7 @@ import { RETICLE_DARK, RETICLE_LIGHT, languageFor, setupMonaco } from './monacoS
 /**
  * Read-only source viewer.
  *
- * Deliberately read-only: the runtime takes per-session file locks
- * (FileLockRequested / FileLockReleased) and Studio has no save path that
- * respects them, so an editable buffer would misrepresent what it can safely do
- * to a running workspace.
+ * Deliberately read-only: workspace writes belong to workers and their file tools.
  *
  * Content comes either from disk (via the guarded main-process reader) or
  * inline, for files delivered by `GET /api/outputs/{execId}`.
@@ -28,10 +25,12 @@ export function FileViewer({
   inlineContent?: string
   label: string
 }) {
-  const [content, setContent] = useState<string | null>(inlineContent ?? null)
-  const [size, setSize] = useState<number | undefined>(inlineContent?.length)
-  const [truncated, setTruncated] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState<{path: string, content: string|null, size?: number, truncated?: boolean, error?: string} | null>(null)
+  const current = loaded?.path === path ? loaded : null
+  const content = inlineContent ?? current?.content ?? null
+  const size = inlineContent !== undefined ? new TextEncoder().encode(inlineContent).length : current?.size
+  const truncated = inlineContent === undefined && current?.truncated
+  const error = inlineContent === undefined ? current?.error : null
   const theme = useResolvedTheme()
 
   // Re-run on theme change so both palettes exist before Monaco is asked for one.
@@ -40,25 +39,12 @@ export function FileViewer({
   }, [theme])
 
   useEffect(() => {
-    if (inlineContent !== undefined) {
-      setContent(inlineContent)
-      setSize(inlineContent.length)
-      return
-    }
-    if (!path || !bridge) return
-
+    if (inlineContent !== undefined || !path || !bridge) return
     let cancelled = false
-    setContent(null)
-    setError(null)
-    void bridge.workspace.read(path).then((result) => {
+    void bridge.workspace.read(path).then(result => {
       if (cancelled) return
-      if (result.ok && result.data) {
-        setContent(result.data.content)
-        setSize(result.data.size)
-        setTruncated(result.data.truncated)
-      } else {
-        setError(result.error ?? 'Could not read this file.')
-      }
+      if (result.ok && result.data) setLoaded({...result.data, path})
+      else setLoaded({path, content:null, error:result.error ?? 'Could not read this file.'})
     })
     return () => {
       cancelled = true
@@ -76,7 +62,7 @@ export function FileViewer({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-inset">
       <div className="flex h-[var(--h-toolbar)] shrink-0 items-center gap-2 border-b border-line-1 bg-bg-1 px-2">
-        <Tooltip content="Read-only — Studio does not hold the runtime's file locks.">
+        <Tooltip content="Read-only — workspace edits belong to the executing workers.">
           <span className="flex items-center gap-1 text-2xs text-fg-4">
             <Lock size={11} strokeWidth={1.8} />
             Read-only

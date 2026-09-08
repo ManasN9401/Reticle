@@ -26,7 +26,7 @@ func main() {
 
 	// Start Telemetry UI if requested
 	if *guiMode {
-		telemetryServer := telemetry.NewServer(orch.Bus, ":8080")
+		telemetryServer := telemetry.NewServer(orch.Bus, ":8080", "../..")
 		telemetryServer.Start()
 		telemetryServer.WaitForClient()
 	}
@@ -40,20 +40,20 @@ func main() {
 		orch.Logger.Error("Failed to load agents", "error", err)
 		return
 	}
-	
+
 	if err := registry.LoadSkills("./skills"); err != nil {
 		orch.Logger.Error("Failed to load skills", "error", err)
 		return
 	}
-	
+
 	if err := registry.LoadWorkflows("./workflows"); err != nil {
 		orch.Logger.Error("Failed to load workflows", "error", err)
 		return
 	}
-	
+
 	envManager := agent.NewEnvironmentManager(orch.Logger, "../../")
 	workers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
-	
+
 	// Phase 3: Define Subscriptions (JIT Dispatching) & Runtime Instructions
 	instructionStore := agent.NewInstructionStore()
 	instructionStore.Add(agent.Instruction{
@@ -68,11 +68,11 @@ func main() {
 		Content: "Include a section for 'Contributors'.",
 	})
 
-	router := routing.NewRouter(orch.Logger, orch.Bus)
+	router := routing.NewRouter(orch.Logger, orch.Bus, false)
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)
-	
+
 	for _, sub := range registry.BuildSubscriptions() {
 		subManager.Register(sub)
 	}
@@ -117,7 +117,7 @@ func main() {
 
 	// --- NEW QUERY API TESTS ---
 	fmt.Println("\n--- TESTING ARTIFACT QUERY API ---")
-	
+
 	// Test 1: FindByParent
 	children := orch.Artifacts.FindChildren(memory.ArtifactID("readme_outline"))
 	fmt.Printf("1. Found %d children for 'readme_outline' (Expected 1)\n", len(children))
@@ -140,11 +140,11 @@ func main() {
 	newArt, err := orch.Artifacts.UpdateVersion(memory.ArtifactID("readme_final"), "# Reticle V2\nEven better!")
 	if err == nil {
 		fmt.Printf("   -> Updated artifact: %s to Version %d\n", newArt.ID, newArt.Version)
-		
+
 		// Verify Get picks up the new version!
 		latestV2, _ := orch.Artifacts.Get(memory.ArtifactID("readme_final"))
 		fmt.Printf("   -> Get('readme_final') now returns Version: %d\n", latestV2.Version)
-		
+
 		// Verify GetVersion picks up the old version!
 		oldV1, _ := orch.Artifacts.GetVersion(memory.ArtifactID("readme_final"), 1)
 		dataStr := oldV1.Data.(string)
@@ -160,7 +160,7 @@ func main() {
 	for _, model := range routing.AvailableModels {
 		benchTaskID := fmt.Sprintf("bench-outline-%s", model.ID)
 		fmt.Printf("Benchmarking %s...\n", model.ID)
-		
+
 		benchTask := agent.Task{
 			ID:          agent.TaskID(benchTaskID),
 			AgentID:     "outline-gen",
@@ -170,7 +170,7 @@ func main() {
 				"llm_model": model.ID, // Force model
 			},
 		}
-		
+
 		// Fire TaskCreated directly to dispatcher via bus
 		orch.Bus.Publish(events.EventType("TaskCreated"), events.Component("benchmark"), benchTask)
 		time.Sleep(500 * time.Millisecond) // Give worker time to exit and publish completion
@@ -178,12 +178,12 @@ func main() {
 
 	// Give time for router updates to settle
 	time.Sleep(1 * time.Second)
-	
+
 	fmt.Println("\n--- ROUTER MATRIX POST-BENCHMARK ---")
 	for m, prob := range router.Matrix["outline-gen"] {
 		fmt.Printf("Agent: outline-gen | Model: %s | Success Probability: %.2f\n", m, prob)
 	}
-	
+
 	// Now if we submit a real workflow, the router will use the learned matrix
 	fmt.Println("\n--- STARTING OPTIMIZED ROUTED WORKFLOW ---")
 	graphEngine.SubmitWorkflow(wf, "exec-003-routed")

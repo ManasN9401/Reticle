@@ -167,6 +167,7 @@ export interface ForgeState {
 }
 
 export interface ForgeStartRequest {
+  native?: boolean
   port: number
   /** Concurrent workflows (-batch). */
   batch?: number
@@ -322,6 +323,7 @@ export interface StudioSettings {
     retries: number
     isolated: boolean
     allModels: boolean
+    native: boolean
   }
   appearance: {
     /** 'system' follows the OS; the shell resolves it before it reaches the DOM. */

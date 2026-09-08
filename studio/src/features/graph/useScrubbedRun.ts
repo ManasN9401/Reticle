@@ -19,11 +19,11 @@ export function useScrubbedRun(): { run: Run | undefined; replaying: boolean } {
   const selectedExecId = useStudio((s) => s.selectedExecId)
 
   const eventsRef = useRef<RuntimeEvent[] | null>(null)
-  const [replayed, setReplayed] = useState<Run | undefined>(undefined)
+  const [replayed, setReplayed] = useState<{key:string, run:Run|undefined} | undefined>(undefined)
+  const replayKey = `${selectedExecId ?? liveRun?.execId}:${scrubEventId}`
 
   useEffect(() => {
     if (scrubEventId === null) {
-      setReplayed(undefined)
       return
     }
 
@@ -33,11 +33,12 @@ export function useScrubbedRun(): { run: Run | undefined; replaying: boolean } {
       if (cancelled) return
       const state = replayTo(events, scrubEventId)
       const execId = selectedExecId ?? liveRun?.execId
-      setReplayed(execId ? state.runs[execId] : undefined)
+      setReplayed({key: replayKey, run: execId ? state.runs[execId] : undefined})
     }
 
     if (eventsRef.current) {
-      compute(eventsRef.current)
+      const cached = eventsRef.current
+      void Promise.resolve().then(() => compute(cached))
       return () => {
         cancelled = true
       }
@@ -52,7 +53,7 @@ export function useScrubbedRun(): { run: Run | undefined; replaying: boolean } {
     return () => {
       cancelled = true
     }
-  }, [scrubEventId, selectedExecId, liveRun?.execId])
+  }, [scrubEventId, selectedExecId, liveRun?.execId, replayKey])
 
   // Invalidate the cache when live events arrive, so resuming and re-scrubbing
   // does not replay a stale log.
@@ -62,5 +63,5 @@ export function useScrubbedRun(): { run: Run | undefined; replaying: boolean } {
   }, [eventCount, scrubEventId])
 
   if (scrubEventId === null) return { run: liveRun, replaying: false }
-  return { run: replayed ?? liveRun, replaying: true }
+  return { run: replayed?.key === replayKey ? replayed.run : undefined, replaying: true }
 }

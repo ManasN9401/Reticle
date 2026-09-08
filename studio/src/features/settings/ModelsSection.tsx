@@ -254,7 +254,7 @@ export function ModelsSection() {
         </FilterSelect>
 
         <FilterSelect label="Sort" value={sort} onChange={(v) => setSort(v as SortKey)}>
-          <option value="capability">Capability</option>
+          <option value="capability">Capability estimate</option>
           <option value="cost">Cost</option>
           <option value="id">Model id</option>
           <option value="provider">Provider</option>
@@ -331,7 +331,7 @@ export function ModelsSection() {
           <div className="flex items-center gap-3 border-b border-line-1 bg-bg-2 px-3 py-1.5 text-2xs tracking-wide text-fg-4 uppercase">
             <span className="min-w-0 flex-1">Model</span>
             <span className="w-40 shrink-0">Key</span>
-            <span className="w-16 shrink-0 text-right">Cost</span>
+            <span className="w-16 shrink-0 text-right">$/1M avg</span>
             <span className="w-16 shrink-0 text-right">Cap.</span>
             <span className="w-8 shrink-0" />
           </div>
@@ -401,7 +401,7 @@ export function ModelsSection() {
                 </span>
 
                 <span className="num w-16 shrink-0 text-right text-2xs text-fg-3">
-                  {model.cost === 0 ? 'free' : model.cost.toFixed(2)}
+                  {model.cost < 0 ? 'unknown' : model.cost === 0 ? '0' : model.cost.toFixed(2)}
                 </span>
                 <span className="num w-16 shrink-0 text-right text-2xs text-fg-3">
                   {model.capability.toFixed(1)}

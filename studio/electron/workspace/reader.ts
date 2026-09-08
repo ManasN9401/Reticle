@@ -78,7 +78,7 @@ function toAgentCard(
     outputs: asStringArray(doc.outputs),
     manifestPath,
     origin,
-    hasEnv: envIds.has(id),
+    hasEnv: envIds.has(id) || [...envIds].some(name => name.startsWith(id + "-") && name.endsWith("-libs")),
   }
 }
 
@@ -233,7 +233,7 @@ export class WorkspaceReader {
     if (!root) return fail('Reticle repository root not found.')
 
     const file = path.resolve(target)
-    if (!isInside(root, file)) {
+    if (path.basename(file).startsWith('.env') || file.includes(path.sep+'.reticle'+path.sep+'control-token') || !isInside(root, file)) {
       return fail('Refusing to read outside the Reticle repository.')
     }
 

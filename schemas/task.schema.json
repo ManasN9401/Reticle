@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Reticle task v1",
+  "type": "object",
+  "required": [
+    "id"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "execution": {
+      "type": "string"
+    },
+    "workflow": {
+      "type": "string"
+    },
+    "origin": {
+      "type": "string"
+    },
+    "modality": {
+      "type": "string"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "data": {}
+        }
+      }
+    },
+    "parameters": {
+      "type": "object"
+    },
+    "memory": {
+      "type": "object"
+    },
+    "instructions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

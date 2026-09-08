@@ -10,10 +10,7 @@ import type { AgentCard } from '@shared/ipc'
 /**
  * Agent roster.
  *
- * Reads both manifest conventions that coexist in the repo (`definition.yml`
- * and `<name>.yaml`) and shows fields the Go loader silently drops
- * (`capabilities`, `required_skills`) — the card should reflect what is written
- * down, not only what `AgentDefinition` happens to parse.
+ * Shows validated manifest fields for builtin and execution-scoped agents.
  */
 export function AgentsSidebar() {
   const run = useActiveRun()
@@ -28,7 +25,7 @@ export function AgentsSidebar() {
     setAgents(null)
     void bridge.workspace.agents(run?.execId).then((result) => {
       if (cancelled) return
-      if (result.ok && result.data) setAgents(result.data)
+      if (result.ok && result.data) { setAgents(result.data); setError(null) }
       else setError(result.error ?? 'Could not read the agent catalog.')
     })
     return () => {

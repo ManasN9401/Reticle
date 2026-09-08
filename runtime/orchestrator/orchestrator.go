@@ -33,12 +33,16 @@ func New() *Orchestrator {
 	artifacts := memory.NewArtifactStore()
 	runtimeState := memory.NewRuntimeState()
 	sessionState := memory.NewSessionState(sessionID)
-	
+
 	memory.NewManager(artifacts, runtimeState, sessionState, b)
 
 	// The central Event Logger (Source of Truth)
 	b.SubscribeAll(func(e events.RuntimeEvent) {
 		payload := e.Payload
+		switch e.Type {
+		case "TaskCreated", "MemoryWriteRequested", "MemoryReadCompleted", "WorkerLog":
+			payload = map[string]any{"redacted": true}
+		}
 
 		// If it's an Artifact, strip the large Data payload unless DebugMode is explicitly on.
 		if art, ok := payload.(*memory.Artifact); ok && !l.DebugMode {
@@ -74,4 +78,6 @@ func (o *Orchestrator) Start() {
 func (o *Orchestrator) Shutdown() {
 	o.Logger.Info("Reticle Skeleton Runtime Orchestrator shutting down", "session", o.Bus.SessionID())
 	o.Bus.Publish(events.EventType("RuntimeShutdown"), events.Component("orchestrator"), nil)
+	o.Bus.Close()
+	o.Logger.Close()
 }

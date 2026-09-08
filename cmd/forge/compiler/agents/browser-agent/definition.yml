@@ -1,15 +1,19 @@
-id: "browser-agent"
-name: "Browser Automation Expert"
-description: "A highly-skilled agent capable of navigating complex websites and extracting information using Playwright automation."
-version: "1.0.0"
-capabilities:
-  - "browser_automation"
-  - "dom_extraction"
+id: browser-agent
+name: Browser Automation Expert
+description: A highly-skilled agent capable of navigating complex websites and
+  extracting information using Playwright automation.
+version: 1.0.0
+runtime: python
+entrypoint: workers/browser.py
 inputs:
-  - id: "dag_json"
-    type: "application/json"
-    description: "The DAG JSON containing all agent definitions"
+  - application/json
 outputs:
-  - id: "python_worker_files"
-    type: "application/json"
-    description: "The generated Python worker script for this agent"
+  - application/json
+skills: []
+memory:
+  - user_prompt
+  - workspace_dir
+  - allow_native_execution
+  - prompt_attachments
+  - ide_context
+  - global_effort

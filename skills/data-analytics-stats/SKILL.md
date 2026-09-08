@@ -45,3 +45,7 @@ Do not blindly apply statistical tests. You must verify the underlying assumptio
 2. **Visualize:** Generate distributions and correlation matrices to understand relationships.
 3. **Analyze:** Apply the appropriate statistical tests or machine learning models.
 4. **Report:** Synthesize the findings into a clear, professional report that answers the user's initial question, backed by the empirical results you computed.
+
+## Statistical decision checks
+
+State the estimand, sampling unit, dependence structure and target population before choosing a test. Check assumptions for the model and design, rather than using a normality test as an automatic switch. A rank-based alternative may test a different hypothesis from a difference in means. Report effect sizes and uncertainty, handle multiplicity when making multiple claims, and distinguish exploratory findings from prespecified analyses.

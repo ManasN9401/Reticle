@@ -112,8 +112,12 @@ func main() {
 	legacyFlag := flag.Bool("legacy", false, "Use legacy terminal UI (no web UI)")
 	nativeFlag := flag.Bool("native", false, "Run worker terminal commands natively on the host instead of in a Docker container")
 	allModelsFlag := flag.Bool("all-models", false, "Load all available models (instead of just premium tier)")
-	retriesFlag := flag.Int("retries", 15, "Number of retries per node for recovering from API rate limits and execution failures")
+	retriesFlag := flag.Int("retries", 3, "Maximum attempts per node; only transient provider failures are retried")
 	flag.Parse()
+	if *batchSize < 1 || *batchSize > 16 || *retriesFlag < 1 || *retriesFlag > 15 || *portFlag < 1 || *portFlag > 65535 {
+		fmt.Fprintln(os.Stderr, "Invalid batch, retry or port configuration")
+		return
+	}
 
 	args := flag.Args()
 	var userPrompt string
@@ -123,22 +127,8 @@ func main() {
 
 	if !*nativeFlag {
 		if err := exec.Command("docker", "info").Run(); err != nil {
-			fmt.Println("\\n WARNING: Docker does not appear to be running")
-			fmt.Println("By default, Forge runs agents inside isolated Docker containers for your security.")
-			fmt.Println("If you wish to proceed WITHOUT Docker (meaning agents will run commands directly on your host machine),")
-			fmt.Print("press 'y' to continue, or 'n' to abort: ")
-
-			scanner := bufio.NewScanner(os.Stdin)
-			if scanner.Scan() {
-				ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
-				if ans != "y" && ans != "yes" {
-					fmt.Println("Aborting.")
-					os.Exit(1)
-				}
-				*nativeFlag = true
-			} else {
-				os.Exit(1)
-			}
+			fmt.Fprintln(os.Stderr, "Docker is unavailable. Start Docker, or explicitly choose -native for trusted host execution.")
+			return
 		}
 	}
 
@@ -161,29 +151,20 @@ func main() {
 	}
 
 	// Clean up old workspaces
-	cleanupWorkspaces("workspaces", 3)
+	// Workspaces are retained until explicitly removed by their owner.
 
 	rootDir, _ := filepath.Abs("../../")
+	if _, err := os.Stat(filepath.Join(rootDir, "runtime", "go.mod")); err != nil {
+		fmt.Fprintln(os.Stderr, "Start Forge from the Reticle cmd/forge directory")
+		return
+	}
+	os.Setenv("RETICLE_ROOT", rootDir)
 
 	if *freshFlag {
-		fmt.Println("[INFO] Wiping all previous isolated sessions...")
-		os.RemoveAll(filepath.Join(rootDir, ".reticle", "sessions"))
-		if *workspaceFlag != "" {
-			workspaceDir, _ := filepath.Abs(*workspaceFlag)
-			os.Remove(filepath.Join(workspaceDir, "waitlist.json"))
-
-			// Remove any exec-XXX folders in the workspace
-			if entries, err := os.ReadDir(workspaceDir); err == nil {
-				for _, entry := range entries {
-					if entry.IsDir() && strings.HasPrefix(entry.Name(), "exec-") {
-						os.RemoveAll(filepath.Join(workspaceDir, entry.Name()))
-					}
-				}
-			}
-		}
+		*workspaceFlag = ""
 	}
 
-	timestamp := time.Now().Format("20060102_150405")
+	timestamp := time.Now().Format("20060102_150405.000000000")
 	var workspaceDir string
 	if *workspaceFlag != "" {
 		workspaceDir, _ = filepath.Abs(*workspaceFlag)
@@ -201,7 +182,7 @@ func main() {
 
 	orch := orchestrator.New()
 	orch.Start()
-	
+
 	// Inject max_retries config into the global memory scope via event bus
 	orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("system"), memory.MemoryEntry{
 		Scope:   memory.ScopeGlobal,
@@ -210,11 +191,14 @@ func main() {
 		Value:   *retriesFlag,
 		Owner:   "system",
 	})
-	
+
 	defer orch.Shutdown()
 
 	telemetryServer := telemetry.NewServer(orch.Bus, fmt.Sprintf(":%d", *portFlag), rootDir)
-	go telemetryServer.Start()
+	if err := telemetryServer.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
 
 	if !*legacyFlag {
 		fmt.Printf("[UI] Telemetry running on http://localhost:%d\n", *portFlag)
@@ -229,20 +213,39 @@ func main() {
 	compilerDir, _ := filepath.Abs(filepath.Join("compiler"))
 
 	// Load Global Skills and Agents
-	_ = registry.LoadSkills(filepath.Join(rootDir, "skills"))
-	_ = registry.LoadAgents(filepath.Join(rootDir, "agents"))
+	if err := registry.LoadSkills(filepath.Join(rootDir, "skills")); err != nil {
+		orch.Logger.Error("Skill registry failed", "error", err)
+		return
+	}
+	if err := registry.LoadAgents(filepath.Join(rootDir, "agents")); err != nil && !os.IsNotExist(err) {
+		orch.Logger.Error("Agent registry failed", "error", err)
+		return
+	}
 
 	// Build Available Agents prompt dynamically
-	var sb strings.Builder
-	for id, agentDef := range registry.Definitions {
-		sb.WriteString(fmt.Sprintf("- %s (%s)\n", id, agentDef.Description))
-	}
-	availableAgents := sb.String()
 
 	// Load Compiler Agents
-	_ = registry.LoadSkills(filepath.Join(compilerDir, "skills"))
-	_ = registry.LoadAgents(filepath.Join(compilerDir, "agents"))
-	_ = registry.LoadWorkflows(filepath.Join(compilerDir, "workflows"))
+	if err := registry.LoadSkills(filepath.Join(compilerDir, "skills")); err != nil {
+		orch.Logger.Error("Compiler skills failed", "error", err)
+		return
+	}
+	if err := registry.LoadAgents(filepath.Join(compilerDir, "agents")); err != nil {
+		orch.Logger.Error("Compiler agents failed", "error", err)
+		return
+	}
+	if err := registry.LoadWorkflows(filepath.Join(compilerDir, "workflows")); err != nil {
+		orch.Logger.Error("Compiler workflows failed", "error", err)
+		return
+	}
+	var sb strings.Builder
+	for id, agentDef := range registry.Definitions {
+		if id == "architect-agent" || id == "coder-agent" || id == "scaffolder-agent" || id == "writer-agent" || id == "hermes-coder-agent" || id == "quant-agent" || id == "osint-agent" || id == "browser-agent" || id == "mock_stress_tester" {
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("- %s (%s)\n", id, agentDef.Description))
+	}
+
+	availableAgents := sb.String()
 
 	// Load .env keys securely
 	loadEnv(rootDir)
@@ -343,16 +346,21 @@ func main() {
 		}
 
 		// Change working directory to the workspace
-		if err := os.Chdir(workspaceDir); err != nil {
-			fmt.Printf("Failed to chdir to workspace: %v\n", err)
-			os.Exit(1)
-		}
 
 		execWf := registry.Workflows["generated-workflow"]
+		if execWf == nil && len(registry.Workflows) > 0 {
+			for id, wf := range registry.Workflows {
+				if id != "forge-compiler" {
+					execWf = wf
+					break
+				}
+			}
+		}
 		wm.SetGlobalWorkflow(execWf)
 		wm.SetCompilerDef(nil)
 	}
 
+	wm.Pump()
 	// Enqueue initial prompt if present
 	if userPrompt != "" {
 		wm.Enqueue(userPrompt, "", ModeParallel, "", "auto", 5, nil)
@@ -373,7 +381,7 @@ func main() {
 	for reader.Scan() {
 		text := strings.TrimSpace(reader.Text())
 		if text == "exit" {
-			break
+			return
 		}
 		if text == "" {
 			fmt.Print("> ")

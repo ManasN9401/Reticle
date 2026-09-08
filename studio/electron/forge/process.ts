@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import fs from 'node:fs'
 import { EventEmitter } from 'node:events'
@@ -114,10 +115,12 @@ export class ForgeProcess extends EventEmitter {
     child.stderr.on('data', (chunk: string) => this.consume('stderr', chunk))
 
     child.on('error', (error) => {
+      if (this.child === child) this.child = null
       this.setState({ phase: 'error', message: error.message })
     })
 
-    child.on('exit', (code) => {
+    child.on('close', (code) => {
+      if (this.child !== child) return
       // Flush whatever was left without a trailing newline.
       if (this.stdoutTail) this.emitLine('stdout', this.stdoutTail)
       if (this.stderrTail) this.emitLine('stderr', this.stderrTail)
@@ -138,7 +141,7 @@ export class ForgeProcess extends EventEmitter {
     // politely first and escalate only if it ignores us.
     try {
       if (process.platform === 'win32') {
-        child.kill()
+        child.stdin.write('exit\n')
       } else {
         child.kill('SIGINT')
       }
@@ -150,7 +153,7 @@ export class ForgeProcess extends EventEmitter {
     setTimeout(() => {
       if (this.child && this.child.pid === pid) {
         try {
-          this.child.kill('SIGKILL')
+          if(process.platform==='win32' && pid) execFile('taskkill',['/PID',String(pid),'/T','/F'],{windowsHide:true},()=>{});else this.child.kill('SIGKILL')
         } catch {
           // Already gone.
         }
@@ -163,7 +166,7 @@ export class ForgeProcess extends EventEmitter {
   dispose(): void {
     if (this.child) {
       try {
-        this.child.kill()
+        if(process.platform==='win32' && this.child.pid) execFile('taskkill',['/PID',String(this.child.pid),'/T','/F'],{windowsHide:true},()=>{});else this.child.kill()
       } catch {
         // Already gone.
       }
@@ -176,12 +179,13 @@ export class ForgeProcess extends EventEmitter {
 function buildArgs(request: ForgeStartRequest, settings: StudioSettings): string[] {
   const args: string[] = [
     // Non-negotiable: without this forge may block on an interactive stdin prompt.
-    '-native',
+
     `-port=${request.port}`,
     `-batch=${request.batch ?? settings.forge.batch}`,
     `-retries=${request.retries ?? settings.forge.retries}`,
     `-isolated=${request.isolated ?? settings.forge.isolated}`,
   ]
+  if (request.native ?? settings.forge.native) args.push('-native')
   if (request.allModels ?? settings.forge.allModels) args.push('-all-models')
   if (request.fresh) args.push('-fresh')
   // Positional args are joined into the initial prompt and auto-enqueued.

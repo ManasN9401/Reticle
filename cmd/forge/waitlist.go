@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/reticle/runtime/telemetry"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -44,16 +46,16 @@ type Attachment struct {
 }
 
 type WaitlistItem struct {
-	ID          string          `json:"id"`
-	Prompt      string          `json:"prompt"`
-	Status      ExecutionStatus `json:"status"`
-	Group       string          `json:"group"`
-	Mode        ExecutionMode   `json:"mode"`
-	IDEContext  string          `json:"ide_context,omitempty"`
-	Effort      string          `json:"effort,omitempty"`
-	AgentComplexity int         `json:"agent_complexity,omitempty"`
-	Attachments []Attachment    `json:"attachments,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
+	ID              string          `json:"id"`
+	Prompt          string          `json:"prompt"`
+	Status          ExecutionStatus `json:"status"`
+	Group           string          `json:"group"`
+	Mode            ExecutionMode   `json:"mode"`
+	IDEContext      string          `json:"ide_context,omitempty"`
+	Effort          string          `json:"effort,omitempty"`
+	AgentComplexity int             `json:"agent_complexity,omitempty"`
+	Attachments     []Attachment    `json:"attachments,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
 }
 
 type WaitlistPayload struct {
@@ -64,12 +66,12 @@ type WaitlistPayload struct {
 }
 
 type WaitlistManager struct {
-	mu           sync.Mutex
-	items        []*WaitlistItem
-	nextID       int
-	filePath     string
-	maxWorkers   int
-	graphEngine  *agent.GraphEngine
+	mu             sync.Mutex
+	items          []*WaitlistItem
+	nextID         int
+	filePath       string
+	maxWorkers     int
+	graphEngine    *agent.GraphEngine
 	orchestrator   *orchestrator.Orchestrator
 	registry       *agent.Registry
 	dispatcher     *agent.Dispatcher
@@ -91,93 +93,80 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 		nextID:       1,
 	}
 	wm.load()
-	
+	orch.Bus.Subscribe("RuntimeOverloaded", func(events.RuntimeEvent) {
+		wm.mu.Lock()
+		defer wm.mu.Unlock()
+		for _, item := range wm.items {
+			if item.Status == StatusRunning || item.Status == StatusPending || item.Status == StatusPaused {
+				item.Status = StatusFailed
+			}
+		}
+		wm.save()
+	})
+
 	// Subscribe to events
 	orch.Bus.Subscribe(events.EventType("WorkflowCompleted"), func(event events.RuntimeEvent) {
 		if payload, ok := event.Payload.(map[string]any); ok {
 			execID, ok := payload["execution"].(string)
 			if ok {
 				if strings.HasPrefix(execID, "compile-") {
-					sessionID := strings.TrimPrefix(execID, "compile-")
-					
-					// Load any dynamically generated agents first
-					agentDir, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", sessionID, "agents"))
-					wm.registry.LoadAgents(agentDir)
-					newWorkers := wm.registry.BuildWorkers(wm.orchestrator.Logger, wm.orchestrator.Bus, wm.envManager)
-					for _, w := range newWorkers {
-						wm.dispatcher.RegisterWorker(w)
-					}
-					
-					wfDir, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", sessionID, "workflows"))
-					loadErr := wm.registry.LoadWorkflows(wfDir)
-					if loadErr == nil {
-						wfName := "workflow_" + sessionID
-						if wf, exists := wm.registry.Workflows[wfName]; exists {
-							wm.graphEngine.SubmitWorkflow(wf, sessionID)
-						} else {
-							wm.orchestrator.Logger.Error("[Waitlist] Missing workflow ID in registry", "wfName", wfName, "wfDir", wfDir)
-							wm.updateStatus(sessionID, StatusFailed) 
+					go func() {
+						sessionID := strings.TrimPrefix(execID, "compile-")
+						if !wm.awaitRunnable(sessionID) {
+							return
 						}
-					} else {
-						wm.orchestrator.Logger.Error("[Waitlist] Failed to load workflow", "loadErr", loadErr, "wfDir", wfDir)
-						wm.updateStatus(sessionID, StatusFailed) // Compilation failed or missing workflow
-					}
-				} else {
-					wm.updateStatus(execID, StatusCompleted)
-					
-					// Cleanup Docker container
-					containerName := "forge_" + strings.ReplaceAll(strings.ReplaceAll(execID, ".", "_"), "-", "_")
-					exec.Command("docker", "rm", "-f", containerName).Run()
-					
-					// Dump artifacts to the workspace directory
-					srcDir, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", execID))
-					workspaceDir := filepath.Dir(wm.filePath)
-					dstDir := filepath.Join(workspaceDir, execID)
-					if entries, err := os.ReadDir(srcDir); err == nil {
-						os.MkdirAll(dstDir, 0755)
-						copySuccess := true
-						for _, entry := range entries {
-							name := entry.Name()
-							if name == "agents" || name == "workflows" || name == "workers" || name == ".tmpenv" || name == "waitlist.json" {
-								continue
-							}
-							srcPath := filepath.Join(srcDir, name)
-							dstPath := filepath.Join(dstDir, name)
-							if entry.IsDir() {
-								os.MkdirAll(dstPath, 0755)
-								if err := copyDir(srcPath, dstPath); err != nil {
-									copySuccess = false
+
+						// Load any dynamically generated agents first
+						agentDir, _ := filepath.Abs(filepath.Join(os.Getenv("RETICLE_ROOT"), ".reticle", "sessions", sessionID, "agents"))
+						if err := wm.registry.LoadAgentsForExecution(agentDir, sessionID); err != nil {
+							wm.updateStatus(sessionID, StatusFailed)
+							wm.Pump()
+							return
+						}
+						newWorkers := wm.registry.BuildWorkersForExecution(sessionID, wm.orchestrator.Logger, wm.orchestrator.Bus, wm.envManager)
+						for _, w := range newWorkers {
+							wm.dispatcher.RegisterWorker(w)
+						}
+
+						wfDir, _ := filepath.Abs(filepath.Join(os.Getenv("RETICLE_ROOT"), ".reticle", "sessions", sessionID, "workflows"))
+						loadErr := wm.registry.LoadWorkflowsForExecution(wfDir, sessionID)
+						if loadErr == nil {
+							wfName := "workflow_" + sessionID
+							if wf, exists := wm.registry.GetWorkflow(wfName); exists {
+								if !wm.awaitRunnable(sessionID) {
+									return
+								}
+								if err := wm.graphEngine.SubmitWorkflow(wf, sessionID); err != nil {
+									wm.updateStatus(sessionID, StatusFailed)
+									wm.Pump()
 								}
 							} else {
-								srcF, err := os.Open(srcPath)
-								if err == nil {
-									dstF, err := os.Create(dstPath)
-									if err == nil {
-										io.Copy(dstF, srcF)
-										dstF.Close()
-									} else {
-										copySuccess = false
-									}
-									srcF.Close()
-								} else {
-									copySuccess = false
-								}
+								wm.orchestrator.Logger.Error("[Waitlist] Missing workflow ID in registry", "wfName", wfName, "wfDir", wfDir)
+								wm.updateStatus(sessionID, StatusFailed)
+								wm.Pump()
 							}
-						}
-						
-						if !copySuccess {
-							wm.orchestrator.Logger.Error("[Waitlist] Failed to copy some outputs", "execID", execID)
 						} else {
-							wm.orchestrator.Logger.Info(fmt.Sprintf("[Waitlist] Successfully dumped artifacts to %s/%s", filepath.Base(workspaceDir), execID), "execID", execID)
+							wm.orchestrator.Logger.Error("[Waitlist] Failed to load workflow", "loadErr", loadErr, "wfDir", wfDir)
+							wm.updateStatus(sessionID, StatusFailed)
+							wm.Pump() // Compilation failed or missing workflow
 						}
+					}()
+				} else {
+					srcDir := filepath.Join(os.Getenv("RETICLE_ROOT"), ".reticle", "sessions", execID)
+					dstDir := filepath.Join(filepath.Dir(wm.filePath), execID)
+					if err := copySession(srcDir, dstDir); err != nil {
+						wm.orchestrator.Logger.Error("Output persistence failed", "execution", execID, "error", err)
+						wm.updateStatus(execID, StatusFailed)
+					} else {
+						wm.updateStatus(execID, StatusCompleted)
 					}
-					
+
 					wm.Pump()
 				}
 			}
 		}
 	})
-	
+
 	orch.Bus.Subscribe(events.EventType("WorkflowFailed"), func(event events.RuntimeEvent) {
 		if payload, ok := event.Payload.(map[string]any); ok {
 			execID, ok := payload["execution"].(string)
@@ -187,15 +176,12 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 					wm.updateStatus(sessionID, StatusFailed)
 				} else {
 					wm.updateStatus(execID, StatusFailed)
-					// Cleanup Docker container
-					containerName := "forge_" + strings.ReplaceAll(strings.ReplaceAll(execID, ".", "_"), "-", "_")
-					exec.Command("docker", "rm", "-f", containerName).Run()
 				}
 				wm.Pump()
 			}
 		}
 	})
-	
+
 	orch.Bus.Subscribe(events.EventType("WaitlistCommand"), func(e events.RuntimeEvent) {
 		if payload, ok := e.Payload.(map[string]any); ok {
 			action, _ := payload["action"].(string)
@@ -206,7 +192,7 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 				modeStr, _ := payload["mode"].(string)
 				ideContext, _ := payload["ide_context"].(string)
 				effort, _ := payload["effort"].(string)
-				
+
 				var attachments []Attachment
 				if atts, ok := payload["attachments"].([]any); ok {
 					for _, att := range atts {
@@ -224,17 +210,17 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 						}
 					}
 				}
-				
+
 				mode := ModeParallel
 				if modeStr == "sequential" {
 					mode = ModeSequential
 				}
-				
+
 				agentComplexity := 5
 				if c, ok := payload["agent_complexity"].(float64); ok {
 					agentComplexity = int(c)
 				}
-				
+
 				wm.Enqueue(prompt, group, mode, ideContext, effort, agentComplexity, attachments)
 			case "remove":
 				id, _ := payload["id"].(string)
@@ -254,7 +240,7 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 			case "update_settings":
 				if bayesian, ok := payload["use_bayesian_routing"].(bool); ok {
 					if wm.dispatcher != nil && wm.dispatcher.Router != nil {
-						wm.dispatcher.Router.UseBayesianRouting = bayesian
+						wm.dispatcher.Router.SetLearning(bayesian)
 						wm.orchestrator.Logger.Info("Global settings updated", "use_bayesian_routing", bayesian)
 					}
 				}
@@ -268,32 +254,49 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 		if wm.orchestrator != nil && wm.orchestrator.Bus != nil {
 			runningTotal := 0
 			for _, item := range wm.items {
-				if item.Status == StatusRunning {
+				if item.Status == StatusRunning || item.Status == StatusPaused {
 					runningTotal++
 				}
 			}
 			payload := WaitlistPayload{
-				Items:          wm.items,
+				Items:          cloneWaitlist(wm.items),
 				MaxWorkers:     wm.maxWorkers,
 				RunningWorkers: runningTotal,
 			}
 			wm.orchestrator.Bus.Publish(events.EventType("WaitlistUpdated"), events.Component("waitlist"), payload)
 		}
 	})
-	
+
 	return wm
 }
 
 func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMode, ideContext string, effort string, agentComplexity int, attachments []Attachment) {
+	if wm.orchestrator != nil && !wm.orchestrator.Bus.Accepting() {
+		wm.orchestrator.Logger.Error("Runtime unavailable; restart required")
+		return
+	}
 	wm.mu.Lock()
-	
-	id := fmt.Sprintf("exec-%03d", wm.nextID)
+	if len(wm.items) >= 1000 {
+		wm.mu.Unlock()
+		fmt.Println("Queue history limit reached; remove completed entries before adding more work")
+		return
+	}
+
+	randomID := make([]byte, 16)
+	if _, err := rand.Read(randomID); err != nil {
+		wm.mu.Unlock()
+		panic(err)
+	}
+	id := "exec-" + hex.EncodeToString(randomID)
 	wm.nextID++
 
+	if mode == ModeSequential && group == "" {
+		group = "sequential"
+	}
 	if mode == "" {
 		mode = ModeParallel
 	}
-	
+
 	// Truncate IDE context to prevent massive payloads crashing the bus
 	if len(ideContext) > 5000 {
 		ideContext = ideContext[:5000] + "\n\n[WARNING: IDE Context Truncated. Some lines omitted. Use read_file tool to view full file contents if needed!]"
@@ -312,11 +315,15 @@ func (wm *WaitlistManager) Enqueue(prompt string, group string, mode ExecutionMo
 		CreatedAt:       time.Now(),
 	}
 	wm.items = append(wm.items, item)
-	wm.save()
+	if err := wm.save(); err != nil {
+		wm.items = wm.items[:len(wm.items)-1]
+		wm.mu.Unlock()
+		return
+	}
 	wm.mu.Unlock()
-	
+
 	fmt.Printf("\n[Waitlist] Queued [%s] in group '%s'\n> ", id, group)
-	
+
 	wm.Pump()
 }
 
@@ -325,6 +332,9 @@ func (wm *WaitlistManager) Remove(id string) {
 	defer wm.mu.Unlock()
 	for i, item := range wm.items {
 		if item.ID == id {
+			if item.Status == StatusRunning || item.Status == StatusPaused {
+				return
+			}
 			wm.items = append(wm.items[:i], wm.items[i+1:]...)
 			wm.save()
 			break
@@ -337,13 +347,15 @@ func (wm *WaitlistManager) updateStatus(id string, status ExecutionStatus) {
 	defer wm.mu.Unlock()
 	for _, item := range wm.items {
 		if item.ID == id {
+			if item.Status == StatusCompleted || item.Status == StatusFailed {
+				return
+			}
 			item.Status = status
 			wm.save()
 			break
 		}
 	}
 }
-
 
 func (wm *WaitlistManager) SetGlobalWorkflow(wf *agent.WorkflowDefinition) {
 	wm.mu.Lock()
@@ -360,70 +372,121 @@ func (wm *WaitlistManager) SetCompilerDef(def *agent.WorkflowDefinition) {
 func (wm *WaitlistManager) load() {
 	data, err := os.ReadFile(wm.filePath)
 	if err == nil {
-		json.Unmarshal(data, &wm.items)
+		if err := json.Unmarshal(data, &wm.items); err != nil {
+			wm.items = []*WaitlistItem{}
+			wm.orchestrator.Logger.Error("Queue could not be decoded; refusing to overwrite it", "error", err)
+			// Preserve corrupt evidence; a new queue uses a separate file.
+			wm.filePath += fmt.Sprintf(".recovered-%d", time.Now().UnixNano())
+			return
+		}
 		dirty := false
+		valid := make([]*WaitlistItem, 0, len(wm.items))
 		for _, item := range wm.items {
+			if item == nil {
+				dirty = true
+				continue
+			}
+			if strings.ContainsAny(item.ID, "\\/:|.") || !strings.HasPrefix(item.ID, "exec-") {
+				dirty = true
+				continue
+			}
+			valid = append(valid, item)
 			var num int
-			if _, err := fmt.Sscanf(item.ID, "wl-%d", &num); err == nil && num >= wm.nextID {
+			if _, err := fmt.Sscanf(item.ID, "exec-%d", &num); err == nil && num >= wm.nextID {
 				wm.nextID = num + 1
 			}
 			// Reset tasks that were running during previous crash
-			if item.Status == StatusRunning {
+			if item.Status == StatusRunning || item.Status == StatusPaused {
 				item.Status = StatusFailed
 				dirty = true
 			}
 		}
+		wm.items = valid
 		if dirty {
 			wm.save()
 		}
 	}
 }
 
-func (wm *WaitlistManager) save() {
-	data, _ := json.MarshalIndent(wm.items, "", "  ")
-	os.WriteFile(wm.filePath, data, 0644)
-	
+func (wm *WaitlistManager) save() (err error) {
+	defer func() {
+		if err != nil && wm.orchestrator != nil {
+			wm.orchestrator.Logger.Error("Queue persistence failed", "error", err)
+		}
+	}()
+	data, err := json.MarshalIndent(wm.items, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(wm.filePath), 0700); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(wm.filePath), ".waitlist-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	if _, err = file.Write(data); err != nil {
+		file.Close()
+		return err
+	}
+	if err = file.Sync(); err != nil {
+		file.Close()
+		return err
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(file.Name(), wm.filePath); err != nil {
+		return err
+	}
+
+	var snapshot []*WaitlistItem
+	json.Unmarshal(data, &snapshot)
+
 	runningTotal := 0
 	for _, item := range wm.items {
-		if item.Status == StatusRunning {
+		if item.Status == StatusRunning || item.Status == StatusPaused {
 			runningTotal++
 		}
 	}
-	
+
 	payload := WaitlistPayload{
-		Items:          wm.items,
+		Items:          snapshot,
 		MaxWorkers:     wm.maxWorkers,
 		RunningWorkers: runningTotal,
 		LockedKeys:     routing.LockedKeys,
 	}
-	
+
 	// Broadcast waitlist to UI
 	if wm.orchestrator != nil && wm.orchestrator.Bus != nil {
 		wm.orchestrator.Bus.Publish(events.EventType("WaitlistUpdated"), events.Component("waitlist"), payload)
 	}
+	return nil
 }
 
 func (wm *WaitlistManager) Pump() {
 	wm.mu.Lock()
-	
+
 	// Count running total and running per group
 	runningTotal := 0
 	runningGroups := make(map[string]int)
-	
+
 	for _, item := range wm.items {
-		if item.Status == StatusRunning {
+		if item.Status == StatusRunning || item.Status == StatusPaused {
 			runningTotal++
 			if item.Group != "" {
 				runningGroups[item.Group]++
 			}
 		}
 	}
-	
+
+queueLoop:
 	for _, item := range wm.items {
 		if runningTotal >= wm.maxWorkers {
 			break
 		}
-		
+
 		if item.Status == StatusPending {
 			// Check grouping constraints
 			if item.Group != "" && item.Mode == ModeSequential {
@@ -432,16 +495,23 @@ func (wm *WaitlistManager) Pump() {
 					continue
 				}
 			}
-			
+
 			// Safe to launch
 			item.Status = StatusRunning
 			runningTotal++
 			if item.Group != "" {
 				runningGroups[item.Group]++
 			}
-			
-			wm.save()
-			
+
+			if err := wm.save(); err != nil {
+				item.Status = StatusPending
+				runningTotal--
+				if item.Group != "" {
+					runningGroups[item.Group]--
+				}
+				break
+			}
+
 			// Build prompt history and find previous execution for file inheritance
 			var promptHistory string
 			var prevExecID string
@@ -451,41 +521,28 @@ func (wm *WaitlistManager) Pump() {
 				if prev.ID == item.ID {
 					break
 				}
-				if prev.Group == item.Group && (prev.Status == StatusCompleted || prev.Status == StatusFailed) {
+				if item.Group != "" && prev.Group == item.Group && (prev.Status == StatusCompleted || prev.Status == StatusFailed) {
 					historyLines = append(historyLines, fmt.Sprintf("- Iteration %s: %s", prev.ID, prev.Prompt))
 					prevExecID = prev.ID
 				}
 			}
 			if len(historyLines) > 0 {
-				promptHistory = strings.Join(historyLines, "\\n")
+				promptHistory = strings.Join(historyLines, "\n")
 			}
-			
-			// If we found a previous execution, copy its project files to inherit code
+
+			// Inherit checked project files only within the selected group.
 			if prevExecID != "" {
-				prevSessionDir, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", prevExecID))
-				newSessionDir, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", item.ID))
-				if entries, err := os.ReadDir(prevSessionDir); err == nil {
-					for _, entry := range entries {
-						if entry.Name() == "agents" || entry.Name() == "workflows" {
-							continue
-						}
-						srcPath := filepath.Join(prevSessionDir, entry.Name())
-						dstPath := filepath.Join(newSessionDir, entry.Name())
-						if entry.IsDir() {
-							os.MkdirAll(dstPath, 0755)
-							copyDir(srcPath, dstPath)
-						} else {
-							// Copy single file
-							srcF, _ := os.Open(srcPath)
-							dstF, _ := os.Create(dstPath)
-							io.Copy(dstF, srcF)
-							srcF.Close()
-							dstF.Close()
-						}
-					}
+				base := filepath.Join(os.Getenv("RETICLE_ROOT"), ".reticle", "sessions")
+				if err := copySession(filepath.Join(base, prevExecID), filepath.Join(base, item.ID)); err != nil {
+					wm.orchestrator.Logger.Error("Session inheritance failed", "error", err)
+					item.Status = StatusFailed
+					runningTotal--
+					runningGroups[item.Group]--
+					wm.save()
+					continue queueLoop
 				}
 			}
-			
+
 			// Inject memory for this execution
 			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
 				Scope:   memory.ScopeExecution,
@@ -501,7 +558,7 @@ func (wm *WaitlistManager) Pump() {
 				Value:   item.Prompt,
 				Owner:   "waitlist",
 			})
-			
+
 			if item.IDEContext != "" {
 				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
 					Scope:   memory.ScopeExecution,
@@ -518,7 +575,7 @@ func (wm *WaitlistManager) Pump() {
 					Owner:   "waitlist",
 				})
 			}
-			
+
 			if promptHistory != "" {
 				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
 					Scope:   memory.ScopeExecution,
@@ -535,27 +592,26 @@ func (wm *WaitlistManager) Pump() {
 					Owner:   "waitlist",
 				})
 			}
-			
+
 			// Inject workspace_dir for this execution (and its compiler phase)
-			isolatedWorkspacePath, _ := filepath.Abs(filepath.Join("../../", ".reticle", "sessions", item.ID))
+			isolatedWorkspacePath, _ := filepath.Abs(filepath.Join(os.Getenv("RETICLE_ROOT"), ".reticle", "sessions", item.ID))
 			os.MkdirAll(isolatedWorkspacePath, 0755)
 
 			// Process Attachments
 			if len(item.Attachments) > 0 {
 				var promptAttachments []map[string]any
 				for _, att := range item.Attachments {
-					dstPath := filepath.Join(isolatedWorkspacePath, att.Filename)
-					
-					// move file
-					if srcFile, err := os.Open(att.Path); err == nil {
-						if dstFile, err := os.Create(dstPath); err == nil {
-							io.Copy(dstFile, srcFile)
-							dstFile.Close()
+					dstPath, err := moveAttachment(filepath.Join(filepath.Dir(filepath.Dir(wm.envManager.BaseDir)), ".reticle", "waitlist_staging"), isolatedWorkspacePath, att)
+					if err != nil {
+						item.Status = StatusFailed
+						wm.save()
+						runningTotal--
+						if item.Group != "" {
+							runningGroups[item.Group]--
 						}
-						srcFile.Close()
-						os.Remove(att.Path)
+						continue queueLoop
 					}
-					
+
 					if strings.HasPrefix(att.MimeType, "image/") {
 						b, err := os.ReadFile(dstPath)
 						var imageURL map[string]string
@@ -563,7 +619,7 @@ func (wm *WaitlistManager) Pump() {
 							encoded := base64.StdEncoding.EncodeToString(b)
 							imageURL = map[string]string{"url": fmt.Sprintf("data:%s;base64,%s", att.MimeType, encoded)}
 						}
-						
+
 						promptAttachments = append(promptAttachments, map[string]any{
 							"type":      "image_url",
 							"mime_type": att.MimeType,
@@ -573,14 +629,14 @@ func (wm *WaitlistManager) Pump() {
 						})
 					} else {
 						promptAttachments = append(promptAttachments, map[string]any{
-							"type":     "file",
+							"type":      "file",
 							"mime_type": att.MimeType,
-							"filename": att.Filename,
-							"path":     dstPath,
+							"filename":  att.Filename,
+							"path":      dstPath,
 						})
 					}
 				}
-				
+
 				if len(promptAttachments) > 0 {
 					attJSON, _ := json.Marshal(promptAttachments)
 					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
@@ -599,7 +655,7 @@ func (wm *WaitlistManager) Pump() {
 					})
 				}
 			}
-			
+
 			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
 				Scope:   memory.ScopeExecution,
 				ScopeID: item.ID,
@@ -614,7 +670,7 @@ func (wm *WaitlistManager) Pump() {
 				Value:   isolatedWorkspacePath,
 				Owner:   "waitlist",
 			})
-			
+
 			if item.Effort != "" && item.Effort != "auto" {
 				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
 					Scope:   memory.ScopeExecution,
@@ -631,21 +687,44 @@ func (wm *WaitlistManager) Pump() {
 					Owner:   "waitlist",
 				})
 			}
-			
-			// Launch workflow
-			go func(i *WaitlistItem) {
-				// give memory a split second to propagate
-				time.Sleep(500 * time.Millisecond)
-				
-				if wm.globalWorkflow != nil {
-					wm.graphEngine.SubmitWorkflow(wm.globalWorkflow, i.ID)
-				} else if wm.compilerDef != nil {
-					wm.graphEngine.SubmitWorkflow(wm.compilerDef, "compile-"+i.ID)
+
+			// Capture immutable launch data. FIFO publication commits memory first.
+			definition, executionID := wm.globalWorkflow, item.ID
+			if definition == nil {
+				definition = wm.compilerDef
+				executionID = "compile-" + item.ID
+			}
+			go func(id, graphID string, def *agent.WorkflowDefinition) {
+				if err := wm.graphEngine.SubmitWorkflow(def, graphID); err != nil {
+					wm.orchestrator.Logger.Error("Workflow submission failed", "execution", id, "error", err)
+					wm.updateStatus(id, StatusFailed)
+					wm.Pump()
 				}
-			}(item)
+			}(item.ID, executionID, definition)
+
 		}
 	}
 	wm.mu.Unlock()
+}
+
+func copySession(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(dst, 0700); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		switch entry.Name() {
+		case "agents", "workflows", "workers", ".tmpenv", "waitlist.json":
+			continue
+		}
+		if err = copyDir(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyDir(src, dst string) error {
@@ -653,25 +732,112 @@ func copyDir(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		relPath, err := filepath.Rel(src, path)
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing symlink in session output")
+		}
+		rel, err := filepath.Rel(src, path)
 		if err != nil {
 			return err
 		}
-		outPath := filepath.Join(dst, relPath)
+		target := filepath.Join(dst, rel)
+		if existing, err := os.Lstat(target); err == nil && existing.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing symlink output target")
+		}
 		if info.IsDir() {
-			return os.MkdirAll(outPath, info.Mode())
+			return os.MkdirAll(target, 0700)
 		}
-		srcFile, err := os.Open(path)
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("non-regular session output")
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			return err
+		}
+		in, err := os.Open(path)
 		if err != nil {
 			return err
 		}
-		defer srcFile.Close()
-		dstFile, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+		defer in.Close()
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 		if err != nil {
 			return err
 		}
-		defer dstFile.Close()
-		_, err = io.Copy(dstFile, srcFile)
-		return err
+		_, copyErr := io.Copy(out, in)
+		syncErr := out.Sync()
+		closeErr := out.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if syncErr != nil {
+			return syncErr
+		}
+		return closeErr
 	})
+}
+
+func moveAttachment(staging, workspace string, att Attachment) (string, error) {
+	if filepath.Base(att.ID) != att.ID || filepath.Base(att.Filename) != att.Filename {
+		return "", fmt.Errorf("invalid attachment name")
+	}
+	src, err := telemetry.SafePath(staging, att.ID)
+	if err != nil {
+		return "", err
+	}
+	dst, err := telemetry.SafePath(workspace, att.Filename)
+	if err != nil {
+		return "", err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("invalid upload")
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return "", err
+	}
+	_, copyErr := io.Copy(out, in)
+	syncErr := out.Sync()
+	closeErr := out.Close()
+	if copyErr != nil || syncErr != nil || closeErr != nil {
+		os.Remove(dst)
+		return "", fmt.Errorf("attachment copy failed")
+	}
+	in.Close()
+	if err = os.Remove(src); err != nil {
+		return "", err
+	}
+	return dst, nil
+}
+
+func cloneWaitlist(items []*WaitlistItem) []*WaitlistItem {
+	data, _ := json.Marshal(items)
+	var result []*WaitlistItem
+	json.Unmarshal(data, &result)
+	return result
+}
+
+// Compilation provisioning runs off the event bus. Pause and kill remain responsive.
+func (wm *WaitlistManager) awaitRunnable(id string) bool {
+	for {
+		wm.mu.Lock()
+		status := StatusFailed
+		for _, item := range wm.items {
+			if item.ID == id {
+				status = item.Status
+				break
+			}
+		}
+		wm.mu.Unlock()
+		if status == StatusRunning {
+			return true
+		}
+		if status != StatusPaused {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }

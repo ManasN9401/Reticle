@@ -23,16 +23,18 @@ cd cmd/forge && go build -o forge.exe
 ```
 
 Then connect from the status bar, or press <kbd>F5</kbd> to let Studio launch
-forge for you. Two constraints are enforced in `electron/forge/process.ts` and
-are worth knowing, because getting either wrong fails silently:
+forge for you. Studio is a companion to a source checkout, including when packaged. Set the
+Forge working directory to `<repo>/cmd/forge` and select its built executable in
+Settings. Changing the directory updates the workspace and credential root.
 
-- **cwd must be `<repo>/cmd/forge`.** `cmd/forge/main.go:166` resolves its root
-  as `filepath.Abs("../../")`, and the logger and waitlist reach for
-  `../../logs` and `../../.reticle`. Launched anywhere else, sessions, logs and
-  artifacts resolve to the wrong place and the UI just looks empty.
-- **`-native` is always passed.** Without it, forge probes Docker and, on
-  failure, blocks on an interactive stdin prompt a spawned child can never
-  answer — which presents as a hang, not an error.
+Native execution is an explicit Settings option and defaults off. Container mode
+requires Docker; missing Docker produces an error. Native mode executes generated
+commands with your OS permissions.
+
+The loopback server requires the control token in `.reticle/control-token`.
+Studio reads it in the main process. Browser users enter this access code at the
+login page. Keep it private. Checkpoint decisions are separate hash-bound JSON
+documents; changing approval words in Markdown does not approve a request.
 
 ## Architecture
 
@@ -42,7 +44,7 @@ electron/                  main process — owns everything privileged
   forge/process.ts         spawn/kill forge.exe
   forge/store.ts           event ring buffer + projection + payload stripping
   forge/rest.ts            /api/models, /api/outputs, /api/upload
-  hitl/checkpoints.ts      read/write approval markdown
+  hitl/checkpoints.ts      read requests / write hash-bound decisions
   workspace/reader.ts      guarded filesystem reads
 src/shared/                pure, imported by BOTH main and renderer
   events.ts                wire decoders (socket + runtime.log)

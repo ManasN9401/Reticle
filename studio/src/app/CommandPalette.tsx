@@ -10,6 +10,10 @@ import { COMMANDS, isEnabled, type Command } from './commands'
  */
 export function CommandPalette() {
   const open = useUi((s) => s.paletteOpen)
+  return open ? <PaletteContents /> : null
+}
+
+function PaletteContents() {
   const setPalette = useUi((s) => s.setPalette)
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
@@ -32,24 +36,15 @@ export function CommandPalette() {
   }, [query])
 
   useEffect(() => {
-    if (!open) return
-    setQuery('')
-    setIndex(0)
     // Focus after paint so the overlay is mounted first.
     requestAnimationFrame(() => inputRef.current?.focus())
-  }, [open])
-
-  useEffect(() => {
-    setIndex(0)
-  }, [query])
+  }, [])
 
   useEffect(() => {
     listRef.current
       ?.querySelector<HTMLElement>(`[data-index="${index}"]`)
       ?.scrollIntoView({ block: 'nearest' })
   }, [index])
-
-  if (!open) return null
 
   const commit = (command: Command | undefined) => {
     if (!command || !isEnabled(command)) return
@@ -72,7 +67,7 @@ export function CommandPalette() {
         <input
           ref={inputRef}
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => { setQuery(event.target.value); setIndex(0) }}
           placeholder="Type a command…"
           aria-label="Command"
           className="h-11 w-full border-b border-line-1 bg-transparent px-4 text-base text-fg-1 outline-none placeholder:text-fg-4"

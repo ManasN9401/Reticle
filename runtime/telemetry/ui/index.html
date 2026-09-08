@@ -2043,7 +2043,7 @@
             background: rgba(0, 0, 0, 0.1);
             border-bottom: 1px solid var(--border-soft);
         }
-        
+
         .attachment-item {
             display: inline-flex;
             align-items: center;
@@ -2055,14 +2055,14 @@
             color: var(--ink-dim);
             gap: 4px;
         }
-        
+
         .attachment-item .att-name {
             max-width: 120px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        
+
         .attachment-item .att-remove {
             background: none;
             border: none;
@@ -2074,7 +2074,7 @@
             margin-left: 2px;
             opacity: 0.7;
         }
-        
+
         .attachment-item .att-remove:hover {
             opacity: 1;
         }
@@ -2263,7 +2263,7 @@
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                                     </button>
                                 </div>
-                                
+
                                 <div style="display: flex; gap: 0.5rem;">
                                     <input type="file" id="waitlistFileInput" multiple style="display: none;" onchange="handleFileSelect(event)">
                                     <button class="queue-icon-btn" onclick="document.getElementById('waitlistFileInput').click()" title="Attach files/images">
@@ -3029,7 +3029,7 @@
            QUEUE / WAITLIST
         ========================================================= */
         let stagedFiles = [];
-        
+
         function handleFileSelect(event) {
             const files = event.target.files;
             for (let i = 0; i < files.length; i++) {
@@ -3038,12 +3038,12 @@
             renderAttachmentPreview();
             event.target.value = '';
         }
-        
+
         function removeAttachment(index) {
             stagedFiles.splice(index, 1);
             renderAttachmentPreview();
         }
-        
+
         function renderAttachmentPreview() {
             const container = document.getElementById('attachmentPreview');
             container.innerHTML = '';
@@ -3055,45 +3055,45 @@
             stagedFiles.forEach((file, index) => {
                 const el = document.createElement('div');
                 el.className = 'attachment-item';
-                
+
                 let iconHtml = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>';
                 if (file.type.startsWith('image/')) {
                     iconHtml = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
                 }
-                
+
                 el.innerHTML = `
                     <div class="att-icon">${iconHtml}</div>
-                    <span class="att-name" title="${file.name}">${file.name}</span>
+                    <span class="att-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</span>
                     <button class="att-remove" onclick="removeAttachment(${index})">&times;</button>
                 `;
                 container.appendChild(el);
             });
         }
-        
+
         function gatherIDEContext() {
             // Stub for IDE context gathering if implemented later
             return "";
         }
-        
+
         async function submitWaitlistPrompt() {
             const input = document.getElementById('waitlistInput');
             const effortSelect = document.getElementById('waitlistEffort');
             const prompt = input.value.trim();
             const effort = effortSelect ? effortSelect.getAttribute('data-tier') : 'auto';
             const btn = document.querySelector('.queue-btn');
-            
+
             if (prompt || stagedFiles.length > 0) {
                 let uploadedAttachments = [];
-                
+
                 if (stagedFiles.length > 0) {
                     btn.textContent = 'Uploading...';
                     btn.disabled = true;
-                    
+
                     const formData = new FormData();
                     for (let i = 0; i < stagedFiles.length; i++) {
                         formData.append('files', stagedFiles[i]);
                     }
-                    
+
                     try {
                         const res = await fetch('/api/upload', {
                             method: 'POST',
@@ -3109,7 +3109,7 @@
                         console.error('Upload error', e);
                     }
                 }
-                
+
                 btn.textContent = 'Queue';
                 btn.disabled = false;
                 const complexitySlider = document.getElementById('agentComplexity');
@@ -3119,7 +3119,7 @@
                     mime_type: f.mime_type,
                     path: f.path
                 }));
-                
+
                 ws.send(JSON.stringify({
                     action: "enqueue",
                     prompt: input.value.trim(),
@@ -3130,7 +3130,7 @@
                     agent_complexity: complexitySlider ? parseInt(complexitySlider.value) : 5,
                     attachments: attachmentsPayload
                 }));
-                
+
                 input.value = '';
                 stagedFiles = [];
                 renderAttachmentPreview();
@@ -3146,14 +3146,14 @@
             const container = document.getElementById('waitlistItems');
             if (!container) return;
             container.innerHTML = '';
-            
+
             const batchLabel = document.getElementById('runningBatchesLabel');
             if (batchLabel) {
                 batchLabel.textContent = `Running Batches: ${running || 0}/${max || 5}`;
             }
-            
+
             const tabCount = document.getElementById('waitlistCountTab');
-            if (tabCount) tabCount.textContent = items.length;
+            if (tabCount) tabCount.textContent = items?.length ?? 0;
 
             if (!items || items.length === 0) {
                 container.innerHTML = '<div class="empty-state" id="waitlistEmptyState">No queued executions.</div>';
@@ -3163,7 +3163,7 @@
             items.forEach(item => {
                 const el = document.createElement('div');
                 el.className = 'waitlist-item';
-                
+
                 // Keep the old sleek color logic
                 let statusUpper = (item.status || 'QUEUED').toUpperCase();
                 let color = 'var(--pending)';
@@ -3171,7 +3171,7 @@
                 if (statusUpper === 'COMPLETED') color = 'var(--completed)';
                 if (statusUpper === 'FAILED') color = 'var(--failed)';
                 el.style.borderLeftColor = color;
-                
+
                 el.innerHTML = `
                     <div class="wl-top">
                         <span class="wl-status" style="color: ${color};">${statusUpper}</span>
@@ -3191,7 +3191,7 @@
             const list = document.getElementById('lockedKeysList');
             const btn = document.getElementById('btnComposerKeys');
             if (!list || !btn) return;
-            
+
             if (!keys || keys.length === 0) {
                 list.innerHTML = '<span style="font-size: 0.75rem; color: var(--text-secondary);">No keys are currently locked.</span>';
                 btn.style.color = 'currentColor'; // Reset icon color
@@ -3538,14 +3538,14 @@
         // searchlightWidth @property keyframes — no per-frame JS needed.
 
         function createOrUpdateDOMNode(globalId, taskId, status, title) {
-            let nodeEl = document.getElementById(`node-${globalId}`);
+            let nodeEl = document.getElementById(`node-${escapeHtml(globalId)}`);
 
             if (!nodeEl) {
                 const emptyState = document.getElementById('nodesEmptyState');
                 if (emptyState) emptyState.style.display = 'none';
 
                 nodeEl = document.createElement('div');
-                nodeEl.id = `node-${globalId}`;
+                nodeEl.id = `node-${escapeHtml(globalId)}`;
                 nodeEl.className = 'node-card';
                 nodeEl.dataset.id = globalId;
 
@@ -3553,10 +3553,10 @@
                 nodeEl.innerHTML = `
                     <div class="node-header">
                         <h3 class="node-title">${escapeHtml(displayTitle)}</h3>
-                        <span class="status-badge" id="badge-${globalId}">INITIALIZING</span>
+                        <span class="status-badge" id="badge-${escapeHtml(globalId)}">INITIALIZING</span>
                     </div>
-                    <div class="node-task" id="task-${globalId}">${escapeHtml(taskId || '')}</div>
-                    <div class="chips" id="chips-${globalId}"></div>
+                    <div class="node-task" id="task-${escapeHtml(globalId)}">${escapeHtml(taskId || '')}</div>
+                    <div class="chips" id="chips-${escapeHtml(globalId)}"></div>
                 `;
                 nodeEl.onclick = () => openDetailsPanel(globalId);
                 document.getElementById('nodesContainer').appendChild(nodeEl);
@@ -3568,9 +3568,9 @@
             nodeEl.className = `node-card status-${status}${isSelected ? ' selected' : ''}`;
             nodeEl.dataset.status = status;
             nodeEl.dataset.task = taskId || '';
-            document.getElementById(`badge-${globalId}`).innerText = status.toUpperCase();
-            if (taskId && !document.getElementById(`task-${globalId}`).innerText) {
-                document.getElementById(`task-${globalId}`).innerText = taskId;
+            document.getElementById(`badge-${escapeHtml(globalId)}`).innerText = status.toUpperCase();
+            if (taskId && !document.getElementById(`task-${escapeHtml(globalId)}`).innerText) {
+                document.getElementById(`task-${escapeHtml(globalId)}`).innerText = taskId;
             }
         }
 
@@ -3669,7 +3669,7 @@
 
             if (star) {
                 let badgeHtml = `<span class="status-badge" style="color: ${star.status === 'completed' ? 'var(--completed)' : star.status === 'failed' ? 'var(--failed)' : star.status === 'waiting' ? 'var(--amber)' : 'var(--running)'}">${star.status.toUpperCase()}</span>`;
-                
+
                 if (star.status === 'waiting') {
                     badgeHtml += ` <span style="font-size:0.7rem; color:var(--ink-dim); margin-left:8px;">(Waiting for ComfyUI Asset Generation at <a href="http://localhost:8188" target="_blank" style="color:var(--running);">http://localhost:8188</a>)</span>`;
                 }

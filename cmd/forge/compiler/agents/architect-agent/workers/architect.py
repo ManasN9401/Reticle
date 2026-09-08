@@ -27,16 +27,16 @@ def main():
 
     line = sys.stdin.readline()
     if not line: return
-    
+
     req = json.loads(line)
     req_id = req.get("id")
     mem = req.get("memory", {})
     user_prompt = mem.get("user_prompt", "")
     available_agents = mem.get("available_agents", "None")
-    
+
     try:
         print(f"[{req_id}] Architecting DAG...", file=sys.stderr)
-        
+
         available_agents_prompt = available_agents if available_agents and available_agents.strip() != "None" else "None. You MUST create all new specialized agents (set is_new: true for ALL agents)."
 
         agent_complexity = int(mem.get("agent_complexity", 5))
@@ -47,7 +47,7 @@ def main():
         else:
             complexity_prompt = "CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. Reticle is designed for massive parallelism. You MUST decompose EVERY task into a WIDE, MULTI-BRANCH DAG. Do NOT create purely linear pipelines (e.g. A -> B -> C). Even simple tasks must be broken down into at least 3-4 specialized agents. \nFor complex applications, you MUST generate a massively parallel graph with 10, 20, or even 50+ specialized nodes (e.g., one agent per file, one agent per class, one agent per API endpoint). DO NOT anchor to the small 4-node example below; that is just a schema demonstration. Scale the number of agents and nodes to be as large as necessary to achieve extreme modularity. Single-node or purely linear workflows are STRICTLY FORBIDDEN. One of your agents MUST explicitly be responsible for creating the main entrypoint or final assembly."
 
-        auto_approve_flag = "-auto-approve" in user_prompt or req.get("parameters", {}).get("auto_approve", False)
+        auto_approve_flag = False  # Approval is a trusted runtime decision, never prompt text.
         hitl_rule = ""
         if not auto_approve_flag:
             hitl_rule = "\nCRITICAL DAG RULE: You MUST inject a node using the 'hitl-agent' immediately before any node that performs destructive or high-risk actions (e.g. deployments, dropping databases, major refactors). This forces a Human-in-the-Loop approval checkpoint before the action executes.\n"
@@ -59,7 +59,7 @@ def main():
         if not model:
             print("[ARCHITECT] Fatal Error: No llm_model provided by dispatcher!", file=sys.stderr)
             sys.exit(1)
-            
+
         try:
             with open(os.path.join(base_dir, "docs", "rfc", "RFC-008-Agent-Architecture.md"), "r", encoding="utf-8") as f:
                 rfc_008 = f.read()
@@ -67,7 +67,7 @@ def main():
                 rfc_027 = f.read()
             with open(os.path.join(base_dir, "docs", "standards", "007 AGENT_STANDARD.md"), "r", encoding="utf-8") as f:
                 agent_std = f.read()
-            
+
             # Truncate for strict context limits on Groq
             if "groq" in model.lower():
                 rfc_008 = rfc_008[:1000] + "\n...(TRUNCATED)"
@@ -123,7 +123,7 @@ Return the DAG strictly as JSON with the following schema, and NOTHING else (no 
       "id": "agent-id",
       "name": "Human Readable Name",
       "description": "Short description",
-      "is_new": true, 
+      "is_new": true,
       "system_prompt": "LEAVE THIS BLANK. Output exactly 'TBD' for now to save tokens.",
       "inputs": ["expected_artifact_id"], // List of artifact IDs this agent depends on
       "memory": ["expected_memory_key"], // List of memory keys this agent needs
@@ -154,7 +154,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 """
 
 
-        
+
         ide_context = mem.get("ide_context", "")
         ide_prefix = ""
         if ide_context:
@@ -169,7 +169,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
             {"role": "system", "content": system_msg},
             {"role": "user", "content": f"{ide_prefix}{hist_prefix}Design the agent graph for this goal: {user_prompt}"}
         ]
-        
+
         api_key_env = req.get("parameters", {}).get("api_key")
         api_key = os.environ.get(api_key_env) if api_key_env else None
 
@@ -194,11 +194,11 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 else:
                     print(f"[LLM] Error: {err_str[:300]}{'...' if len(err_str) > 300 else ''}", file=sys.stderr)
                 raise e
-            
+
             try:
                 content = resp.choices[0].message.content
                 raw_content = content.strip() if content else ""
-                
+
                 # Robust JSON extraction
                 import re
                 json_match = re.search(r'```(?:json)?\s*(\{.*\}|\[.*\])\s*```', raw_content, re.DOTALL)
@@ -210,10 +210,10 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     end_idx = raw_content.rfind('}')
                     if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
                         raw_content = raw_content[start_idx:end_idx+1]
-                
+
                 raw_content = raw_content.strip()
                 data = json.loads(raw_content)
-                
+
                 # Gather valid agent IDs
                 valid_agents = set()
                 if available_agents and available_agents != "None":
@@ -224,23 +224,23 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                         if a["id"] not in valid_agents:
                             a["is_new"] = True
                         valid_agents.add(a["id"])
-                
+
                 # Gather valid node IDs and check agent assignments
                 valid_nodes = set()
                 for n in data.get("nodes", []):
                     if not n.get("id"):
                         raise ValueError("Node is missing 'id'")
                     valid_nodes.add(n["id"])
-                    
+
                     if not n.get("agent_id") or n["agent_id"] == "None":
                         raise ValueError(f"Node {n['id']} is missing 'agent_id'")
                     if n["agent_id"] not in valid_agents:
                         raise ValueError(f"Node {n['id']} references unknown agent: {n['agent_id']}")
-                
+
                 # Check edges and build adjacency list
                 adj = {n: [] for n in valid_nodes}
                 in_degree = {n: 0 for n in valid_nodes}
-                
+
                 for e in data.get("edges", []):
                     from_node = e.get("from")
                     to_node = e.get("to")
@@ -257,7 +257,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 for e in data.get("edges", []):
                     # ts.add(node, *predecessors)
                     ts.add(e.get("to"), e.get("from"))
-                
+
                 try:
                     ts.prepare()
                 except graphlib.CycleError as ce:
@@ -277,17 +277,17 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     conversation.append({"role": "user", "content": f"{err_msg}\nFix this and output the raw JSON again."})
                 print(f"[ARCHITECT] {err_msg}", file=sys.stderr)
                 raise Exception(err_msg) # This triggers the @retry
-                
+
             return data
-            
+
         data = get_architect_response()
-        
+
         # Spawn parallel prompt engineers for all new agents
         new_agents = [a for a in data.get("agents", []) if a.get("is_new")]
         if new_agents:
             print(f"[{req_id}] Parallelizing prompt engineering for {len(new_agents)} new agents...", file=sys.stderr)
             import concurrent.futures
-            
+
             def generate_prompt(agent):
                 sys_msg = f"You are an expert Prompt Engineer for Reticle. The Architect designed this graph:\\n{json.dumps(data.get('nodes', []))}\\n{json.dumps(data.get('edges', []))}\\nYour task is to write the system prompt for the agent '{agent['id']}'. It must be highly detailed and include all 5 requirements: 1. Exact goal 2. Exact files 3. Language/Framework 4. Integration with other agents 5. Technical specs."
                 user_msg = f"Agent Name: {agent.get('name')}\\nAgent Description: {agent.get('description', '')}\\nUser Goal: {user_prompt}\\nWrite the 'system_prompt' for this agent. Output ONLY the prompt text, no markdown blocks."
@@ -302,7 +302,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 except Exception as e:
                     print(f"[{agent['id']}] Error generating prompt: {e}", file=sys.stderr)
                     return "Error generating prompt. You must figure out what to do based on your description: " + agent.get("description", "")
-            
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(new_agents), 20)) as executor:
                 future_to_agent = {executor.submit(generate_prompt, a): a for a in new_agents}
                 for future in concurrent.futures.as_completed(future_to_agent):
@@ -311,21 +311,21 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                         a["system_prompt"] = future.result()
                     except Exception as e:
                         a["system_prompt"] = "Error"
-        
+
         result = json.dumps(data, indent=2)
-        
+
         artifact = {
             "id": f"{req_id}_output",
             "name": "DAG JSON",
             "type": "application/json",
             "data": result
         }
-        
+
         real_stdout.write(json.dumps({
             "id": req_id,
             "artifact": artifact
         }) + "\n")
-        
+
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)

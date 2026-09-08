@@ -1,9 +1,14 @@
 package agent
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
 
 	"github.com/reticle/runtime/events"
 	"github.com/reticle/runtime/logger"
@@ -19,27 +24,27 @@ const (
 )
 
 type AgentDefinition struct {
-	ID          WorkerID    `yaml:"id"`
-	Name        string      `yaml:"name"`
-	Description string      `yaml:"description"`
-	Version     string      `yaml:"version"`
+	ID          WorkerID `yaml:"id"`
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	Version     string   `yaml:"version"`
 
-	Runtime     RuntimeType `yaml:"runtime"`
-	Entrypoint  string      `yaml:"entrypoint"`
+	Runtime    RuntimeType `yaml:"runtime"`
+	Entrypoint string      `yaml:"entrypoint"`
 
-	Inputs      []string    `yaml:"inputs"`  // ArtifactTypes
-	Outputs     []string    `yaml:"outputs"` // ArtifactTypes
-	Skills      []string    `yaml:"skills"`  // Skill IDs
-	Memory      []string    `yaml:"memory"`  // Required shared memory keys
+	Inputs  []string `yaml:"inputs"`  // ArtifactTypes
+	Outputs []string `yaml:"outputs"` // ArtifactTypes
+	Skills  []string `yaml:"skills"`  // Skill IDs
+	Memory  []string `yaml:"memory"`  // Required shared memory keys
 
 	Subscriptions []SubscriptionYAML `yaml:"subscriptions"`
 }
 
 type SkillDefinition struct {
-	ID          string   `yaml:"id"`
-	Name        string   `yaml:"name"`
-	Version     string   `yaml:"version"`
-	Description string   `yaml:"description"`
+	ID           string   `yaml:"id"`
+	Name         string   `yaml:"name"`
+	Version      string   `yaml:"version"`
+	Description  string   `yaml:"description"`
 	Dependencies []string `yaml:"dependencies"`
 	EnvVars      []string `yaml:"env_vars"`
 }
@@ -51,6 +56,7 @@ type SubscriptionYAML struct {
 }
 
 type Registry struct {
+	mu          sync.Mutex
 	Definitions map[WorkerID]AgentDefinition
 	Workflows   map[string]*WorkflowDefinition
 	Skills      map[string]SkillDefinition
@@ -69,8 +75,8 @@ func (r *Registry) LoadAgents(directory string) error {
 		if err != nil {
 			return err
 		}
-		
-		if d.IsDir() || filepath.Ext(d.Name()) != ".yaml" {
+
+		if d.IsDir() || (filepath.Ext(d.Name()) != ".yaml" && filepath.Ext(d.Name()) != ".yml") {
 			return nil
 		}
 
@@ -80,20 +86,26 @@ func (r *Registry) LoadAgents(directory string) error {
 		}
 
 		var def AgentDefinition
-		if err := yaml.Unmarshal(data, &def); err != nil {
+		if err := decodeDefinition(data, &def); err != nil {
 			return fmt.Errorf("failed to parse %s: %w", path, err)
 		}
 
-		if def.ID == "" {
+		if !regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$").MatchString(string(def.ID)) {
 			return fmt.Errorf("agent definition in %s is missing ID", path)
 		}
 
+		if def.Entrypoint == "" || (def.Runtime != RuntimePython && def.Runtime != RuntimeBinary && def.Runtime != RuntimeGo) {
+			return fmt.Errorf("%s: valid runtime and entrypoint required", path)
+		}
 		if def.Entrypoint != "" && !filepath.IsAbs(def.Entrypoint) {
 			// Resolve relative to the directory containing the YAML file
 			yamlDir := filepath.Dir(path)
 			def.Entrypoint = filepath.Join(yamlDir, def.Entrypoint)
 		}
 
+		if info, err := os.Stat(def.Entrypoint); err != nil || info.IsDir() {
+			return fmt.Errorf("%s: entrypoint does not exist", path)
+		}
 		r.Definitions[def.ID] = def
 		return nil
 	})
@@ -109,7 +121,7 @@ func (r *Registry) LoadSkills(directory string) error {
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+		if entry.IsDir() || (filepath.Ext(entry.Name()) != ".yaml" && filepath.Ext(entry.Name()) != ".yml") {
 			continue
 		}
 
@@ -120,7 +132,7 @@ func (r *Registry) LoadSkills(directory string) error {
 		}
 
 		var def SkillDefinition
-		if err := yaml.Unmarshal(data, &def); err != nil {
+		if err := decodeDefinition(data, &def); err != nil {
 			return fmt.Errorf("failed to parse %s: %w", path, err)
 		}
 
@@ -141,7 +153,7 @@ func (r *Registry) LoadWorkflows(directory string) error {
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+		if entry.IsDir() || (filepath.Ext(entry.Name()) != ".yaml" && filepath.Ext(entry.Name()) != ".yml") {
 			continue
 		}
 
@@ -152,7 +164,7 @@ func (r *Registry) LoadWorkflows(directory string) error {
 		}
 
 		var y WorkflowYAML
-		if err := yaml.Unmarshal(data, &y); err != nil {
+		if err := decodeDefinition(data, &y); err != nil {
 			return fmt.Errorf("failed to parse %s: %w", path, err)
 		}
 
@@ -185,7 +197,7 @@ func (r *Registry) LoadWorkflows(directory string) error {
 			if _, exists := r.Definitions[WorkerID(nodeYAML.Agent)]; !exists {
 				return fmt.Errorf("workflow %s references unknown agent %s", y.ID, nodeYAML.Agent)
 			}
-			
+
 			def.Nodes[nodeYAML.ID] = WorkflowNode{
 				ID:         nodeYAML.ID,
 				WorkerID:   nodeYAML.Agent,
@@ -260,6 +272,7 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 		var executable string
 		var args []string
 		var envVars []string
+		var prepare func(context.Context) (string, []string, error)
 
 		switch def.Runtime {
 		case RuntimePython:
@@ -273,18 +286,13 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 				}
 			}
 
-			// Provision Virtual Environment
-			pythonExe, injectedEnvVars, err := em.Provision(id, activeSkills)
-			if err != nil {
-				l.Error("Failed to provision environment", "agent_id", id, "error", err)
-				continue
-			}
-
-			executable = pythonExe
+			// Resolve dependencies only when this worker is executed. A missing
+			// environment fails that task, not startup or unrelated specialists.
+			ownID, ownSkills := id, append([]SkillDefinition(nil), activeSkills...)
+			prepare = func(ctx context.Context) (string, []string, error) { return em.ProvisionContext(ctx, ownID, ownSkills) }
 			args = []string{def.Entrypoint}
-			envVars = injectedEnvVars
 
-		case RuntimeBinary:
+		case RuntimeGo, RuntimeBinary:
 			executable = def.Entrypoint
 			args = []string{}
 		default:
@@ -294,6 +302,7 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 
 		w := NewWorker(id, executable, args, envVars, l, b)
 		w.RequiredMemory = def.Memory
+		w.Prepare = prepare
 		workers[id] = w
 	}
 
@@ -320,4 +329,69 @@ func (r *Registry) BuildSubscriptions() []*Subscription {
 	}
 
 	return subs
+}
+
+// Load a compiled registry under execution-specific keys. Public agent IDs stay local to the graph.
+func (r *Registry) LoadAgentsForExecution(dir, execution string) error {
+	local := NewRegistry()
+	if err := local.LoadAgents(dir); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, def := range local.Definitions {
+		key := WorkerID(execution + "__" + string(id))
+		def.ID = key
+		r.Definitions[key] = def
+	}
+	return nil
+}
+
+func (r *Registry) LoadWorkflowsForExecution(dir, execution string) error {
+	r.mu.Lock()
+	local := NewRegistry()
+	for id, def := range r.Definitions {
+		if strings.HasPrefix(string(id), execution+"__") {
+			local.Definitions[WorkerID(strings.TrimPrefix(string(id), execution+"__"))] = def
+		} else if !strings.Contains(string(id), "__") {
+			local.Definitions[id] = def
+		}
+	}
+	r.mu.Unlock()
+	if err := local.LoadWorkflows(dir); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, wf := range local.Workflows {
+		r.Workflows[id] = wf
+	}
+	return nil
+}
+func (r *Registry) BuildWorkersForExecution(execution string, l *logger.Logger, b *events.Bus, em *EnvironmentManager) map[WorkerID]*Worker {
+	r.mu.Lock()
+	local := NewRegistry()
+	for id, def := range r.Definitions {
+		if strings.HasPrefix(string(id), execution+"__") {
+			local.Definitions[id] = def
+		}
+	}
+	for id, skill := range r.Skills {
+		local.Skills[id] = skill
+	}
+	r.mu.Unlock()
+	return local.BuildWorkers(l, b, em)
+}
+
+func decodeDefinition(data []byte, value any) error {
+	d := yaml.NewDecoder(bytes.NewReader(data))
+	d.KnownFields(true)
+	return d.Decode(value)
+}
+
+func (r *Registry) GetWorkflow(id string) (*WorkflowDefinition, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	wf, ok := r.Workflows[id]
+	return wf, ok
 }

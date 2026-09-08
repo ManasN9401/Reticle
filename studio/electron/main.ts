@@ -19,7 +19,7 @@ import type {
   WindowState,
 } from '../src/shared/ipc'
 import { installMenu } from './menu'
-import { findRepoRoot } from './paths'
+import { findRepoRoot, setRepoRoot } from './paths'
 import { SettingsStore } from './settings'
 import { ForgeClient } from './forge/client'
 import { ForgeProcess } from './forge/process'
@@ -93,8 +93,9 @@ function createWindow(): void {
   mainWindow.on('blur', pushWindowState)
 
   // Never let the app itself navigate away or spawn unmanaged windows.
+  mainWindow.webContents.on('will-navigate', event => event.preventDefault())
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
 
@@ -130,6 +131,12 @@ forge.on('output', (chunk: ForgeOutputChunk) => send(IPC.pushForgeOutput, chunk)
 // IPC handlers
 // ---------------------------------------------------------------------------
 
+const handle: typeof ipcMain.handle = (channel, listener) => {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('Untrusted IPC sender')
+    return listener(event, ...args)
+  })
+}
 function registerIpc(): void {
   ipcMain.on(IPC.windowMinimize, () => mainWindow?.minimize())
   ipcMain.on(IPC.windowMaximize, () => {
@@ -138,19 +145,19 @@ function registerIpc(): void {
     else mainWindow.maximize()
   })
   ipcMain.on(IPC.windowClose, () => mainWindow?.close())
-  ipcMain.handle(IPC.windowState, () => windowState())
+  handle(IPC.windowState, () => windowState())
 
-  ipcMain.handle(IPC.connectionGet, () => client.getState())
-  ipcMain.handle(IPC.connectionConnect, (_e, request: ConnectRequest) => {
+  handle(IPC.connectionGet, () => client.getState())
+  handle(IPC.connectionConnect, (_e, request: ConnectRequest) => {
     settings.patch({ connection: { host: request.host, port: request.port } })
     rest.setTarget(request.host, request.port)
     return client.connect(request.host, request.port)
   })
-  ipcMain.handle(IPC.connectionDisconnect, () => client.disconnect())
-  ipcMain.handle(IPC.connectionSend, (_e, command: OutboundCommand) => client.send(command))
+  handle(IPC.connectionDisconnect, () => client.disconnect())
+  handle(IPC.connectionSend, (_e, command: OutboundCommand) => client.send(command))
 
-  ipcMain.handle(IPC.forgeGet, () => forge.getState())
-  ipcMain.handle(IPC.forgeStart, (_e, request: ForgeStartRequest) => {
+  handle(IPC.forgeGet, () => forge.getState())
+  handle(IPC.forgeStart, (_e, request: ForgeStartRequest) => {
     const state = forge.start(request, settings.get())
     // Give the telemetry server a moment to bind before attaching.
     if (state.phase === 'running') {
@@ -161,45 +168,45 @@ function registerIpc(): void {
     }
     return state
   })
-  ipcMain.handle(IPC.forgeStop, () => forge.stop())
+  handle(IPC.forgeStop, () => forge.stop())
 
-  ipcMain.handle(IPC.projectionSnapshot, () => store.getProjection())
-  ipcMain.handle(IPC.projectionClear, () => store.clear())
-  ipcMain.handle(IPC.projectionEvents, () => store.getEvents())
+  handle(IPC.projectionSnapshot, () => store.getProjection())
+  handle(IPC.projectionClear, () => store.clear())
+  handle(IPC.projectionEvents, () => store.getEvents())
 
-  ipcMain.handle(IPC.logsQuery, (_e, query: LogQuery) => store.queryLogs(query))
-  ipcMain.handle(IPC.logsScope, (_e, scope: { execId?: string; nodeId?: string }) => {
+  handle(IPC.logsQuery, (_e, query: LogQuery) => store.queryLogs(query))
+  handle(IPC.logsScope, (_e, scope: { execId?: string; nodeId?: string }) => {
     store.setScope(scope ?? {})
   })
 
-  ipcMain.handle(IPC.hitlRead, (_e, target: string) => readCheckpoint(target))
-  ipcMain.handle(IPC.hitlResolve, (_e, request: HitlResolveRequest) =>
+  handle(IPC.hitlRead, (_e, target: string) => readCheckpoint(target))
+  handle(IPC.hitlResolve, (_e, request: HitlResolveRequest) =>
     resolveCheckpoint(request),
   )
 
-  ipcMain.handle(IPC.apiModels, () => rest.models())
-  ipcMain.handle(IPC.apiModelToggle, (_e, modelKey: string) => rest.toggleModel(modelKey))
-  ipcMain.handle(IPC.apiOutputs, (_e, execId: string) => rest.outputs(execId))
-  ipcMain.handle(IPC.apiUpload, (_e, paths: string[]) => rest.upload(paths ?? []))
+  handle(IPC.apiModels, () => rest.models())
+  handle(IPC.apiModelToggle, (_e, modelKey: string) => rest.toggleModel(modelKey))
+  handle(IPC.apiOutputs, (_e, execId: string) => rest.outputs(execId))
+  handle(IPC.apiUpload, (_e, paths: string[]) => rest.upload(paths ?? []))
 
-  ipcMain.handle(IPC.workspaceAgents, (_e, execId?: string) => workspace.agents(execId))
-  ipcMain.handle(IPC.workspaceTree, (_e, target?: string) => workspace.tree(target))
-  ipcMain.handle(IPC.workspaceRead, (_e, target: string) => workspace.read(target))
-  ipcMain.handle(IPC.workspaceReveal, (_e, target: string) => {
+  handle(IPC.workspaceAgents, (_e, execId?: string) => workspace.agents(execId))
+  handle(IPC.workspaceTree, (_e, target?: string) => workspace.tree(target))
+  handle(IPC.workspaceRead, (_e, target: string) => workspace.read(target))
+  handle(IPC.workspaceReveal, (_e, target: string) => {
     shell.showItemInFolder(target)
   })
-  ipcMain.handle(IPC.workspaceOpenExternal, (_e, url: string) => {
+  handle(IPC.workspaceOpenExternal, (_e, url: string) => {
     // Only ever hand http(s) to the OS handler.
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
   })
-  ipcMain.handle(IPC.workspacePickDirectory, async () => {
+  handle(IPC.workspacePickDirectory, async () => {
     if (!mainWindow) return null
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory'],
     })
     return result.canceled ? null : (result.filePaths[0] ?? null)
   })
-  ipcMain.handle(IPC.workspacePickFiles, async () => {
+  handle(IPC.workspacePickFiles, async () => {
     if (!mainWindow) return []
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openFile', 'multiSelections'],
@@ -207,17 +214,17 @@ function registerIpc(): void {
     return result.canceled ? [] : result.filePaths
   })
 
-  ipcMain.handle(IPC.envList, () => listKeys())
-  ipcMain.handle(IPC.envReveal, (_e, name: string) => revealKey(name))
-  ipcMain.handle(IPC.envSet, (_e, name: string, value: string) => setKey(name, value))
-  ipcMain.handle(IPC.envRemove, (_e, name: string) => removeKey(name))
-  ipcMain.handle(IPC.envPath, () => envFilePath())
+  handle(IPC.envList, () => listKeys())
+  handle(IPC.envReveal, (_e, name: string) => revealKey(name))
+  handle(IPC.envSet, (_e, name: string, value: string) => setKey(name, value))
+  handle(IPC.envRemove, (_e, name: string) => removeKey(name))
+  handle(IPC.envPath, () => envFilePath())
 
-  ipcMain.handle(IPC.themeBackground, (_e, theme: ResolvedTheme) => {
+  handle(IPC.themeBackground, (_e, theme: ResolvedTheme) => {
     mainWindow?.setBackgroundColor(groundColor(theme))
   })
 
-  ipcMain.handle(IPC.nativeAction, (_e, action: NativeAction) => {
+  handle(IPC.nativeAction, (_e, action: NativeAction) => {
     const contents = mainWindow?.webContents
     if (!contents) return
     switch (action) {
@@ -249,8 +256,9 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.handle(IPC.settingsGet, () => settings.get())
-  ipcMain.handle(IPC.settingsPatch, (_e, patch: SettingsPatch): StudioSettings => {
+  handle(IPC.settingsGet, () => settings.get())
+  handle(IPC.settingsPatch, (_e, patch: SettingsPatch): StudioSettings => {
+    if(patch.forge?.cwd){setRepoRoot(path.resolve(patch.forge.cwd,'../..'));workspace.setRoot(findRepoRoot())}
     const next = settings.patch(patch)
     store.setBufferSize(next.logs.bufferSize)
     send(IPC.pushSettings, next)

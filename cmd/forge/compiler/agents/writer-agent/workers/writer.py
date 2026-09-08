@@ -1,50 +1,31 @@
-"""
-Reticle Worker Script
-"""
-import sys
+"""Compatibility compiler writer with workspace containment and no overwrites."""
 import json
-import os
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib"))
+from forge_utils import safe_path, MAX_FILE
 
 def main():
-    line = sys.stdin.readline()
-    if not line: return
-    
-    req = json.loads(line)
-    req_id = req.get("id")
-    inputs = req.get("inputs", [])
-    mem = req.get("memory", {})
-    
-    workspace_dir = mem.get("workspace_dir", "./workspaces/default")
-    
-    # Ensure workspace exists
-    os.makedirs(os.path.join(workspace_dir, "workflows"), exist_ok=True)
-    os.makedirs(os.path.join(workspace_dir, "agents"), exist_ok=True)
-    os.makedirs(os.path.join(workspace_dir, "workers"), exist_ok=True)
-    
-    all_files = {}
-    for i in inputs:
-        if i.get("name") in ["YAML Files", "Python Files"]:
-            files = json.loads(i.get("data", "{}"))
-            all_files.update(files)
-            
-    print(f"[{req_id}] Writing {len(all_files)} files to {workspace_dir}...", file=sys.stderr)
-    
-    for filepath, content in all_files.items():
-        full_path = os.path.join(workspace_dir, filepath)
-        with open(full_path, "w", encoding="utf-8") as f:
-            f.write(content)
-            
-    artifact = {
-        "id": f"{req_id}_output",
-        "name": "Write Status",
-        "type": "text/plain",
-        "data": f"Successfully wrote {len(all_files)} files to {workspace_dir}."
-    }
-    
-    print(json.dumps({
-        "id": req_id,
-        "artifact": artifact
-    }))
+    req = json.load(sys.stdin)
+    workspace = req["memory"]["workspace_dir"]
+    files = {}
+    for artifact in req.get("inputs", []):
+        if artifact.get("name") in ("YAML Files", "Python Files"):
+            value = artifact.get("data", {})
+            files.update(json.loads(value) if isinstance(value, str) else value)
+    targets = []
+    for name, content in files.items():
+        if not isinstance(content, str) or len(content.encode()) > MAX_FILE:
+            raise ValueError("Invalid generated text")
+        target = safe_path(workspace, name, base="")
+        if target.exists():
+            raise ValueError("Refusing to overwrite existing generated file")
+        targets.append((target, content))
+    for target, content in targets:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("x", encoding="utf-8", newline="") as stream:
+            stream.write(content)
+    print(json.dumps({"id":req["id"],"artifact":{"id":req["id"]+"_output","name":"Write Status","type":"text/plain","data":f"Wrote {len(targets)} generated files"}}))
 
 if __name__ == "__main__":
     main()

@@ -1,16 +1,32 @@
-workflow:
-  id: "ml-training-pipeline"
-  name: "CIFAR-10 PyTorch Training Pipeline"
-  description: "A pipeline that uses the ml-agent to architect and write a reproducible PyTorch training script."
-  nodes:
-    - id: "architect-design"
-      agent_id: "architect-agent"
-      system_prompt: "You are the Lead ML Architect. Design a simple Convolutional Neural Network architecture for CIFAR-10 classification. Keep it extremely small (e.g., 2 conv layers, 1 fc layer) so it trains fast on a CPU."
-      user_prompt: "Design a simple CNN for CIFAR-10. Output the architectural design and hyperparameters (Learning Rate: 1e-3, Batch Size: 2, Gradient Accumulation: 8)."
-      dependencies: []
-      
-    - id: "ml-engineer-implementation"
-      agent_id: "ml-agent"
-      system_prompt: "You are the ML Engineer. You must strictly follow all ml-engineering skill constraints (PyTorch only, small batches, gradient accumulation, `set_seed` reproducibility, checkpointing). You are running inside a CPU-only docker container."
-      user_prompt: "Write the full `train.py` script for the CNN architecture designed by the Architect. Create a tiny random PyTorch dataset (100 samples, 3x32x32) instead of downloading CIFAR-10 to save time. Train for EXACTLY 1 epoch. Save the file to `src/train.py` and then run `python src/train.py` using `execute_terminal_command`. Wait for it to finish, then call `mark_task_complete`."
-      dependencies: ["architect-design"]
+id: ml-training-pipeline
+name: CIFAR-10 PyTorch Training Pipeline
+nodes:
+  - id: architect-design
+    agent: latex-agent
+    parameters:
+      system_prompt: You are the Lead ML Architect. Design a simple Convolutional
+        Neural Network architecture for CIFAR-10 classification. Keep it
+        extremely small (e.g., 2 conv layers, 1 fc layer) so it trains fast on a
+        CPU.
+      user_prompt: "Design a simple CNN for CIFAR-10. Output the architectural design
+        and hyperparameters (Learning Rate: 1e-3, Batch Size: 2, Gradient
+        Accumulation: 8)."
+    modality: coding
+  - id: ml-engineer-implementation
+    agent: ml-agent
+    parameters:
+      system_prompt: You are the ML Engineer. You must strictly follow all
+        ml-engineering skill constraints (PyTorch only, small batches, gradient
+        accumulation, `set_seed` reproducibility, checkpointing). You are
+        running inside a CPU-only docker container.
+      user_prompt: Write the full `train.py` script for the CNN architecture designed
+        by the Architect. Create a tiny random PyTorch dataset (100 samples,
+        3x32x32) instead of downloading CIFAR-10 to save time. Train for EXACTLY
+        1 epoch. Save the file to `train.py` and then run `python train.py`
+        using `execute_terminal_command`. Wait for it to finish, then call
+        `mark_task_complete`.
+    modality: coding
+edges:
+  - from: architect-design
+    to: ml-engineer-implementation
+version: 1.0.0

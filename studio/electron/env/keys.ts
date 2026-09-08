@@ -117,7 +117,7 @@ export async function revealKey(name: string): Promise<ApiResult<string>> {
  * its comments — this file is hand-edited and may hold things we know nothing
  * about.
  */
-export async function setKey(name: string, value: string): Promise<ApiResult<void>> {
+async function setKeyImpl(name: string, value: string): Promise<ApiResult<void>> {
   const target = envPath()
   if (!target) return { ok: false, error: 'Reticle repository root not found.' }
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
@@ -145,7 +145,7 @@ export async function setKey(name: string, value: string): Promise<ApiResult<voi
   return write(target, next)
 }
 
-export async function removeKey(name: string): Promise<ApiResult<void>> {
+async function removeKeyImpl(name: string): Promise<ApiResult<void>> {
   const target = envPath()
   if (!target) return { ok: false, error: 'Reticle repository root not found.' }
 
@@ -177,3 +177,8 @@ async function write(target: string, lines: string[]): Promise<ApiResult<void>> 
 export function envFilePath(): string | null {
   return envPath()
 }
+
+let mutationQueue:Promise<unknown>=Promise.resolve()
+function serialized<T>(work:()=>Promise<T>):Promise<T>{const next=mutationQueue.then(work,work);mutationQueue=next.catch(()=>{});return next}
+export function setKey(name:string,value:string):Promise<ApiResult<void>>{return serialized(()=>setKeyImpl(name,value))}
+export function removeKey(name:string):Promise<ApiResult<void>>{return serialized(()=>removeKeyImpl(name))}

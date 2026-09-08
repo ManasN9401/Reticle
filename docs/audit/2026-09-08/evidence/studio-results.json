@@ -1,0 +1,7 @@
+{
+  "status_after_pause": "running",
+  "status_after_kill": "running",
+  "old_node_survives_new_session": true,
+  "projection_session": "session-b",
+  "out_of_order_replay_event_count": 0
+}

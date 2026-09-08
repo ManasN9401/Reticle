@@ -1,18 +1,21 @@
-id: "latex-agent"
-name: "LaTeX Typesetting Expert"
-description: "A professional typesetter skilled in LaTeX, TikZ for statistics diagrams, and book compilation. Transforms raw markdown content into gorgeous PDF books."
-version: "1.0.0"
-capabilities:
-  - "latex_generation"
-  - "pdf_compilation"
-  - "tikz_diagramming"
+id: latex-agent
+name: LaTeX Typesetting Expert
+description: A professional typesetter skilled in LaTeX, TikZ for statistics
+  diagrams, and book compilation. Transforms raw markdown content into gorgeous
+  PDF books.
+version: 1.0.0
+runtime: python
+entrypoint: workers/latex.py
 inputs:
-  - id: "dag_json"
-    type: "application/json"
-    description: "The DAG JSON containing all agent definitions"
+  - application/json
 outputs:
-  - id: "python_worker_files"
-    type: "application/json"
-    description: "The generated Python worker script for this agent"
+  - application/json
 skills:
-  - "academic-writing"
+  - academic-writing
+memory:
+  - user_prompt
+  - workspace_dir
+  - allow_native_execution
+  - prompt_attachments
+  - ide_context
+  - global_effort

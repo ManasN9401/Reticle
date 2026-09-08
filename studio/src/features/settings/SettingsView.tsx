@@ -347,11 +347,9 @@ function ForgeSection({ patch }: { patch: Patch }) {
         </Row>
       </div>
 
-      <p className="pretty text-2xs text-fg-4">
-        Studio always passes <span className="mono text-fg-3">-native</span>. Without it,
-        forge probes Docker and, on failure, blocks on an interactive stdin prompt that a
-        spawned process can never answer — which looks like a hang rather than an error.
-      </p>
+      <Row label="Run commands on this computer" description="Use your user account for trusted generated commands. Otherwise commands run in Docker.">
+        <Toggle label="Native execution" checked={forgeSettings.native} onChange={(native) => patch({ forge: { native } })} />
+      </Row>
     </div>
   )
 }

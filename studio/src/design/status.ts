@@ -35,6 +35,8 @@ const RUN_TO_NODE: Record<RunStatus, NodeStatus> = {
   pending: 'pending',
   running: 'running',
   completed: 'done',
+  paused: 'waiting',
+  cancelled: 'failed',
   failed: 'failed',
 }
 
@@ -45,6 +47,7 @@ export function runStatusVar(status: RunStatus): string {
 const EXECUTION_TO_NODE: Record<ExecutionStatus, NodeStatus> = {
   PENDING: 'pending',
   RUNNING: 'running',
+  PAUSED: 'waiting',
   COMPLETED: 'done',
   FAILED: 'failed',
 }

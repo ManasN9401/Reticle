@@ -1,17 +1,20 @@
-id: "hermes-coder-agent"
-name: "Hermes Coder Expert"
-description: "A highly-skilled self-improvising coder agent that strictly follows a Read-Eval-Print Loop (REPL). It writes code, runs terminal tests, analyzes errors, and self-corrects until the code flawlessly passes all requirements."
-version: "1.0.0"
-capabilities:
-  - "code_generation"
-  - "self_correction"
-  - "repl_execution"
-  - "test_driven_development"
+id: hermes-coder-agent
+name: Hermes Coder Expert
+description: A highly-skilled self-improvising coder agent that strictly follows
+  a Read-Eval-Print Loop (REPL). It writes code, runs terminal tests, analyzes
+  errors, and self-corrects until the code flawlessly passes all requirements.
+version: 1.0.0
+runtime: python
+entrypoint: workers/hermes.py
 inputs:
-  - id: "dag_json"
-    type: "application/json"
-    description: "The DAG JSON containing all agent definitions"
+  - application/json
 outputs:
-  - id: "python_worker_files"
-    type: "application/json"
-    description: "The generated Python worker script for this agent"
+  - application/json
+skills: []
+memory:
+  - user_prompt
+  - workspace_dir
+  - allow_native_execution
+  - prompt_attachments
+  - ide_context
+  - global_effort

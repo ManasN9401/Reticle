@@ -29,24 +29,32 @@ func NewArtifactStore() *ArtifactStore {
 func (as *ArtifactStore) save(artifact *Artifact) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
-	
+
 	if artifact.StoredAt == nil {
 		now := time.Now()
 		artifact.StoredAt = &now
 	}
 
 	history := as.store[artifact.ID]
-	
+
 	// Auto-increment version based on history length
 	artifact.Version = uint32(len(history) + 1)
 
-	as.store[artifact.ID] = append(history, artifact)
+	as.store[artifact.ID] = append(history, cloneArtifact(artifact))
 
 	// If this is the first version, update secondary indexes
-	if len(history) == 0 {
+	if len(history) > 0 {
+		old := history[len(history)-1]
+		as.byProducer[old.Producer] = removeID(as.byProducer[old.Producer], artifact.ID)
+		as.byType[old.Type] = removeID(as.byType[old.Type], artifact.ID)
+		for _, p := range old.Parents {
+			as.byParent[p] = removeID(as.byParent[p], artifact.ID)
+		}
+	}
+	if true {
 		as.byProducer[artifact.Producer] = append(as.byProducer[artifact.Producer], artifact.ID)
 		as.byType[artifact.Type] = append(as.byType[artifact.Type], artifact.ID)
-		
+
 		for _, parentID := range artifact.Parents {
 			as.byParent[parentID] = append(as.byParent[parentID], artifact.ID)
 		}
@@ -57,12 +65,12 @@ func (as *ArtifactStore) save(artifact *Artifact) {
 func (as *ArtifactStore) Get(id ArtifactID) (*Artifact, bool) {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	
+
 	history, ok := as.store[id]
 	if !ok || len(history) == 0 {
 		return nil, false
 	}
-	return history[len(history)-1], true
+	return cloneArtifact(history[len(history)-1]), true
 }
 
 // FindByID is an alias for Get for backward compatibility.
@@ -74,13 +82,13 @@ func (as *ArtifactStore) FindByID(id ArtifactID) (*Artifact, bool) {
 func (as *ArtifactStore) GetByExecution(execID string) []*Artifact {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	
+
 	var results []*Artifact
 	for _, history := range as.store {
 		if len(history) > 0 {
 			latest := history[len(history)-1]
 			if latest.Execution == execID {
-				results = append(results, latest)
+				results = append(results, cloneArtifact(latest))
 			}
 		}
 	}
@@ -91,26 +99,28 @@ func (as *ArtifactStore) GetByExecution(execID string) []*Artifact {
 func (as *ArtifactStore) GetVersion(id ArtifactID, version uint32) (*Artifact, bool) {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	
+
 	history, ok := as.store[id]
 	if !ok || version == 0 || int(version) > len(history) {
 		return nil, false
 	}
-	return history[version-1], true
+	return cloneArtifact(history[version-1]), true
 }
 
 // GetAllVersions returns the full history slice of an artifact.
 func (as *ArtifactStore) GetAllVersions(id ArtifactID) ([]*Artifact, bool) {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	
+
 	history, ok := as.store[id]
 	if !ok {
 		return nil, false
 	}
 	// Return a copy to prevent race conditions on the slice
 	copyHistory := make([]*Artifact, len(history))
-	copy(copyHistory, history)
+	for i, a := range history {
+		copyHistory[i] = cloneArtifact(a)
+	}
 	return copyHistory, true
 }
 
@@ -126,11 +136,11 @@ func (as *ArtifactStore) Exists(id ArtifactID) bool {
 func (as *ArtifactStore) FindAll() []*Artifact {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	
+
 	var results []*Artifact
 	for _, history := range as.store {
 		if len(history) > 0 {
-			results = append(results, history[len(history)-1])
+			results = append(results, cloneArtifact(history[len(history)-1]))
 		}
 	}
 	return results
@@ -140,11 +150,11 @@ func (as *ArtifactStore) FindAll() []*Artifact {
 func (as *ArtifactStore) FindByProducer(producer string) []*Artifact {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	
+
 	var results []*Artifact
 	for _, id := range as.byProducer[producer] {
 		if history, ok := as.store[id]; ok && len(history) > 0 {
-			results = append(results, history[len(history)-1])
+			results = append(results, cloneArtifact(history[len(history)-1]))
 		}
 	}
 	return results
@@ -154,11 +164,11 @@ func (as *ArtifactStore) FindByProducer(producer string) []*Artifact {
 func (as *ArtifactStore) FindByType(t ArtifactType) []*Artifact {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	
+
 	var results []*Artifact
 	for _, id := range as.byType[t] {
 		if history, ok := as.store[id]; ok && len(history) > 0 {
-			results = append(results, history[len(history)-1])
+			results = append(results, cloneArtifact(history[len(history)-1]))
 		}
 	}
 	return results
@@ -168,13 +178,13 @@ func (as *ArtifactStore) FindByType(t ArtifactType) []*Artifact {
 func (as *ArtifactStore) FindByParent(id ArtifactID) []*Artifact {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	
+
 	var results []*Artifact
 	if history, ok := as.store[id]; ok && len(history) > 0 {
 		latest := history[len(history)-1]
 		for _, pid := range latest.Parents {
 			if parentHistory, ok := as.store[pid]; ok && len(parentHistory) > 0 {
-				results = append(results, parentHistory[len(parentHistory)-1])
+				results = append(results, cloneArtifact(parentHistory[len(parentHistory)-1]))
 			}
 		}
 	}
@@ -185,11 +195,11 @@ func (as *ArtifactStore) FindByParent(id ArtifactID) []*Artifact {
 func (as *ArtifactStore) FindChildren(parentID ArtifactID) []*Artifact {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	
+
 	var results []*Artifact
 	for _, id := range as.byParent[parentID] {
 		if history, ok := as.store[id]; ok && len(history) > 0 {
-			results = append(results, history[len(history)-1])
+			results = append(results, cloneArtifact(history[len(history)-1]))
 		}
 	}
 	return results
@@ -199,17 +209,17 @@ func (as *ArtifactStore) FindChildren(parentID ArtifactID) []*Artifact {
 func (as *ArtifactStore) Delete(id ArtifactID) {
 	as.mu.Lock()
 	defer as.mu.Unlock()
-	
+
 	history, ok := as.store[id]
 	if !ok || len(history) == 0 {
 		return
 	}
-	
+
 	latest := history[len(history)-1]
-	
+
 	// Remove from main store
 	delete(as.store, id)
-	
+
 	// Remove from byProducer
 	as.byProducer[latest.Producer] = removeID(as.byProducer[latest.Producer], id)
 	// Remove from byType
@@ -236,13 +246,13 @@ func (as *ArtifactStore) UpdateVersion(id ArtifactID, newData any) (*Artifact, e
 	as.mu.RLock()
 	history, ok := as.store[id]
 	as.mu.RUnlock()
-	
+
 	if !ok || len(history) == 0 {
 		return nil, fmt.Errorf("artifact %s not found", id)
 	}
-	
+
 	latest := history[len(history)-1]
-	
+
 	// Create the new append-only artifact clone (ID remains the same)
 	newArt := &Artifact{
 		ID:        latest.ID,
@@ -257,9 +267,23 @@ func (as *ArtifactStore) UpdateVersion(id ArtifactID, newData any) (*Artifact, e
 		Version:   latest.Version + 1, // Will be enforced by save() anyway
 		Data:      newData,
 	}
-	
+
 	// Save acquires the Lock and appends it to the slice
 	as.save(newArt)
-	
+
 	return newArt, nil
+}
+
+func cloneArtifact(a *Artifact) *Artifact {
+	if a == nil {
+		return nil
+	}
+	b := *a
+	b.Data = cloneValue(a.Data)
+	b.Parents = append([]ArtifactID(nil), a.Parents...)
+	if a.StoredAt != nil {
+		t := *a.StoredAt
+		b.StoredAt = &t
+	}
+	return &b
 }

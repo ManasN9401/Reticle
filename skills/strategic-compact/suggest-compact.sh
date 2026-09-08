@@ -28,7 +28,14 @@
 # - Plan has been finalized
 
 # Track tool call count (increment in a temp file)
-COUNTER_FILE="/tmp/claude-tool-count-$$"
+SESSION_KEY="${RETICLE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+if [ -z "$SESSION_KEY" ]; then
+  echo "[Compact] No stable session ID supplied; counter disabled." >&2
+  exit 0
+fi
+SESSION_KEY=$(printf '%s' "$SESSION_KEY" | tr -cd 'A-Za-z0-9_-')
+umask 077
+COUNTER_FILE="${TMPDIR:-/tmp}/reticle-tool-count-$SESSION_KEY"
 THRESHOLD=${COMPACT_THRESHOLD:-50}
 
 # Initialize or increment counter

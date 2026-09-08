@@ -1,15 +1,6 @@
-/**
- * Pure event-sourced projection of runtime events into run/node state.
- *
- * The backend keeps `WorkflowExecution.NodeStates` only in RAM and never
- * broadcasts it, and on reconnect it replays just `WaitlistUpdated` +
- * `WorkflowStarted`. Every other piece of run state — node status, timings,
- * artifacts, retries — exists only as a consequence of the event stream, so
- * this reducer is the single source of truth for what a run looks like.
- *
- * Shared verbatim between the Electron main process (which owns the durable
- * store) and the renderer (which re-derives historical state for the timeline
- * scrubber), so it must stay free of platform APIs.
+/** Pure projection shared by Electron and the renderer.
+ * Reconnect restores authoritative node/run states via WorkflowSnapshot.
+ * The event ring buffer is bounded and in memory; it is not a durable event log.
  */
 
 import type {
@@ -39,7 +30,7 @@ import {
  */
 export type NodeStatus = 'pending' | 'running' | 'done' | 'failed' | 'waiting'
 
-export type RunStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'cancelled'
 
 export type WaitingKind = 'human' | 'comfy'
 
@@ -233,11 +224,37 @@ function applyToBatch(batch: Batch, state: ProjectionState, event: RuntimeEvent)
   const payload = event.payload as Record<string, unknown> | null
 
   switch (event.type) {
+    case 'RuntimeOverloaded': {
+      for (const id of batch.runOrder) {
+        const run=draftRun(batch,id)
+        if (['pending','running','paused'].includes(run.status)) {
+          run.status='failed';run.failureReason='Runtime event capacity exceeded; restart required'
+          for (const node of Object.values(run.nodes)) {
+            if (node.status!=='done') draftNode(batch,run,node.nodeId,node.taskId).status='failed'
+          }
+        }
+      }
+      if (state.waitlist) state.waitlist={...state.waitlist,runningWorkers:0,items:(state.waitlist.items??[]).map(item=>['PENDING','RUNNING','PAUSED'].includes(item.status)?{...item,status:'FAILED'}:item)}
+      return
+    }
+    case 'WorkflowSnapshot':
     case 'WorkflowStarted': {
       const p = (payload ?? {}) as WorkflowStartedPayload
       const execId = p.exec_id ?? identifyExecution(payload)
       if (!execId) return
       const run = draftRun(batch, execId)
+      if (event.type === 'WorkflowSnapshot' && payload) {
+        const statuses: string[] = ['running','paused','completed','failed','cancelled']
+        if (statuses.includes(String(payload.status))) run.status = payload.status as RunStatus
+        const states = payload.nodes
+        if (states && typeof states === 'object') {
+          for (const [id, status] of Object.entries(states)) {
+            if (['pending','running','done','failed'].includes(String(status))) {
+              draftNode(batch,run,id,`${execId}|${id}`).status = status as NodeStatus
+            }
+          }
+        }
+      }
       run.workflowId = p.workflow_id ?? run.workflowId
       if (run.status === 'pending') {
         run.status = 'running'
@@ -432,6 +449,16 @@ function applyToBatch(batch: Batch, state: ProjectionState, event: RuntimeEvent)
       return
     }
 
+    case 'ExecutionPaused':
+    case 'ExecutionResumed':
+    case 'ExecutionKilled': {
+      const execId=identifyExecution(payload);if(!execId)return
+      const run=draftRun(batch,execId)
+      if(['completed','failed','cancelled'].includes(run.status))return
+      run.status=event.type==='ExecutionPaused'?'paused':event.type==='ExecutionKilled'?'cancelled':'running'
+      if(run.status==='cancelled')run.endedAt=event.timestamp
+      return
+    }
     case 'WorkflowCompleted': {
       const execId = identifyExecution(payload)
       if (!execId) return
@@ -480,6 +507,14 @@ export function applyEvents(
   events: readonly RuntimeEvent[],
 ): ProjectionState {
   if (events.length === 0) return state
+  // A batch may straddle reconnects; discard the previous session's prefix.
+  const lastSession = events.at(-1)?.sessionId
+  if (lastSession) {
+    const boundary = events.findLastIndex(event => !!event.sessionId && event.sessionId !== lastSession)
+    if (boundary >= 0) return applyEvents(createProjection(), events.slice(boundary + 1))
+  }
+  const newestSession=events.at(-1)?.sessionId
+  if(newestSession && state.sessionId && newestSession!==state.sessionId)state=createProjection()
 
   const next: ProjectionState = {
     ...state,
@@ -521,7 +556,7 @@ export function replayTo(
 ): ProjectionState {
   const upTo: RuntimeEvent[] = []
   for (const event of events) {
-    if (event.id > maxEventId) break
+    if (event.id > maxEventId) continue
     upTo.push(event)
   }
   return applyEvents(createProjection(), upTo)

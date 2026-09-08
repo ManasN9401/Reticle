@@ -13,16 +13,25 @@ import (
 type Logger struct {
 	jsonLogger *slog.Logger
 	DebugMode  bool
+	file       *os.File
 }
 
 func New() *Logger {
 	// For the skeleton, attempt to create a local logs directory relative to the executable root
 	logDir := filepath.Join("..", "..", "logs")
+	if root := os.Getenv("RETICLE_ROOT"); root != "" {
+		logDir = filepath.Join(root, "logs")
+	}
 	_ = os.MkdirAll(logDir, 0755)
 
 	logPath := filepath.Join(logDir, "runtime.log")
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	
+	// Keep a single prior segment; logs are diagnostics rather than an event store.
+	if info, err := os.Stat(logPath); err == nil && info.Size() > 10*1024*1024 {
+		_ = os.Remove(logPath + ".1")
+		_ = os.Rename(logPath, logPath+".1")
+	}
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+
 	var jsonLogger *slog.Logger
 	if err == nil {
 		// Machine-readable JSON handler strictly for the log file
@@ -33,6 +42,13 @@ func New() *Logger {
 	return &Logger{
 		jsonLogger: jsonLogger,
 		DebugMode:  false, // Default to normal mode
+		file:       file,
+	}
+}
+
+func (l *Logger) Close() {
+	if l.file != nil {
+		_ = l.file.Close()
 	}
 }
 
@@ -69,7 +85,7 @@ func formatArgsForConsole(msg string, args []any) (string, bool, bool) {
 	if event, ok := fields["event"]; ok {
 		comp := fields["component"]
 		payload := fields["payload"]
-		
+
 		payloadStr := ""
 		if payload != nil {
 			if b, err := json.Marshal(payload); err == nil && string(b) != "null" {
@@ -86,13 +102,13 @@ func formatArgsForConsole(msg string, args []any) (string, bool, bool) {
 				payloadStr = fmt.Sprintf(" -> %v", payload)
 			}
 		}
-		
+
 		skipConsole := false
 		eventName := fmt.Sprintf("%v", event)
 		if eventName == "WaitlistStateRequested" || eventName == "WorkflowStateRequested" || eventName == "WaitlistUpdated" || eventName == "WorkflowUpdated" {
 			skipConsole = true
 		}
-		
+
 		return fmt.Sprintf("[%s] %v%s", comp, event, payloadStr), true, skipConsole
 	}
 
@@ -118,8 +134,10 @@ func formatArgsForConsole(msg string, args []any) (string, bool, bool) {
 }
 
 func (l *Logger) Info(msg string, args ...any) {
+	msg = Redact(msg)
+	args = safeArgs(args)
 	out, isEvent, skipConsole := formatArgsForConsole(msg, args)
-	
+
 	if !skipConsole {
 		if isEvent {
 			fmt.Printf("[%s] EVENT: %s\n", time.Now().Format("15:04:05"), out)
@@ -128,7 +146,7 @@ func (l *Logger) Info(msg string, args ...any) {
 			fmt.Printf("[%s] INFO: %s\n", time.Now().Format("15:04:05"), out)
 		}
 	}
-	
+
 	// Structured JSON logging for the file
 	if l.jsonLogger != nil {
 		l.jsonLogger.Info(msg, args...)
@@ -136,8 +154,10 @@ func (l *Logger) Info(msg string, args ...any) {
 }
 
 func (l *Logger) Error(msg string, args ...any) {
+	msg = Redact(msg)
+	args = safeArgs(args)
 	out, isEvent, skipConsole := formatArgsForConsole(msg, args)
-	
+
 	if !skipConsole {
 		if isEvent {
 			fmt.Printf("[%s] EVENT (ERROR): %s\n", time.Now().Format("15:04:05"), out)

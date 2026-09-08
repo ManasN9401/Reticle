@@ -1,3 +1,5 @@
+> Implementation update (2026-09-08): this historical proposal is superseded where it conflicts with RFC-043 and the current specifications under docs/specifications/. See the audit repair ledger for remaining capability limits.
+
 # RFC-041: Agent Execution Lifecycle Control (Pause/Resume/Kill)
 
 ## 1. Objective

@@ -1,0 +1,50 @@
+{
+  "devops_registered": false,
+  "ml_definition_if_renamed": "yaml: unmarshal errors:\n  line 13: cannot unmarshal !!map into string\n  line 17: cannot unmarshal !!map into string",
+  "ml_registered": false,
+  "ml_workflow_error": "workflow definition in C:\\Users\\nathm\\code\\Reticle\\examples\\06_ml_training_pipeline\\workflows\\ml_pipeline.yaml is missing ID",
+  "registered_agents": [
+    "architect-agent",
+    "coder-agent",
+    "mock_stress_tester",
+    "scaffolder-agent",
+    "writer-agent"
+  ],
+  "removed_subscription_still_triggers": true,
+  "worker_eof": {
+    "deadline_reached": true,
+    "failure": {
+      "reason": "exit_non_zero",
+      "exit_code": 1,
+      "stderr": ""
+    },
+    "response": null
+  },
+  "worker_optional": {
+    "deadline_reached": false,
+    "failure": {
+      "reason": "invalid_json",
+      "exit_code": 0,
+      "stderr": "failed to parse worker output: \u003cnil\u003e, raw: {\"id\":\"audit\",\"result\":\"valid legacy result\"}"
+    },
+    "response": null
+  },
+  "worker_wrong-id": {
+    "deadline_reached": false,
+    "failure": null,
+    "response": {
+      "id": "wrong-id",
+      "artifact": {
+        "id": "synthetic",
+        "name": "",
+        "type": "",
+        "producer": "audit",
+        "task": "audit",
+        "created_at": "2026-09-08T15:42:40.3687317+01:00",
+        "version": 0,
+        "data": "synthetic"
+      }
+    }
+  },
+  "workflow_definition_shared_between_executions": true
+}

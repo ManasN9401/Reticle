@@ -1,3 +1,4 @@
+import { controlHeaders, requireLocalHost } from './auth'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { RoutingModel } from '../../src/shared/events'
@@ -31,6 +32,7 @@ async function request<T>(
   try {
     const response = await fetch(`${baseUrl}${pathname}`, {
       ...init,
+      headers: { ...Object.fromEntries(new Headers(init?.headers)), ...controlHeaders() },
       signal: controller.signal,
     })
     if (!response.ok) {
@@ -53,7 +55,8 @@ export class ForgeRest {
   private baseUrl = 'http://127.0.0.1:8080'
 
   setTarget(host: string, port: number): void {
-    this.baseUrl = `http://${host}:${port}`
+    requireLocalHost(host)
+    this.baseUrl = `http://${host.includes(':') ? `[${host}]` : host}:${port}`
   }
 
   models(): Promise<ApiResult<RoutingModel[]>> {
@@ -91,9 +94,15 @@ export class ForgeRest {
     if (paths.length === 0) return ok([])
     const form = new FormData()
     try {
+      let total = 0
+      for (const filePath of paths) {
+        const info = await fs.stat(filePath)
+        total += info.size
+        if (!info.isFile() || total > 49 * 1024 * 1024) return fail('Upload must contain regular files totalling at most 49 MiB')
+      }
       for (const filePath of paths) {
         const bytes = await fs.readFile(filePath)
-        form.append('files', new Blob([bytes]), path.basename(filePath))
+        form.append('files', new Blob([bytes], {type: ({'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'} as Record<string,string>)[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream'}), path.basename(filePath))
       }
     } catch (error) {
       return fail(error instanceof Error ? error.message : String(error))

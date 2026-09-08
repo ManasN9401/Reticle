@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "main": "dist-electron/main.js",
   "scripts": {
+    "test": "tsc -p tsconfig.test.json && node --test ../.reticle/studio-tests/tests/*.test.js",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty",

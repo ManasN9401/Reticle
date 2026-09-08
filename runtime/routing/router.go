@@ -14,23 +14,23 @@ import (
 	"github.com/reticle/runtime/logger"
 )
 
-// ModelRouter manages dynamic LLM selection using Bayesian utility estimates.
+// ModelRouter selects models using an exponential moving average of task outcomes.
 type ModelRouter struct {
-	Logger  *logger.Logger
-	Bus     *events.Bus
-	
+	Logger *logger.Logger
+	Bus    *events.Bus
+
 	// Matrix: agentID -> modelID -> SuccessProbability
 	Matrix map[string]map[string]float64
-	
+
 	// In-flight task tracking: taskID -> modelID
 	inFlight map[string]string
-	
+
 	// AIMD Congestion Control
 	ProviderCapacity map[string]int
 	ProviderInFlight map[string]int
-	
+
 	UseBayesianRouting bool
-	
+
 	mu sync.RWMutex
 }
 
@@ -52,6 +52,9 @@ func NewRouter(l *logger.Logger, b *events.Bus, loadAll bool) *ModelRouter {
 }
 
 func (r *ModelRouter) getMatrixPath() string {
+	if root := os.Getenv("RETICLE_ROOT"); root != "" {
+		return filepath.Join(root, ".reticle", "routing_matrix.json")
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return ".reticle/routing_matrix.json" // fallback
@@ -118,11 +121,7 @@ func (r *ModelRouter) UpdateProbability(agentID, taskID string, success bool) {
 	r.updateProbability(agentID, taskID, success)
 }
 
-
 func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
-	if !r.UseBayesianRouting {
-		return
-	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -141,12 +140,12 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 		}
 	}
 	ModelsMutex.RUnlock()
-	
-	if provider != "" {
+
+	if true {
 		if r.ProviderInFlight[provider] > 0 {
 			r.ProviderInFlight[provider]--
 		}
-		
+
 		// Additive Increase: only if successful and we are operating near capacity
 		if success {
 			capacity := r.ProviderCapacity[provider]
@@ -157,14 +156,18 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 				}
 			}
 			// Only push capacity up if we are actually constrained (using at least 50% of the ceiling)
-			if float64(r.ProviderInFlight[provider]) >= float64(capacity) * 0.5 {
-				if capacity < 200 { 
+			if float64(r.ProviderInFlight[provider]) >= float64(capacity)*0.5 {
+				if capacity < 200 {
 					r.ProviderCapacity[provider] = capacity + 1
 				}
 			}
 		}
 	}
 
+	if !r.UseBayesianRouting {
+		delete(r.inFlight, taskID)
+		return
+	}
 	if r.Matrix[agentID] == nil {
 		r.Matrix[agentID] = make(map[string]float64)
 	}
@@ -174,21 +177,21 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 		currentProb = 0.90 // Optimistic prior
 	}
 
-	// Simple exponential moving average for Bayesian update
+	// Exponential moving average; this is not a calibrated success probability.
 	alpha := 0.2
 	target := 0.0
 	if success {
 		target = 1.0
 	}
-	
+
 	newProb := (1.0-alpha)*currentProb + alpha*target
 	r.Matrix[agentID][modelID] = newProb
 
 	// Cleanup inflight
 	delete(r.inFlight, taskID)
-	
+
 	r.saveMatrix()
-	
+
 	r.Logger.Info("Model utility updated", "agent_id", agentID, "model_key", modelID, "success", success, "new_prob", newProb)
 }
 
@@ -208,15 +211,15 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 	var capable []Model
 	ModelsMutex.RLock()
 	for _, m := range AvailableModels {
-		if !m.Enabled {
+		if !m.Enabled || time.Now().Before(m.CooldownUntil) {
 			continue
 		}
 		if m.Modality != modality {
 			continue
 		}
-		
+
 		mCopy := m
-		if r.UseBayesianRouting {
+		{
 			// Predictive Rate Limiting check
 			capacity := r.ProviderCapacity[mCopy.APIKeyEnv]
 			if capacity == 0 {
@@ -226,12 +229,14 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 				}
 				r.ProviderCapacity[mCopy.APIKeyEnv] = capacity
 			}
-			
+
 			if r.ProviderInFlight[mCopy.APIKeyEnv] >= capacity {
 				// Provider is currently at max predictive capacity, skip to prevent 429
 				continue
 			}
 
+		}
+		if r.UseBayesianRouting {
 			prob, exists := r.Matrix[agentID][mCopy.Key()]
 			if !exists {
 				prob = 0.90 // Optimistic prior for cold starts
@@ -251,7 +256,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 	if len(capable) == 0 {
 		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
-			if m.Enabled && m.Modality == modality {
+			if m.Enabled && !time.Now().Before(m.CooldownUntil) && m.Modality == modality {
 				// Still respect predictive limits on fallback
 				capacity := r.ProviderCapacity[m.APIKeyEnv]
 				if capacity > 0 && r.ProviderInFlight[m.APIKeyEnv] >= capacity {
@@ -262,13 +267,13 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 		}
 		ModelsMutex.RUnlock()
 	}
-	
+
 	// Cross-modality fallback logic (e.g. coding -> text)
 	if len(capable) == 0 && modality == "coding" {
 		r.Logger.Info("WARNING: No 'coding' models available. Falling back to a standard 'text' model.", "agent_id", agentID, "task_id", taskID)
 		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
-			if m.Enabled && m.Modality == "text" {
+			if m.Enabled && !time.Now().Before(m.CooldownUntil) && m.Modality == "text" {
 				capacity := r.ProviderCapacity[m.APIKeyEnv]
 				if capacity > 0 && r.ProviderInFlight[m.APIKeyEnv] >= capacity {
 					continue
@@ -278,13 +283,13 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 		}
 		ModelsMutex.RUnlock()
 	}
-	
+
 	// Cross-modality fallback logic (e.g. text -> coding)
 	if len(capable) == 0 && modality == "text" {
 		r.Logger.Info("WARNING: No 'text' models available. Falling back to a standard 'coding' model.", "agent_id", agentID, "task_id", taskID)
 		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
-			if m.Enabled && m.Modality == "coding" {
+			if m.Enabled && !time.Now().Before(m.CooldownUntil) && m.Modality == "coding" {
 				capacity := r.ProviderCapacity[m.APIKeyEnv]
 				if capacity > 0 && r.ProviderInFlight[m.APIKeyEnv] >= capacity {
 					continue
@@ -294,13 +299,17 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 		}
 		ModelsMutex.RUnlock()
 	}
-	
+
+	// Required image capability is never relaxed.
+	if len(capable) == 0 && modality == "image" {
+		return nil
+	}
 	// Final generic fallback
 	if len(capable) == 0 {
 		r.Logger.Info("WARNING: No models of requested modality available. Falling back to ANY non-image model.", "agent_id", agentID, "modality", modality)
 		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
-			if m.Enabled && m.Modality != "image" {
+			if m.Enabled && !time.Now().Before(m.CooldownUntil) && m.Modality != "image" {
 				capacity := r.ProviderCapacity[m.APIKeyEnv]
 				if capacity > 0 && r.ProviderInFlight[m.APIKeyEnv] >= capacity {
 					continue
@@ -330,6 +339,12 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 					return false
 				}
 			}
+			if capable[i].Cost < 0 {
+				return false
+			}
+			if capable[j].Cost < 0 {
+				return true
+			}
 			return capable[i].Cost < capable[j].Cost
 		}
 		return capable[i].Capability < capable[j].Capability
@@ -357,12 +372,12 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 func (r *ModelRouter) TrackForcedModel(taskID string, modelKey string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.inFlight[taskID] = modelKey
 
 	ModelsMutex.RLock()
 	defer ModelsMutex.RUnlock()
 	for _, m := range AvailableModels {
-		if m.Key() == modelKey {
+		if m.Key() == modelKey || m.ID == modelKey {
+			r.inFlight[taskID] = m.Key()
 			r.ProviderInFlight[m.APIKeyEnv]++
 			break
 		}
@@ -370,55 +385,21 @@ func (r *ModelRouter) TrackForcedModel(taskID string, modelKey string) {
 }
 
 // PenalizeProvider globally disables all models that use the given apiKeyEnv across the entire application, and re-enables them after a 60-second cooldown.
-func (r *ModelRouter) PenalizeProvider(agentID string, apiKeyEnv string) {
+func (r *ModelRouter) PenalizeProvider(agentID, apiKeyEnv string) {
 	r.mu.Lock()
-	
-	count := 0
+	defer r.mu.Unlock()
 	ModelsMutex.Lock()
+	defer ModelsMutex.Unlock()
 	for i := range AvailableModels {
-		if AvailableModels[i].APIKeyEnv == apiKeyEnv && AvailableModels[i].Enabled {
-			AvailableModels[i].Enabled = false
-			count++
+		if AvailableModels[i].APIKeyEnv == apiKeyEnv {
+			AvailableModels[i].CooldownUntil = time.Now().Add(60 * time.Second)
 		}
 	}
-	ModelsMutex.Unlock()
-	r.mu.Unlock()
-
-	if count > 0 {
-		r.mu.Lock()
-		// Multiplicative Decrease (AIMD)
-		capacity := r.ProviderCapacity[apiKeyEnv]
-		if capacity == 0 {
-			capacity = 50
-			if apiKeyEnv == "" || strings.Contains(strings.ToLower(apiKeyEnv), "ollama") || strings.Contains(strings.ToLower(apiKeyEnv), "local") {
-				capacity = 2
-			}
-		}
-		newCapacity := capacity / 2
-		if newCapacity < 1 {
-			newCapacity = 1
-		}
-		r.ProviderCapacity[apiKeyEnv] = newCapacity
-		r.mu.Unlock()
-		
-		r.Logger.Info("AIMD Capacity Halved due to 429", "api_key_env", apiKeyEnv, "old", capacity, "new", newCapacity)
-		r.Logger.Info("Provider penalized globally for ALL agents (60s cooldown)", "api_key_env", apiKeyEnv, "models_disabled", count)
-		
-		// Launch recovery timer
-		go func() {
-			time.Sleep(60 * time.Second)
-			ModelsMutex.Lock()
-			defer ModelsMutex.Unlock()
-			recovered := 0
-			for i := range AvailableModels {
-				if AvailableModels[i].APIKeyEnv == apiKeyEnv && !AvailableModels[i].Enabled {
-					AvailableModels[i].Enabled = true
-					recovered++
-				}
-			}
-			r.Logger.Info("Provider cooldown finished, models re-enabled", "api_key_env", apiKeyEnv, "models_recovered", recovered)
-		}()
+	capacity := r.ProviderCapacity[apiKeyEnv]
+	if capacity < 2 {
+		capacity = 2
 	}
+	r.ProviderCapacity[apiKeyEnv] = capacity / 2
 }
 
 // PenalizeModel globally disables a specific model across the entire application.
@@ -455,12 +436,43 @@ func GetEffortTier(effortStr string) int {
 // GetTierDelta translates a global UI setting into a modifier delta
 func GetTierDelta(globalStr string) int {
 	switch strings.ToLower(globalStr) {
-	case "minimal": return -2
-	case "low": return -1
-	case "standard": return 0
-	case "elevated": return 1
-	case "high": return 2
-	case "absolute": return 3
-	default: return 0 // "auto"
+	case "minimal":
+		return -2
+	case "low":
+		return -1
+	case "standard":
+		return 0
+	case "elevated":
+		return 1
+	case "high":
+		return 2
+	case "absolute":
+		return 3
+	default:
+		return 0 // "auto"
 	}
+}
+
+func (r *ModelRouter) Release(taskID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key, ok := r.inFlight[taskID]
+	if !ok {
+		return
+	}
+	delete(r.inFlight, taskID)
+	ModelsMutex.RLock()
+	defer ModelsMutex.RUnlock()
+	for _, m := range AvailableModels {
+		if m.Key() == key && r.ProviderInFlight[m.APIKeyEnv] > 0 {
+			r.ProviderInFlight[m.APIKeyEnv]--
+			return
+		}
+	}
+}
+
+func (r *ModelRouter) SetLearning(enabled bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.UseBayesianRouting = enabled
 }

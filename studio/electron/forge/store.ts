@@ -44,6 +44,7 @@ const ARTIFACT_EVENTS = new Set([
  * mixing it into the structural stream makes that stream unreadable.
  */
 const STRUCTURAL_LOG_EVENTS = new Set([
+  'RuntimeOverloaded',
   'WorkflowStarted',
   'WorkflowCompleted',
   'WorkflowFailed',
@@ -107,14 +108,8 @@ class RingBuffer<T> {
   }
 }
 
-/**
- * Durable, main-process-owned view of everything the orchestrator has said.
- *
- * This exists because the backend has no state snapshot endpoint: reconnecting
- * replays only `WaitlistUpdated` and `WorkflowStarted`, so per-node status,
- * timings and artifacts would be lost on every reconnect — and on every
- * renderer reload. Holding the projection here makes both survivable without
- * touching the Go side.
+/** Bounded in-memory history survives renderer reloads. WorkflowSnapshot restores
+ * current run/node states on reconnect; historical timings require retained events.
  */
 export class EventStore extends EventEmitter {
   private events: RingBuffer<RuntimeEvent>

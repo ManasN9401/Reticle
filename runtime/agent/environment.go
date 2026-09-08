@@ -1,12 +1,15 @@
 package agent
 
 import (
+	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/reticle/runtime/logger"
 )
@@ -28,32 +31,66 @@ func NewEnvironmentManager(l *logger.Logger, rootDir string) *EnvironmentManager
 // Provision prepares the virtual environment for a worker and installs the aggregated skill dependencies.
 // It returns the path to the virtual python executable, and the aggregated env vars.
 func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefinition) (string, []string, error) {
+	return em.ProvisionContext(context.Background(), agentID, skills)
+}
+func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID WorkerID, skills []SkillDefinition) (string, []string, error) {
+	ctx, cancel := context.WithTimeout(parent, 15*time.Minute)
+	defer cancel()
 	if err := os.MkdirAll(em.BaseDir, 0755); err != nil {
 		return "", nil, fmt.Errorf("failed to create env base dir: %w", err)
 	}
 
-	hasUv := exec.Command("uv", "--version").Run() == nil
+	hasUv := environmentCommand(ctx, "uv", "--version").Run() == nil
 
 	// Ensure base environment exists
-	em.baseMu.Lock()
+	for !em.baseMu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return "", nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	defer em.baseMu.Unlock()
+	lockPath := filepath.Join(em.BaseDir, ".provision-lock")
+	var lock *os.File
+	var lockErr error
+	for attempt := 0; attempt < 120; attempt++ {
+		lock, lockErr = os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if lockErr == nil {
+			break
+		}
+		if !os.IsExist(lockErr) {
+			return "", nil, lockErr
+		}
+		select {
+		case <-ctx.Done():
+			return "", nil, ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	if lockErr != nil {
+		return "", nil, fmt.Errorf("environment provisioning lock unavailable: %w", lockErr)
+	}
+	lock.Close()
+	defer os.Remove(lockPath)
 	baseEnvPath := filepath.Join(em.BaseDir, "forge-base")
 	pythonExeWin := filepath.Join(baseEnvPath, "Scripts", "python.exe")
 	pythonExeUnix := filepath.Join(baseEnvPath, "bin", "python")
-	
+
 	baseCreated := false
 	if _, err := os.Stat(pythonExeWin); os.IsNotExist(err) {
 		if _, err := os.Stat(pythonExeUnix); os.IsNotExist(err) {
 			em.Logger.Info("Creating base environment", "path", baseEnvPath, "using_uv", hasUv)
-			
+
 			var cmd *exec.Cmd
 			if hasUv {
-				cmd = exec.Command("uv", "venv", baseEnvPath)
+				cmd = environmentCommand(ctx, "uv", "venv", baseEnvPath)
 			} else {
-				cmd = exec.Command("python", "-m", "venv", baseEnvPath)
+				cmd = environmentCommand(ctx, "python", "-m", "venv", baseEnvPath)
 			}
-			
+
 			if out, err := cmd.CombinedOutput(); err != nil {
-				em.baseMu.Unlock()
+
 				return "", nil, fmt.Errorf("failed to create base venv to %s: %s - %w", baseEnvPath, string(out), err)
 			}
 			baseCreated = true
@@ -66,10 +103,14 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 	}
 
 	// Install base dependencies if needed
-	baseDeps := []string{"litellm", "requests", "tenacity"}
+	baseDeps := []string{"litellm==1.99.0", "requests==2.34.2", "tenacity==9.1.4"}
 	baseDepsString := strings.Join(baseDeps, "\n")
 	baseDepsFile := filepath.Join(baseEnvPath, ".deps")
-	
+	constraintsFile := filepath.Join(baseEnvPath, "constraints.txt")
+	if err := os.WriteFile(constraintsFile, []byte(baseDepsString), 0600); err != nil {
+		return "", nil, err
+	}
+
 	needsBaseInstall := baseCreated
 	if !needsBaseInstall {
 		existingDeps, err := os.ReadFile(baseDepsFile)
@@ -83,18 +124,19 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 		var cmd *exec.Cmd
 		if hasUv {
 			args := append([]string{"pip", "install", "--python", basePythonExe}, baseDeps...)
-			cmd = exec.Command("uv", args...)
+			cmd = environmentCommand(ctx, "uv", args...)
 		} else {
 			args := append([]string{"-m", "pip", "install"}, baseDeps...)
-			cmd = exec.Command(basePythonExe, args...)
+			cmd = environmentCommand(ctx, basePythonExe, args...)
 		}
 		if out, err := cmd.CombinedOutput(); err != nil {
-			em.baseMu.Unlock()
+
 			return "", nil, fmt.Errorf("base install failed: %s - %w", string(out), err)
 		}
-		os.WriteFile(baseDepsFile, []byte(baseDepsString), 0644)
+		if err := os.WriteFile(baseDepsFile, []byte(baseDepsString), 0600); err != nil {
+			return "", nil, err
+		}
 	}
-	em.baseMu.Unlock()
 
 	// Aggregate agent-specific dependencies and env vars
 	var dependencies []string
@@ -109,38 +151,41 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 
 	if len(dependencies) > 0 {
 		// Use a mutex to prevent race conditions on agent-specific libs if the same agent runs concurrently
-		agentLibsPath := filepath.Join(em.BaseDir, fmt.Sprintf("%s-libs", agentID))
+		envHash := sha256.Sum256([]byte(basePythonExe + baseDepsString + strings.Join(dependencies, "\n")))
+		agentLibsPath := filepath.Join(em.BaseDir, fmt.Sprintf("%s-%x-libs", strings.TrimPrefix(string(agentID), strings.Split(string(agentID), "__")[0]+"__"), envHash[:8]))
 		if err := os.MkdirAll(agentLibsPath, 0755); err != nil {
 			return "", nil, fmt.Errorf("failed to create agent libs dir: %w", err)
 		}
-		
+
 		depsString := strings.Join(dependencies, "\n")
 		depsFile := filepath.Join(agentLibsPath, ".deps")
-		
+
 		needsInstall := false
 		existingDeps, err := os.ReadFile(depsFile)
 		if err != nil || string(existingDeps) != depsString {
 			needsInstall = true
 		}
-		
+
 		if needsInstall {
 			em.Logger.Info("Installing agent dependencies", "agent_id", agentID, "deps", dependencies, "using_uv", hasUv)
-			
+
 			var cmd *exec.Cmd
 			if hasUv {
-				args := append([]string{"pip", "install", "--target", agentLibsPath, "--python", basePythonExe}, dependencies...)
-				cmd = exec.Command("uv", args...)
+				args := append([]string{"pip", "install", "--constraint", constraintsFile, "--target", agentLibsPath, "--python", basePythonExe}, dependencies...)
+				cmd = environmentCommand(ctx, "uv", args...)
 			} else {
-				args := append([]string{"-m", "pip", "install", "--target", agentLibsPath}, dependencies...)
-				cmd = exec.Command(basePythonExe, args...)
+				args := append([]string{"-m", "pip", "install", "--constraint", constraintsFile, "--target", agentLibsPath}, dependencies...)
+				cmd = environmentCommand(ctx, basePythonExe, args...)
 			}
-			
+
 			if out, err := cmd.CombinedOutput(); err != nil {
 				return "", nil, fmt.Errorf("agent install failed: %s - %w", string(out), err)
 			}
-			os.WriteFile(depsFile, []byte(depsString), 0644)
+			if err := os.WriteFile(depsFile, []byte(depsString), 0600); err != nil {
+				return "", nil, err
+			}
 		}
-		
+
 		// Add PYTHONPATH to envVars
 		envVars = append(envVars, fmt.Sprintf("PYTHONPATH=%s", agentLibsPath))
 	}
@@ -148,4 +193,9 @@ func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefiniti
 	return basePythonExe, envVars, nil
 }
 
-
+func environmentCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, name, args...)
+	configureProcess(cmd)
+	cmd.WaitDelay = 2 * time.Second
+	return cmd
+}

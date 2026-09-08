@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	"github.com/reticle/runtime/events"
@@ -12,6 +13,8 @@ import (
 // SubscriptionManager evaluates EventBus events against registered Subscriptions.
 // When an event matches, it builds a Task and publishes a TaskCreated event.
 type SubscriptionManager struct {
+	mu            sync.Mutex
+	unsubscribe   map[string]func()
 	Logger        *logger.Logger
 	Bus           *events.Bus
 	subscriptions map[string]*Subscription
@@ -23,6 +26,7 @@ func NewSubscriptionManager(l *logger.Logger, b *events.Bus) *SubscriptionManage
 		Logger:        l,
 		Bus:           b,
 		subscriptions: make(map[string]*Subscription),
+		unsubscribe:   make(map[string]func()),
 	}
 }
 
@@ -31,10 +35,15 @@ func (sm *SubscriptionManager) Register(sub *Subscription) {
 		sm.Logger.Error("SubscriptionManager failed to register subscription: ID cannot be empty")
 		return
 	}
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if dispose := sm.unsubscribe[sub.ID]; dispose != nil {
+		dispose()
+	}
 	sm.subscriptions[sub.ID] = sub
 
 	// Register specific handler on the event bus directly to the asynchronous pool
-	sm.Bus.Subscribe(events.EventType(sub.EventType), func(e events.RuntimeEvent) {
+	sm.unsubscribe[sub.ID] = sm.Bus.Subscribe(events.EventType(sub.EventType), func(e events.RuntimeEvent) {
 		matched, data := sm.evaluateFilters(sub.Filters, e.Payload)
 		if !matched {
 			return
@@ -59,6 +68,7 @@ func (sm *SubscriptionManager) Register(sub *Subscription) {
 			AgentID:     string(sub.WorkerID),
 			ExecutionID: execID,
 			Origin:      "automation",
+			Inputs:      []TaskInput{{Name: "trigger", Data: data}},
 		}
 
 		sm.Bus.Publish(events.EventType("TaskCreated"), events.Component("subscription_manager"), task)
@@ -70,11 +80,11 @@ func (sm *SubscriptionManager) Register(sub *Subscription) {
 func (sm *SubscriptionManager) evaluateFilters(filters map[string]string, payload any) (bool, map[string]any) {
 	b, err := json.Marshal(payload)
 	var data map[string]any
-	
+
 	if err == nil {
 		json.Unmarshal(b, &data)
 	}
-	
+
 	if len(filters) == 0 {
 		return true, data
 	}
@@ -96,6 +106,12 @@ func (sm *SubscriptionManager) evaluateFilters(filters map[string]string, payloa
 }
 
 func (sm *SubscriptionManager) Remove(subID string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if dispose := sm.unsubscribe[subID]; dispose != nil {
+		dispose()
+		delete(sm.unsubscribe, subID)
+	}
 	delete(sm.subscriptions, subID)
 	sm.Logger.Info("SubscriptionManager removed subscription", "sub_id", subID)
 }

@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/reticle/runtime/events"
 	"github.com/reticle/runtime/logger"
@@ -10,9 +11,12 @@ import (
 )
 
 type GraphEngine struct {
+	mu         sync.Mutex
 	Logger     *logger.Logger
 	Bus        *events.Bus
 	Executions map[string]*WorkflowExecution
+	cancelled  map[string]bool
+	paused     map[string]bool
 }
 
 func NewGraphEngine(l *logger.Logger, b *events.Bus) *GraphEngine {
@@ -20,22 +24,37 @@ func NewGraphEngine(l *logger.Logger, b *events.Bus) *GraphEngine {
 		Logger:     l,
 		Bus:        b,
 		Executions: make(map[string]*WorkflowExecution),
+		cancelled:  make(map[string]bool),
+		paused:     make(map[string]bool),
 	}
 }
 
 func (we *GraphEngine) Start() {
-	we.Bus.Subscribe(events.EventType("GraphMutationRequested"), func(e events.RuntimeEvent) {
+	we.subscribe("RuntimeOverloaded", func(events.RuntimeEvent) {
+		for id, execution := range we.Executions {
+			if execution.Status == ExecutionRunning || execution.Status == ExecutionPaused {
+				execution.Status = ExecutionFailed
+				we.cancelled[id] = true
+				for node, state := range execution.NodeStates {
+					if state != NodeDone {
+						execution.NodeStates[node] = NodeFailed
+					}
+				}
+			}
+		}
+	})
+	we.subscribe(events.EventType("GraphMutationRequested"), func(e events.RuntimeEvent) {
 		payload, ok := e.Payload.(map[string]any)
 		if !ok {
 			return
 		}
 
-		taskID := payload["task_id"].(TaskID)
+		taskID := TaskID(fmt.Sprint(payload["task_id"]))
 		execID, supervisorNodeID := we.parseTaskID(taskID)
 		mutation, _ := payload["mutation"].(*GraphMutation)
 
 		exec, exists := we.Executions[execID]
-		if !exists || mutation == nil {
+		if !exists || mutation == nil || exec.Status != ExecutionRunning || len(exec.Workflow.Nodes) > 126 {
 			return
 		}
 
@@ -58,7 +77,7 @@ func (we *GraphEngine) Start() {
 			exec.Workflow.Parents[dynamicWorkerNode] = append(exec.Workflow.Parents[dynamicWorkerNode], supervisorNodeID)
 
 			if mutation.ReturnToSupervisor {
-				supervisorAgentID := payload["worker_id"].(WorkerID)
+				supervisorAgentID := WorkerID(fmt.Sprint(payload["worker_id"]))
 				dynamicSuperNode := fmt.Sprintf("dyn-%s-%d", string(supervisorAgentID), iterCount+1)
 				exec.Workflow.Nodes[dynamicSuperNode] = WorkflowNode{
 					ID:       dynamicSuperNode,
@@ -72,13 +91,8 @@ func (we *GraphEngine) Start() {
 				exec.Workflow.Parents[dynamicSuperNode] = append(exec.Workflow.Parents[dynamicSuperNode], dynamicWorkerNode)
 			}
 
-			// Mark supervisor node as done and dispatch the new dynamic worker
-			exec.NodeStates[supervisorNodeID] = NodeDone
-			we.Logger.Info("GraphEngine dynamically injected sub-graph", "worker_node", dynamicWorkerNode)
+			// Completion is handled only after all result mutations are committed.
 
-			for _, successorID := range exec.Workflow.Children[supervisorNodeID] {
-				we.checkAndDispatch(exec, successorID)
-			}
 		}
 	})
 
@@ -99,49 +113,43 @@ func (we *GraphEngine) Start() {
 			return // Execution not found or already archived
 		}
 
-		// 1. Mark node complete and cache the artifact for downstream nodes
-		exec.NodeStates[nodeID] = NodeDone
+		if exec.Status != ExecutionRunning && exec.Status != ExecutionPaused {
+			return
+		}
 		exec.Artifacts[nodeID] = artifact
-		we.Logger.Info("GraphEngine node completed", "exec_id", execID, "node_id", nodeID)
-
-		// 2. Check all successors using optimized children map
-		for _, successorID := range exec.Workflow.Children[nodeID] {
-			we.checkAndDispatch(exec, successorID)
-		}
-
-		// 3. Check if workflow is complete
-		allDone := true
-		for _, state := range exec.NodeStates {
-			if state != NodeDone {
-				allDone = false
-				break
-			}
-		}
-
-		// ONLY emit if we are actually done, and not if we are about to mutate
-		if allDone {
-			// Small heuristic: if there is an active mutation pending, this might false-trigger.
-			// But since node IDs are injected dynamically, we assume the graph is only done if all known nodes are NodeDone.
-			we.Bus.Publish(events.EventType("WorkflowCompleted"), events.Component("graph_engine"), map[string]any{
-				"workflow":  exec.Workflow.ID,
-				"execution": exec.ExecutionID,
-			})
-		}
 	}
 
-	we.Bus.Subscribe(events.EventType("ArtifactStored"), handleArtifact)
-	we.Bus.Subscribe(events.EventType("ArtifactVersionCreated"), handleArtifact)
+	we.subscribe(events.EventType("ArtifactsProduced"), handleArtifact)
+	we.subscribe(events.EventType("WorkerCompleted"), func(e events.RuntimeEvent) {
+		p, ok := e.Payload.(map[string]any)
+		if !ok {
+			return
+		}
+		execID, nodeID := we.parseTaskID(TaskID(fmt.Sprint(p["task_id"])))
+		ex := we.Executions[execID]
+		if ex == nil || (ex.Status != ExecutionRunning && ex.Status != ExecutionPaused) || ex.NodeStates[nodeID] != NodeRunning {
+			return
+		}
+		ex.NodeStates[nodeID] = NodeDone
+		for _, id := range ex.Workflow.Children[nodeID] {
+			we.checkAndDispatch(ex, id)
+		}
+		for _, state := range ex.NodeStates {
+			if state != NodeDone {
+				return
+			}
+		}
+		ex.Status = ExecutionSucceeded
+		we.Bus.Publish("WorkflowCompleted", "graph_engine", map[string]any{"workflow": ex.Workflow.ID, "execution": execID})
+	})
 
-	we.Bus.Subscribe(events.EventType("WorkerFailed"), func(e events.RuntimeEvent) {
+	we.subscribe(events.EventType("WorkerFailed"), func(e events.RuntimeEvent) {
 		payload, ok := e.Payload.(map[string]any)
 		if !ok {
 			return
 		}
 
-		taskID, ok := payload["task_id"].(string)
-		if !ok {
-			return
-		}
+		taskID := fmt.Sprint(payload["task_id"])
 		execID, nodeID := we.parseTaskID(TaskID(taskID))
 		if execID == "" || nodeID == "" {
 			return
@@ -152,16 +160,21 @@ func (we *GraphEngine) Start() {
 			return
 		}
 
+		if exec.Status != ExecutionRunning && exec.Status != ExecutionPaused {
+			return
+		}
+		exec.Status = ExecutionFailed
+		we.Bus.Publish("ExecutionKilled", "graph_engine", map[string]string{"execution": execID})
 		// 1. Mark node failed
 		exec.NodeStates[nodeID] = NodeFailed
 		we.Logger.Error("GraphEngine node failed", "exec_id", execID, "node_id", nodeID, "reason", payload["reason"])
-		
+
 		// 2. Emit TaskFailed
 		we.Bus.Publish(events.EventType("TaskFailed"), events.Component("graph_engine"), map[string]any{
-			"task_id":   taskID,
-			"node_id":   nodeID,
-			"exec_id":   execID,
-			"workflow":  exec.Workflow.ID,
+			"task_id":  taskID,
+			"node_id":  nodeID,
+			"exec_id":  execID,
+			"workflow": exec.Workflow.ID,
 		})
 
 		// 3. Simple fail-fast workflow policy
@@ -174,42 +187,71 @@ func (we *GraphEngine) Start() {
 		})
 	})
 
-	we.Bus.Subscribe(events.EventType("WorkflowStateRequested"), func(e events.RuntimeEvent) {
+	we.subscribe(events.EventType("WorkflowStateRequested"), func(e events.RuntimeEvent) {
 		for execID, exec := range we.Executions {
-			we.Bus.Publish(events.EventType("WorkflowStarted"), events.Component("graph_engine"), map[string]any{
+			states := make(map[string]NodeState)
+			for id, state := range exec.NodeStates {
+				states[id] = state
+			}
+			we.Bus.Publish(events.EventType("WorkflowSnapshot"), events.Component("graph_engine"), map[string]any{
 				"workflow_id": exec.Workflow.ID,
 				"exec_id":     execID,
 				"edges":       exec.Workflow.Edges,
+				"status":      exec.Status,
+				"nodes":       states,
 			})
 		}
 	})
 
-	we.Bus.Subscribe(events.EventType("ExecutionKilled"), func(e events.RuntimeEvent) {
+	we.subscribe(events.EventType("ExecutionKilled"), func(e events.RuntimeEvent) {
 		if payload, ok := e.Payload.(map[string]string); ok {
 			if execID, ok := payload["execution"]; ok {
+				if !strings.HasPrefix(execID, "compile-") {
+					we.Bus.Publish("ExecutionKilled", "graph_engine", map[string]string{"execution": "compile-" + execID})
+				}
+
+				we.cancelled[execID] = true
+				we.cancelled["compile-"+execID] = true
 				if exec, exists := we.Executions[execID]; exists {
-					exec.Status = ExecutionCancelled
+					if exec.Status == ExecutionRunning || exec.Status == ExecutionPaused {
+						exec.Status = ExecutionCancelled
+					}
 					we.Logger.Info("GraphEngine marked execution as cancelled", "exec_id", execID)
 				}
 			}
 		}
 	})
 
-	we.Bus.Subscribe(events.EventType("ExecutionPaused"), func(e events.RuntimeEvent) {
+	we.subscribe(events.EventType("ExecutionPaused"), func(e events.RuntimeEvent) {
 		if payload, ok := e.Payload.(map[string]string); ok {
 			if execID, ok := payload["execution"]; ok {
+				if !strings.HasPrefix(execID, "compile-") {
+					we.Bus.Publish("ExecutionPaused", "graph_engine", map[string]string{"execution": "compile-" + execID})
+				}
+				we.paused[execID] = true
+
 				if exec, exists := we.Executions[execID]; exists {
-					exec.Status = ExecutionPaused
+					if exec.Status == ExecutionRunning {
+						exec.Status = ExecutionPaused
+					}
 					we.Logger.Info("GraphEngine marked execution as paused", "exec_id", execID)
 				}
 			}
 		}
 	})
 
-	we.Bus.Subscribe(events.EventType("ExecutionResumed"), func(e events.RuntimeEvent) {
+	we.subscribe(events.EventType("ExecutionResumed"), func(e events.RuntimeEvent) {
 		if payload, ok := e.Payload.(map[string]string); ok {
 			if execID, ok := payload["execution"]; ok {
+				if !strings.HasPrefix(execID, "compile-") {
+					we.Bus.Publish("ExecutionResumed", "graph_engine", map[string]string{"execution": "compile-" + execID})
+				}
+				we.paused[execID] = false
+
 				if exec, exists := we.Executions[execID]; exists {
+					if exec.Status != ExecutionPaused {
+						return
+					}
 					exec.Status = ExecutionRunning
 					we.Logger.Info("GraphEngine marked execution as resumed", "exec_id", execID)
 					// Kickstart any pending nodes that were waiting for resume
@@ -239,11 +281,28 @@ func (we *GraphEngine) parseTaskID(taskID TaskID) (execID string, nodeID string)
 }
 
 func (we *GraphEngine) SubmitWorkflow(wf *WorkflowDefinition, executionID string) error {
+	we.mu.Lock()
+	defer we.mu.Unlock()
+	if !we.Bus.Accepting() {
+		return fmt.Errorf("runtime is closed or overloaded; restart required")
+	}
+	if we.cancelled[executionID] {
+		return fmt.Errorf("execution was cancelled: %s", executionID)
+	}
+	if wf == nil || executionID == "" || len(wf.Nodes) == 0 || len(wf.Nodes) > 128 {
+		return fmt.Errorf("workflow and execution ID required")
+	}
+	if _, exists := we.Executions[executionID]; exists {
+		return fmt.Errorf("execution already exists: %s", executionID)
+	}
 	exec := NewWorkflowExecution(executionID, wf)
+	if we.paused[executionID] {
+		exec.Status = ExecutionPaused
+	}
 	we.Executions[executionID] = exec
 
 	we.Logger.Info("GraphEngine started execution", "workflow_id", wf.ID, "exec_id", executionID)
-	
+
 	we.Bus.Publish(events.EventType("WorkflowStarted"), events.Component("graph_engine"), map[string]any{
 		"workflow_id": wf.ID,
 		"exec_id":     executionID,
@@ -257,7 +316,7 @@ func (we *GraphEngine) SubmitWorkflow(wf *WorkflowDefinition, executionID string
 }
 
 func (we *GraphEngine) checkAndDispatch(exec *WorkflowExecution, nodeID string) {
-	if exec.Status == ExecutionPaused || exec.Status == ExecutionCancelled {
+	if exec.Status != ExecutionRunning {
 		return // Execution is paused or cancelled, do not dispatch new nodes
 	}
 
@@ -270,7 +329,7 @@ func (we *GraphEngine) checkAndDispatch(exec *WorkflowExecution, nodeID string) 
 		if exec.NodeStates[parentID] != NodeDone {
 			return // Still waiting for this incoming dependency
 		}
-		
+
 		// Plumb the artifact produced by the dependency into the task input
 		if art, exists := exec.Artifacts[parentID]; exists {
 			inputs = append(inputs, TaskInput{
@@ -290,9 +349,9 @@ func (we *GraphEngine) dispatchNode(exec *WorkflowExecution, nodeID string, inpu
 	exec.NodeStates[nodeID] = NodeRunning
 
 	we.Bus.Publish(events.EventType("NodeReady"), events.Component("graph_engine"), map[string]any{
-		"node_id":   nodeID,
-		"exec_id":   exec.ExecutionID,
-		"workflow":  exec.Workflow.ID,
+		"node_id":  nodeID,
+		"exec_id":  exec.ExecutionID,
+		"workflow": exec.Workflow.ID,
 	})
 
 	task := Task{
@@ -306,4 +365,8 @@ func (we *GraphEngine) dispatchNode(exec *WorkflowExecution, nodeID string, inpu
 	}
 
 	we.Bus.Publish(events.EventType("TaskCreated"), events.Component("graph_engine"), task)
+}
+
+func (we *GraphEngine) subscribe(t events.EventType, h events.Handler) {
+	we.Bus.Subscribe(t, func(e events.RuntimeEvent) { we.mu.Lock(); defer we.mu.Unlock(); h(e) })
 }

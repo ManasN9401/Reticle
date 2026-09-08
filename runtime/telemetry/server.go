@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 	"github.com/reticle/runtime/events"
@@ -23,7 +25,7 @@ var uiFS embed.FS
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
-		return true
+		return sameOrigin(r)
 	},
 }
 
@@ -31,7 +33,7 @@ type Server struct {
 	bus       *events.Bus
 	addr      string
 	rootDir   string
-	clients   map[*websocket.Conn]bool
+	clients   map[*websocket.Conn]chan []byte
 	mu        sync.Mutex
 	connected chan struct{}
 	once      sync.Once
@@ -42,53 +44,106 @@ func NewServer(bus *events.Bus, addr string, rootDir string) *Server {
 		bus:       bus,
 		addr:      addr,
 		rootDir:   rootDir,
-		clients:   make(map[*websocket.Conn]bool),
+		clients:   make(map[*websocket.Conn]chan []byte),
 		connected: make(chan struct{}),
 	}
 }
 
 func (s *Server) Start() error {
+	host, port, err := net.SplitHostPort(s.addr)
+	if err != nil {
+		return err
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if !localHost(host) {
+		return fmt.Errorf("remote control listener is unsupported; use loopback")
+	}
+	s.addr = net.JoinHostPort(host, port)
+	token, err := controlToken(s.rootDir)
+	if err != nil {
+		return err
+	}
+	mux := http.NewServeMux()
 	// Serve embedded UI files
 	subFS, err := fs.Sub(uiFS, "ui")
 	if err != nil {
 		return fmt.Errorf("failed to create sub filesystem: %w", err)
 	}
-	
+
 	fsHandler := http.FileServer(http.FS(subFS))
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
+			http.NotFound(w, r)
+			return
+		}
 		fsHandler.ServeHTTP(w, r)
 	})
-	
+
 	// Serve artifacts from the isolated sessions via generic HTTP
 	hyperFS := http.FileServer(http.Dir(filepath.Join(s.rootDir, ".reticle", "sessions")))
-	http.HandleFunc("/artifacts/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/artifacts/", func(w http.ResponseWriter, r *http.Request) {
+		relative := strings.TrimPrefix(r.URL.Path, "/artifacts/")
+		target, err := SafePath(filepath.Join(s.rootDir, ".reticle", "sessions"), relative)
+		if err != nil {
+			http.Error(w, "Invalid artifact", 400)
+			return
+		}
+		info, err := os.Stat(target)
+		if err != nil || info.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Disposition", "attachment")
+		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 		http.StripPrefix("/artifacts/", hyperFS).ServeHTTP(w, r)
 	})
 
 	// JSON API to fetch the outputs (the content of src/)
-	http.HandleFunc("/api/outputs/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/outputs/", func(w http.ResponseWriter, r *http.Request) {
 		execID := strings.TrimPrefix(r.URL.Path, "/api/outputs/")
 		if execID == "" {
 			http.Error(w, "missing execID", http.StatusBadRequest)
 			return
 		}
 
-		srcDir := filepath.Join(s.rootDir, ".reticle", "sessions", execID, "src")
-		
+		if strings.ContainsAny(execID, "/\\:") || execID == "." || execID == ".." {
+			http.Error(w, "Invalid execution ID", 400)
+			return
+		}
+		srcDir, err := SafePath(filepath.Join(s.rootDir, ".reticle", "sessions"), execID+"/src")
+		if err != nil {
+			http.Error(w, "Invalid execution path", 400)
+			return
+		}
+		totalBytes := int64(0)
+
 		type OutputFile struct {
 			Path    string `json:"path"`
 			Content string `json:"content"`
 		}
-		
+
 		var files []OutputFile
 		_ = filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil // Ignore missing directory or unreadable files for now, return empty array
 			}
+			if d.Type()&os.ModeSymlink != 0 {
+				return nil
+			}
 			if !d.IsDir() {
 				rel, _ := filepath.Rel(srcDir, path)
-				content, _ := os.ReadFile(path)
+				info, err := d.Info()
+				if err != nil || info.Size() > 1024*1024 || totalBytes+info.Size() > 8*1024*1024 {
+					return nil
+				}
+				content, err := os.ReadFile(path)
+				if err != nil || !utf8.Valid(content) || strings.ContainsRune(string(content), 0) {
+					return nil
+				}
+				totalBytes += info.Size()
 				files = append(files, OutputFile{
 					Path:    filepath.ToSlash(rel),
 					Content: string(content),
@@ -96,27 +151,29 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
-		
+
 		if files == nil {
 			files = []OutputFile{} // Ensure we return [] instead of null
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(files)
 	})
-	
-	http.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
+
+	mux.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		err := r.ParseMultipartForm(50 << 20) // 50 MB max memory
+		r.Body = http.MaxBytesReader(w, r.Body, 50<<20)
+		err := r.ParseMultipartForm(2 << 20) // 50 MB max memory
 		if err != nil {
 			http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
+		defer r.MultipartForm.RemoveAll()
 		stagingDir := filepath.Join(s.rootDir, ".reticle", "waitlist_staging")
 		os.MkdirAll(stagingDir, 0755)
 
@@ -135,17 +192,30 @@ func (s *Server) Start() error {
 				if err != nil {
 					continue
 				}
-				
+
 				fileID := fmt.Sprintf("%d_%s", time.Now().UnixNano(), hdr.Filename)
 				fileID = strings.ReplaceAll(fileID, " ", "_")
 				fileID = strings.ReplaceAll(fileID, "/", "_")
-				
+				fileID = strings.ReplaceAll(fileID, "\\", "_")
+				fileID = strings.ReplaceAll(fileID, ":", "_")
+				if strings.ContainsAny(hdr.Filename, "/\\:") || hdr.Filename == ".." {
+					file.Close()
+					http.Error(w, "Invalid filename", 400)
+					return
+				}
+
 				dstPath := filepath.Join(stagingDir, fileID)
 				dst, err := os.Create(dstPath)
 				if err == nil {
-					io.Copy(dst, file)
-					dst.Close()
-					
+					_, copyErr := io.Copy(dst, file)
+					closeErr := dst.Close()
+					if copyErr != nil || closeErr != nil {
+						file.Close()
+						os.Remove(dstPath)
+						http.Error(w, "Upload failed", 500)
+						return
+					}
+
 					uploaded = append(uploaded, UploadedFile{
 						ID:       fileID,
 						Filename: hdr.Filename,
@@ -160,14 +230,16 @@ func (s *Server) Start() error {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(uploaded)
 	})
-	
+
 	// JSON API to fetch and toggle available models
-	http.HandleFunc("/api/models", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/models", func(w http.ResponseWriter, r *http.Request) {
+		routing.ModelsMutex.RLock()
+		defer routing.ModelsMutex.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(routing.AvailableModels)
 	})
-	
-	http.HandleFunc("/api/models/toggle", func(w http.ResponseWriter, r *http.Request) {
+
+	mux.HandleFunc("/api/models/toggle", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -179,6 +251,8 @@ func (s *Server) Start() error {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		routing.ModelsMutex.Lock()
+		defer routing.ModelsMutex.Unlock()
 		for i := range routing.AvailableModels {
 			if routing.AvailableModels[i].Key() == payload.ModelKey {
 				routing.AvailableModels[i].Enabled = !routing.AvailableModels[i].Enabled
@@ -188,21 +262,40 @@ func (s *Server) Start() error {
 		}
 		http.Error(w, "Model not found", http.StatusNotFound)
 	})
-	
-	http.HandleFunc("/ws", s.wsHandler)
+
+	mux.HandleFunc("/ws", s.wsHandler)
 
 	// Subscribe to all events and broadcast
-	s.bus.SubscribeAll(func(e events.RuntimeEvent) {
+	dispose := s.bus.SubscribeAll(func(e events.RuntimeEvent) {
 		s.broadcast(e)
 	})
 
-	fmt.Printf("Telemetry Server running on http://localhost%s\n", s.addr)
-	
-	go func() {
-		if err := http.ListenAndServe(s.addr, nil); err != nil {
-			fmt.Printf("Telemetry Server error: %v\n", err)
+	fmt.Printf("Telemetry Server running on http://%s\n", s.addr)
+
+	listener, err := net.Listen("tcp", s.addr)
+	if err != nil {
+		dispose()
+		return err
+	}
+	server := &http.Server{Handler: protected(token, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.bus.Accepting() {
+			http.Error(w, "Runtime unavailable; restart required", http.StatusServiceUnavailable)
+			return
 		}
-	}()
+		mux.ServeHTTP(w, r)
+	})), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	s.bus.Subscribe("RuntimeShutdown", func(events.RuntimeEvent) {
+		dispose()
+		_ = server.Close()
+		s.mu.Lock()
+		for conn, ch := range s.clients {
+			_ = conn.Close()
+			close(ch)
+			delete(s.clients, conn)
+		}
+		s.mu.Unlock()
+	})
+	go server.Serve(listener)
 
 	return nil
 }
@@ -221,9 +314,20 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	s.clients[conn] = true
+	outbound := make(chan []byte, 64)
+	s.clients[conn] = outbound
 	s.mu.Unlock()
 
+	go func() {
+		for data := range outbound {
+			conn.SetWriteDeadline(time.Now().Add(3 * time.Second))
+			if conn.WriteMessage(websocket.TextMessage, data) != nil {
+				conn.Close()
+				return
+			}
+		}
+	}()
+	conn.SetReadLimit(1024 * 1024)
 	s.once.Do(func() {
 		close(s.connected)
 	})
@@ -239,15 +343,18 @@ func (s *Server) wsHandler(w http.ResponseWriter, r *http.Request) {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			s.mu.Lock()
-			delete(s.clients, conn)
+			if channel, ok := s.clients[conn]; ok {
+				delete(s.clients, conn)
+				close(channel)
+			}
 			s.mu.Unlock()
 			conn.Close()
 			break
 		}
-		
+
 		var payload map[string]any
 		if err := json.Unmarshal(msg, &payload); err == nil {
-			if action, ok := payload["action"].(string); ok && (action == "enqueue" || action == "remove" || action == "kill" || action == "pause" || action == "resume") {
+			if action, ok := payload["action"].(string); ok && (action == "enqueue" || action == "remove" || action == "kill" || action == "pause" || action == "resume" || action == "update_settings") {
 				s.bus.Publish(events.EventType("WaitlistCommand"), events.Component("telemetry_ui"), payload)
 			}
 		}
@@ -263,9 +370,12 @@ func (s *Server) broadcast(e events.RuntimeEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for conn := range s.clients {
-		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+	for conn, ch := range s.clients {
+		select {
+		case ch <- data:
+		default:
 			conn.Close()
+			close(ch)
 			delete(s.clients, conn)
 		}
 	}
