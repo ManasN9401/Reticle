@@ -133,12 +133,16 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
-			stderrBuf.WriteString(line + "\n")
+			stderrBuf.WriteString(line)
+			stderrBuf.WriteByte('\n')
 			w.Bus.Publish(events.EventType("WorkerLog"), events.Component("worker"), map[string]any{
 				"task_id":   req.ID,
 				"worker_id": w.ID,
 				"log":       line,
 			})
+		}
+		if err := scanner.Err(); err != nil {
+			stderrBuf.WriteString(fmt.Sprintf("scanner error: %v\n", err))
 		}
 	}()
 
@@ -201,6 +205,9 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 				parseErr = fmt.Errorf("failed to parse worker output: %v, raw: %s", err, line)
 			}
 		}
+	}
+	if err := scanner.Err(); err != nil && parseErr == nil {
+		parseErr = fmt.Errorf("scanner error reading from worker: %w", err)
 	}
 	stdin.Close() // Signal EOF after finished
 

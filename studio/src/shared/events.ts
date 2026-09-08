@@ -169,7 +169,7 @@ export interface Artifact {
 }
 
 /** cmd/forge/waitlist.go:22-36 */
-export type ExecutionStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+export type ExecutionStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'COMPLETED' | 'FAILED'
 export type ExecutionMode = 'parallel' | 'sequential'
 
 export interface Attachment {

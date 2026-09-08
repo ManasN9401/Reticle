@@ -117,7 +117,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 	req, _ := http.NewRequest("GET", "https://openrouter.ai/api/v1/models", nil)
 	if resp, err := client.Do(req); err == nil && resp.StatusCode == 200 {
 		var orData ORResp
-		if b, _ := io.ReadAll(resp.Body); err == nil {
+		if b, err := io.ReadAll(resp.Body); err == nil {
 			json.Unmarshal(b, &orData)
 			allORModels = orData.Data
 		}
@@ -141,7 +141,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 				} `json:"data"`
 			}
 			var aData AuthResp
-			if b, _ := io.ReadAll(authResp.Body); err == nil {
+			if b, err := io.ReadAll(authResp.Body); err == nil {
 				json.Unmarshal(b, &aData)
 				if aData.Data.IsFreeTier {
 					isFreeKey = true
@@ -215,7 +215,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		req.Header.Set("Authorization", "Bearer "+keyVal)
 		if resp, err := client.Do(req); err == nil && resp.StatusCode == 200 {
 			var groqData GroqResp
-			if b, _ := io.ReadAll(resp.Body); err == nil {
+			if b, err := io.ReadAll(resp.Body); err == nil {
 				json.Unmarshal(b, &groqData)
 				for _, m := range groqData.Data {
 					if strings.Contains(strings.ToLower(m.ID), "guard") {
@@ -276,7 +276,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		req, _ := http.NewRequest("GET", "https://generativelanguage.googleapis.com/v1beta/models?key="+keyVal, nil)
 		if resp, err := client.Do(req); err == nil && resp.StatusCode == 200 {
 			var gemData GemResp
-			if b, _ := io.ReadAll(resp.Body); err == nil {
+			if b, err := io.ReadAll(resp.Body); err == nil {
 				json.Unmarshal(b, &gemData)
 				for _, m := range gemData.Models {
 					// m.Name is "models/gemini-1.5-flash"
@@ -319,7 +319,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 	reqOllama, _ := http.NewRequest("GET", ollamaHost+"/api/tags", nil)
 	if resp, err := client.Do(reqOllama); err == nil && resp.StatusCode == 200 {
 		var ollamaData OllamaResp
-		if b, _ := io.ReadAll(resp.Body); err == nil {
+		if b, err := io.ReadAll(resp.Body); err == nil {
 			json.Unmarshal(b, &ollamaData)
 			for _, m := range ollamaData.Models {
 				newAvailableModels = append(newAvailableModels, Model{
