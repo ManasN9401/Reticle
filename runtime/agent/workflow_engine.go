@@ -119,7 +119,8 @@ func (we *GraphEngine) Start() {
 		exec.Artifacts[nodeID] = artifact
 	}
 
-	we.subscribe(events.EventType("ArtifactsProduced"), handleArtifact)
+	we.subscribe(events.EventType("ArtifactStored"), handleArtifact)
+	we.subscribe(events.EventType("ArtifactVersionCreated"), handleArtifact)
 	we.subscribe(events.EventType("WorkerCompleted"), func(e events.RuntimeEvent) {
 		p, ok := e.Payload.(map[string]any)
 		if !ok {

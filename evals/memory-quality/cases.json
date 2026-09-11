@@ -1,0 +1,30 @@
+[
+  {
+    "id": "relevant-fact",
+    "question": "Reply with only the active dataset revision.",
+    "selected_memory": {"dataset_revision": "reviews-v3"},
+    "distractor_memory": {"unrelated_owner": "analytics", "unrelated_colour": "amber"},
+    "expected": "reviews-v3"
+  },
+  {
+    "id": "conflicting-scope",
+    "question": "Reply with only the deployment region selected for this execution.",
+    "selected_memory": {"deployment_region": "eu-west-2"},
+    "distractor_memory": {"stale_global_region": "us-east-1", "documentation_example_region": "ap-south-1"},
+    "expected": "eu-west-2"
+  },
+  {
+    "id": "stale-fact",
+    "question": "Reply with only the current schema version.",
+    "selected_memory": {"current_schema_version": "v7"},
+    "distractor_memory": {"superseded_schema_version": "v4", "migration_source_version": "v6"},
+    "expected": "v7"
+  },
+  {
+    "id": "structured-fact",
+    "question": "Reply with only the maximum batch size approved by the current memory record.",
+    "selected_memory": {"training_limits": {"maximum_batch_size": 12, "precision": "bf16"}},
+    "distractor_memory": {"old_experiment": {"maximum_batch_size": 32}},
+    "expected": "12"
+  }
+]

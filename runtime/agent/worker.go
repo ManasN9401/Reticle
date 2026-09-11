@@ -45,16 +45,23 @@ type WorkerFailure struct {
 }
 
 type Task struct {
-	ID           TaskID         `json:"id"`
-	AgentID      string         `json:"agent_id,omitempty"`
-	ExecutionID  string         `json:"execution,omitempty"`
-	Workflow     string         `json:"workflow,omitempty"`
-	Origin       string         `json:"origin,omitempty"`
-	Inputs       []TaskInput    `json:"inputs,omitempty"`
-	Parameters   map[string]any `json:"parameters,omitempty"`
-	Memory       map[string]any `json:"memory,omitempty"`
-	Instructions []string       `json:"instructions,omitempty"`
-	Modality     string         `json:"modality,omitempty"`
+	ID             TaskID                     `json:"id"`
+	AgentID        string                     `json:"agent_id,omitempty"`
+	ExecutionID    string                     `json:"execution,omitempty"`
+	Workflow       string                     `json:"workflow,omitempty"`
+	Origin         string                     `json:"origin,omitempty"`
+	Inputs         []TaskInput                `json:"inputs,omitempty"`
+	Parameters     map[string]any             `json:"parameters,omitempty"`
+	Memory         map[string]any             `json:"memory,omitempty"`
+	MemoryMetadata map[string]MemoryReference `json:"memory_metadata,omitempty"`
+	Instructions   []string                   `json:"instructions,omitempty"`
+	Modality       string                     `json:"modality,omitempty"`
+}
+
+type MemoryReference struct {
+	Scope   memory.MemoryScope `json:"scope"`
+	ScopeID string             `json:"scope_id"`
+	Version uint64             `json:"version"`
 }
 
 type GraphMutation struct {
@@ -64,9 +71,10 @@ type GraphMutation struct {
 }
 
 type MemoryMutation struct {
-	Key   string `json:"key"`
-	Value any    `json:"value"`
-	Scope string `json:"scope,omitempty"`
+	Key             string  `json:"key"`
+	Value           any     `json:"value"`
+	Scope           string  `json:"scope,omitempty"`
+	ExpectedVersion *uint64 `json:"expected_version,omitempty"`
 }
 
 type TaskResponse struct {
@@ -204,12 +212,10 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 	if resp.GraphMutation != nil && (resp.GraphMutation.Action != "delegate" || resp.GraphMutation.TargetAgent == "") {
 		return fail(WorkerProtocolError, fmt.Errorf("invalid graph mutation"))
 	}
-	// FIFO domain handlers commit memory and graph changes before completion.
+	// Commit memory and artifact as one acknowledged durable result.
+	entries := make([]memory.MemoryEntry, 0, len(resp.Memory))
 	for _, mut := range resp.Memory {
-		w.Bus.Publish("MemoryWriteRequested", "worker", memory.MemoryEntry{Key: mut.Key, Value: mut.Value, Scope: memory.ScopeExecution, ScopeID: req.ExecutionID, Owner: req.AgentID})
-	}
-	if resp.GraphMutation != nil {
-		w.Bus.Publish("GraphMutationRequested", "worker", map[string]any{"task_id": req.ID, "worker_id": w.ID, "execution": req.ExecutionID, "mutation": resp.GraphMutation})
+		entries = append(entries, memory.MemoryEntry{Key: mut.Key, Value: mut.Value, Scope: memory.ScopeExecution, ScopeID: req.ExecutionID, Owner: req.AgentID, ExpectedVersion: mut.ExpectedVersion})
 	}
 	if a := resp.Artifact; a != nil {
 		a.Producer = string(w.ID)
@@ -220,7 +226,21 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 		for _, input := range req.Inputs {
 			a.Parents = append(a.Parents, memory.ArtifactID(input.ArtifactID))
 		}
-		w.Bus.Publish("ArtifactsProduced", "worker", a)
+	}
+	if len(entries) > 0 || resp.Artifact != nil {
+		result := make(chan error, 1)
+		w.Bus.Publish("TaskResultCommitRequested", "worker", memory.ResultCommitRequest{Entries: entries, Artifact: resp.Artifact, Result: result})
+		select {
+		case err := <-result:
+			if err != nil {
+				return fail(WorkerProtocolError, fmt.Errorf("result commit rejected: %w", err))
+			}
+		case <-ctx.Done():
+			return fail(WorkerTimeout, ctx.Err())
+		}
+	}
+	if resp.GraphMutation != nil {
+		w.Bus.Publish("GraphMutationRequested", "worker", map[string]any{"task_id": req.ID, "worker_id": w.ID, "execution": req.ExecutionID, "mutation": resp.GraphMutation})
 	}
 	w.Bus.Publish("WorkerCompleted", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID)})
 	return &resp, nil

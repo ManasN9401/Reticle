@@ -1,0 +1,15 @@
+goos: windows
+goarch: amd64
+pkg: github.com/reticle/runtime/memory
+cpu: AMD Ryzen 9 9900X 12-Core Processor            
+BenchmarkScopeRead/1000-24         	  535104	       397.6 ns/op	     712 B/op	       7 allocs/op
+BenchmarkScopeRead/1000-24         	  628058	       401.8 ns/op	     712 B/op	       7 allocs/op
+BenchmarkScopeRead/1000-24         	  532989	       406.4 ns/op	     712 B/op	       7 allocs/op
+BenchmarkScopeRead/10000-24        	  469179	       430.5 ns/op	     712 B/op	       7 allocs/op
+BenchmarkScopeRead/10000-24        	  504338	       451.9 ns/op	     712 B/op	       7 allocs/op
+BenchmarkScopeRead/10000-24        	  533581	       462.0 ns/op	     712 B/op	       7 allocs/op
+BenchmarkScopeRead/100000-24       	  566517	       407.6 ns/op	     712 B/op	       7 allocs/op
+BenchmarkScopeRead/100000-24       	  690051	       389.9 ns/op	     712 B/op	       7 allocs/op
+BenchmarkScopeRead/100000-24       	  647982	       395.7 ns/op	     712 B/op	       7 allocs/op
+PASS
+ok  	github.com/reticle/runtime/memory	2.740s

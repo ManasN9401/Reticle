@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import io
+import re
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,19 @@ sys.path.insert(0, str(LIB))
 import forge_utils
 
 class WorkerContracts(unittest.TestCase):
+    def test_no_literal_provider_credentials_in_source(self):
+        credential=re.compile(r"(?:gsk_[A-Za-z0-9]{20,}|sk-or-v1-[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{20,})")
+        hits=[]
+        tracked=subprocess.run(["git","ls-files","-z"],cwd=ROOT,capture_output=True,check=True).stdout.decode().split("\0")
+        for relative in filter(None,tracked):
+            path=ROOT/relative
+            if path.suffix.lower() not in {".py",".go",".js",".ts",".tsx",".json",".yaml",".yml",".md"}:
+                continue
+            try: text=path.read_text(encoding="utf-8")
+            except UnicodeDecodeError: continue
+            if credential.search(text): hits.append(str(path.relative_to(ROOT)))
+        self.assertEqual(hits,[],f"literal provider credentials found in {hits}")
+
     def test_generated_workers_and_workflow(self):
         for agent, file in [("coder-agent","coder.py"),("hermes-coder-agent","hermes.py"),("quant-agent","quant.py"),("osint-agent","osint.py"),("browser-agent","browser.py"),("scaffolder-agent","scaffolder.py")]:
             with self.subTest(agent=agent), tempfile.TemporaryDirectory() as temp:
@@ -51,11 +65,13 @@ class WorkerContracts(unittest.TestCase):
             call=SimpleNamespace(id="call", function=SimpleNamespace(name=name,arguments=json.dumps(args)))
             message=SimpleNamespace(tool_calls=[call], model_dump=lambda **kwargs: {"role":"assistant","tool_calls":[{"id":"call","type":"function","function":{"name":name,"arguments":json.dumps(args)}}]})
             return SimpleNamespace(choices=[SimpleNamespace(message=message)])
-        calls=[response("mark_task_complete",{"summary":"premature"}),response("list_dir",{"path":"."}),response("remember",{"key":"fixture","value_json":"42"}),response("mark_task_complete",{"summary":"verified"})]
+        calls=[response("mark_task_complete",{"summary":"premature"}),response("list_dir",{"path":"."}),response("remember",{"key":"fixture","value_json":"42"}),response("remember_if_version",{"key":"conditional","value_json":"true","expected_version":"0"}),response("mark_task_complete",{"summary":"verified"})]
         with tempfile.TemporaryDirectory() as temp:
-            req={"id":"execution|node","execution":"execution","memory":{"workspace_dir":temp},"parameters":{"llm_model":"ollama/fixture"}}
+            req={"id":"execution|node","execution":"execution","memory":{"workspace_dir":temp,"prior_agent_fact":{"dataset":"fixture-v2"}},"parameters":{"llm_model":"ollama/fixture"}}
             output=io.StringIO()
             def completion(**kwargs):
+                context=json.loads(kwargs["messages"][1]["content"])
+                self.assertEqual(context["shared_memory"],{"prior_agent_fact":{"dataset":"fixture-v2"}})
                 self.assertEqual(kwargs["num_retries"],0)
                 self.assertEqual(kwargs["api_base"],"http://localhost:11434")
                 return calls.pop(0)
@@ -63,8 +79,14 @@ class WorkerContracts(unittest.TestCase):
                 worker_sdk.run("Fixture",kind="writing")
             result=json.loads(output.getvalue())
             self.assertEqual(result["artifact"]["data"],"verified")
-            self.assertEqual(result["memory"],[{"key":"fixture","value":42,"scope":"execution"}])
+            self.assertEqual(result["memory"],[{"key":"fixture","value":42,"scope":"execution"},{"key":"conditional","value":True,"scope":"execution","expected_version":0}])
             self.assertEqual(calls,[])
+
+    def test_shared_memory_context_budget(self):
+        import worker_sdk
+        with self.assertRaisesRegex(ValueError,"64 KiB"):
+            worker_sdk.shared_memory_context({"large_fact":"x"*65536})
+        self.assertEqual(worker_sdk.shared_memory_context({"workspace_dir":"private-control","fact":42}),{"fact":42})
 
     def test_sdk_exhaustion_is_failure(self):
         import worker_sdk

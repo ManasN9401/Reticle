@@ -1,0 +1,18 @@
+{
+  "model": "groq/allam-2-7b",
+  "attempts": 1,
+  "cases": [
+    {"id":"relevant-fact","expected":"reviews-v3","trials":[{"attempt":1,"mode":"none","answer":"UNKNOWN ","pass":false},{"attempt":1,"mode":"full","answer":"dataset_revision: reviews-v3 ","pass":false},{"attempt":1,"mode":"selected","answer":"reviews-v3 ","pass":true}]},
+    {"id":"conflicting-scope","expected":"eu-west-2","trials":[{"attempt":1,"mode":"none","answer":"UNKNOWN ","pass":false},{"attempt":1,"mode":"full","answer":"deployment_region: eu-west-2 ","pass":false},{"attempt":1,"mode":"selected","answer":"eu-west-2 ","pass":true}]},
+    {"id":"stale-fact","expected":"v7","trials":[{"attempt":1,"mode":"none","answer":"UNKNOWN ","pass":false},{"attempt":1,"mode":"full","answer":"v7 ","pass":true},{"attempt":1,"mode":"selected","answer":"v7 ","pass":true}]},
+    {"id":"structured-fact","expected":"12","trials":[{"attempt":1,"mode":"none","answer":"UNKNOWN ","pass":false},{"attempt":1,"mode":"full","answer":"32 ","pass":false},{"attempt":1,"mode":"selected","answer":"12 ","pass":true}]}
+  ],
+  "summary": {
+    "none":{"passed":0,"total":4,"accuracy":0.0,"pass_at_k":0.0,"pass_power_k":0.0},
+    "full":{"passed":1,"total":4,"accuracy":0.25,"pass_at_k":0.25,"pass_power_k":0.25},
+    "selected":{"passed":4,"total":4,"accuracy":1.0,"pass_at_k":1.0,"pass_power_k":1.0},
+    "selected_uplift_vs_none":1.0,
+    "selected_uplift_vs_full":0.75
+  },
+  "elapsed_seconds":19.322
+}

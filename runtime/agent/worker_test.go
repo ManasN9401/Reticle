@@ -71,7 +71,8 @@ func TestWorkerChild(t *testing.T) {
 	case "produce":
 		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Artifact: &memory.Artifact{ID: "fixture", Name: "fixture", Type: "text/plain", Data: "output"}, Memory: []MemoryMutation{{Key: "shared", Value: "expected"}}})
 	case "consume":
-		if req.Memory["shared"] != "expected" || len(req.Inputs) != 1 || req.Inputs[0].Data != "output" {
+		meta := req.MemoryMetadata["shared"]
+		if req.Memory["shared"] != "expected" || meta.Scope != memory.ScopeExecution || meta.Version != 1 || len(req.Inputs) != 1 || req.Inputs[0].Data != "output" {
 			fmt.Fprintln(os.Stderr, "missing committed input or memory")
 			os.Exit(2)
 		}
@@ -140,6 +141,7 @@ func TestWorkerContract(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			bus := events.NewBus("test")
 			defer bus.Close()
+			memory.NewManager(memory.NewArtifactStore(), memory.NewRuntimeState(), memory.NewSessionState("test"), bus)
 			exe, _ := os.Executable()
 			w := NewWorker("test", exe, []string{"-test.run=^TestWorkerChild$"}, []string{"RETICLE_TEST_CHILD=" + mode}, &logger.Logger{}, bus)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -43,6 +43,7 @@ export async function startForge(prompt?: string): Promise<void> {
     retries: settings?.forge.retries,
     isolated: settings?.forge.isolated,
     allModels: settings?.forge.allModels,
+    workspace: settings?.forge.workspace,
     prompt,
   })
 }

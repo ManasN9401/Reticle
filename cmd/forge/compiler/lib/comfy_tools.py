@@ -3,7 +3,7 @@ from forge_utils import safe_path
 def emit_log(msg): print(msg,file=sys.stderr,flush=True)
 def ui_state(state): emit_log(f"[UI_STATE: {state}]")
 
-def generate_local_asset(prompt: str, output_path: str, workspace_dir: str, width: int = 1024, height: int = 1024) -> str:
+def generate_local_asset(prompt: str, output_path: str, workspace_dir: str, checkpoint: str = None, width: int = 1024, height: int = 1024) -> str:
     """
     Sends a prompt to a local ComfyUI instance (http://localhost:8188) to generate an image.
     The image is saved directly to output_path.
@@ -16,9 +16,24 @@ def generate_local_asset(prompt: str, output_path: str, workspace_dir: str, widt
     host = os.getenv("COMFYUI_HOST", "http://127.0.0.1:8188").rstrip("/")
     if urllib.parse.urlsplit(host).hostname not in ("localhost", "127.0.0.1", "::1"):
         raise ValueError("Only a configured local ComfyUI endpoint is supported")
-    checkpoint = os.environ.get("COMFYUI_CHECKPOINT")
+    
     if not checkpoint:
-        raise ValueError("Configure COMFYUI_CHECKPOINT from the server's installed checkpoints")
+        checkpoint = os.environ.get("COMFYUI_CHECKPOINT")
+        
+    if not checkpoint:
+        # Fallback to fetching the first available checkpoint dynamically
+        try:
+            req_chk = urllib.request.Request(host+"/object_info/CheckpointLoaderSimple")
+            with urllib.request.urlopen(req_chk, timeout=2) as res:
+                chk_data = json.loads(res.read(1024*1024))
+                ckpt_list = chk_data.get("CheckpointLoaderSimple", {}).get("input", {}).get("required", {}).get("ckpt_name", [[]])[0]
+                if ckpt_list:
+                    checkpoint = ckpt_list[0]
+        except Exception as e:
+            pass
+            
+    if not checkpoint:
+        raise ValueError("Configure COMFYUI_CHECKPOINT from the server's installed checkpoints, or pass a valid checkpoint argument.")
     ui_state("WAITING_COMFY")
     client_id = str(uuid.uuid4())
     

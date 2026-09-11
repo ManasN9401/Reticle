@@ -3,6 +3,9 @@ package orchestrator
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"os"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/reticle/runtime/events"
@@ -30,17 +33,31 @@ func New() *Orchestrator {
 	l := logger.New()
 	sessionID := generateSessionID()
 	b := events.NewBus(sessionID)
-	artifacts := memory.NewArtifactStore()
-	runtimeState := memory.NewRuntimeState()
+	policy := memory.DefaultRetentionPolicy()
+	policy.MaxEntries = positiveEnv("RETICLE_MEMORY_MAX_ENTRIES", policy.MaxEntries)
+	policy.MaxBytes = int64(positiveEnv("RETICLE_MEMORY_MAX_MIB", int(policy.MaxBytes>>20))) << 20
+	policy.MaxArtifactVersions = positiveEnv("RETICLE_ARTIFACT_MAX_VERSIONS", policy.MaxArtifactVersions)
+	policy.ExecutionTTL = time.Duration(positiveEnv("RETICLE_EXECUTION_MEMORY_TTL_HOURS", int(policy.ExecutionTTL/time.Hour))) * time.Hour
+	artifacts := memory.NewArtifactStoreWithRetention(policy.MaxArtifactVersions)
+	runtimeState := memory.NewRuntimeStateWithPolicy(policy)
 	sessionState := memory.NewSessionState(sessionID)
 
-	memory.NewManager(artifacts, runtimeState, sessionState, b)
+	root := os.Getenv("RETICLE_ROOT")
+	if root != "" && os.Getenv("RETICLE_MEMORY_PERSISTENCE") != "false" {
+		path := filepath.Join(root, ".reticle", "memory", "state.json")
+		if _, err := memory.NewPersistentManager(artifacts, runtimeState, sessionState, b, path); err != nil {
+			l.Error("Memory restart recovery disabled", "error", err)
+			memory.NewManager(artifacts, runtimeState, sessionState, b)
+		}
+	} else {
+		memory.NewManager(artifacts, runtimeState, sessionState, b)
+	}
 
 	// The central Event Logger (Source of Truth)
 	b.SubscribeAll(func(e events.RuntimeEvent) {
 		payload := e.Payload
 		switch e.Type {
-		case "TaskCreated", "MemoryWriteRequested", "MemoryReadCompleted", "WorkerLog":
+		case "TaskCreated", "MemoryWriteRequested", "MemoryReadCompleted", "ArtifactWriteRequested", "TaskResultCommitRequested", "WorkerLog":
 			payload = map[string]any{"redacted": true}
 		}
 
@@ -67,6 +84,14 @@ func New() *Orchestrator {
 		RuntimeState: runtimeState,
 		SessionState: sessionState,
 	}
+}
+
+func positiveEnv(name string, fallback int) int {
+	value, err := strconv.Atoi(os.Getenv(name))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func (o *Orchestrator) Start() {

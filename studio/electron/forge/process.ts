@@ -188,6 +188,10 @@ function buildArgs(request: ForgeStartRequest, settings: StudioSettings): string
   if (request.native ?? settings.forge.native) args.push('-native')
   if (request.allModels ?? settings.forge.allModels) args.push('-all-models')
   if (request.fresh) args.push('-fresh')
+  
+  const workspace = request.workspace ?? settings.forge.workspace
+  if (workspace) args.push(`-workspace=${workspace}`)
+
   // Positional args are joined into the initial prompt and auto-enqueued.
   const prompt = request.prompt?.trim()
   if (prompt) args.push(prompt)

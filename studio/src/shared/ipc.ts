@@ -178,6 +178,8 @@ export interface ForgeStartRequest {
   allModels?: boolean
   /** Initial prompt; forge auto-enqueues it when non-empty. */
   prompt?: string
+  /** Existing workspace to resume from (-workspace). */
+  workspace?: string
 }
 
 export interface ForgeOutputChunk {
@@ -324,6 +326,7 @@ export interface StudioSettings {
     isolated: boolean
     allModels: boolean
     native: boolean
+    workspace?: string
   }
   appearance: {
     /** 'system' follows the OS; the shell resolves it before it reaches the DOM. */

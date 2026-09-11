@@ -39,11 +39,53 @@ const (
 
 // MemoryEntry represents a rich value stored in the Shared Runtime Memory.
 type MemoryEntry struct {
-	Key       string      `json:"key"`
-	Value     any         `json:"value"`
-	Scope     MemoryScope `json:"scope"`
-	ScopeID   string      `json:"scope_id"` // Matches the scope (e.g., ExecutionID or AgentID)
-	Owner     string      `json:"owner"`    // Who produced this memory
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	Key     string      `json:"key"`
+	Value   any         `json:"value"`
+	Scope   MemoryScope `json:"scope"`
+	ScopeID string      `json:"scope_id"` // Matches the scope (e.g., ExecutionID or AgentID)
+	Owner   string      `json:"owner"`    // Who produced this memory
+	Version uint64      `json:"version"`
+	// ExpectedVersion enables optimistic concurrency. Nil is an unconditional
+	// write; zero means the key must not exist.
+	ExpectedVersion *uint64    `json:"expected_version,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
+}
+
+// MemoryWriteRequest lets a worker wait until its mutation has been accepted
+// or rejected. Result must be buffered because the requester can be cancelled.
+type MemoryWriteRequest struct {
+	Entry  MemoryEntry
+	Result chan error
+}
+
+type ArtifactWriteRequest struct {
+	Artifact *Artifact
+	Result   chan error
+}
+
+// ResultCommitRequest atomically persists one worker's memory mutations and
+// optional artifact before the worker completion event can be published.
+type ResultCommitRequest struct {
+	Entries  []MemoryEntry
+	Artifact *Artifact
+	Result   chan error
+}
+
+// RetentionPolicy bounds ephemeral state. Zero values use safe defaults.
+type RetentionPolicy struct {
+	MaxEntries          int
+	MaxBytes            int64
+	ExecutionTTL        time.Duration
+	MaxArtifactVersions int
+}
+
+func DefaultRetentionPolicy() RetentionPolicy {
+	return RetentionPolicy{
+		MaxEntries:          10_000,
+		MaxBytes:            16 << 20,
+		ExecutionTTL:        24 * time.Hour,
+		MaxArtifactVersions: 100,
+	}
 }

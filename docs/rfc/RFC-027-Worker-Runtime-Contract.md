@@ -45,10 +45,10 @@ When an agent starts, it receives a payload conforming to the following structur
   ],
   "parameters": {
     "system_prompt": "You are a specialized agent.",
-    "llm_model": "groq/llama-3.1-8b-instant"
+    "llm_model": "provider/current-model-id"
   },
   "memory": {
-    "global_api_token": "sk-12345",
+    "dataset_revision": "fixture-v1",
     "workflow_theme": "dark"
   },
   "instructions": [
@@ -61,6 +61,7 @@ When an agent starts, it receives a payload conforming to the following structur
 - **`inputs`**: Array of Artifact dependencies from upstream DAG nodes.
 - **`parameters`**: Key-Value mapping of node-specific config (e.g. LLM routing, user prompts).
 - **`memory`**: Key-Value mapping of required Shared Memory keys fetched proactively by the Orchestrator based on the Agent's YAML definition.
+- **`memory_metadata`**: Source scope, scope ID and revision for injected entries. Use the revision with `expected_version` only when updating the same execution-scoped key; an inherited global/workflow/agent value is a different address.
 - **`instructions`**: Array of strings injected from the Global Instruction Store.
 
 ## 6. Stdout Contract: `TaskResponse` Payload
@@ -92,6 +93,8 @@ When an agent finishes, it must return a JSON payload:
 ### Fields:
 - **`artifact` (optional)**: The primary formal output of the node. Downstream nodes depend on this. If omitted, the node simply completes without yielding data.
 - **`memory` (optional)**: An array of `MemoryMutation` objects to write to the Shared Runtime Memory store. Valid scopes: `global`, `workflow`, `execution`, `agent`. (Defaults to `execution`).
+
+  A mutation may include `expected_version`. `0` requires the key to be absent; a positive revision requires an exact match. Rejected conditional mutations fail the worker result. Current common workers may write only to their execution scope.
 - **`graph_mutation` (optional)**: Instructs the Orchestrator to dynamically rewrite the DAG at runtime (e.g. for dynamic delegation loops).
 
 ## 7. Rationale

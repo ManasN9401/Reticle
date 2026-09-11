@@ -295,6 +295,17 @@ function ForgeSection({ patch }: { patch: Patch }) {
         </Row>
 
         <Row
+          label="Workspace"
+          description="Existing workspace to resume from (-workspace). Clear this to start a fresh workspace."
+        >
+          <PathInput
+            value={forgeSettings.workspace ?? ''}
+            onChange={(workspace) => patch({ forge: { workspace: workspace || undefined } })}
+            pick={() => bridge?.workspace.pickDirectory() ?? Promise.resolve(null)}
+          />
+        </Row>
+
+        <Row
           label="Batch size"
           description="Concurrent workflows (-batch). Caps how many queued items run at once."
         >

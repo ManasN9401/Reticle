@@ -173,17 +173,35 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         api_key_env = req.get("parameters", {}).get("api_key")
         api_key = os.environ.get(api_key_env) if api_key_env else None
 
+        kwargs = {}
+        if model.startswith(("ollama/", "ollama_chat/")):
+            kwargs["api_base"] = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        elif model.startswith("llama/"):
+            model = "openai/" + model[6:]
+            llama_host = os.getenv("LLAMA_HOST", "http://localhost:8080").rstrip("/")
+            kwargs["api_base"] = llama_host + "/v1"
+
         @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=2, min=5, max=120))
         def get_architect_response():
             try:
                 # Architect output is just a schema with 'TBD' system prompts, so it's very small
                 target_max_tokens = 8000
+                if "gemini" in model.lower() or "llama" in model.lower() or "claude" in model.lower():
+                    target_max_tokens = 8192
+                
+                extra_headers = {
+                    "HTTP-Referer": "https://github.com/ManasN9401/Reticle",
+                    "X-Title": "Reticle Agentic Harness",
+                }
                 resp = completion(
                     model=model,
                     api_key=api_key,
                     max_tokens=target_max_tokens,
                     messages=conversation,
-                    timeout=60
+                    timeout=60,
+                    extra_headers=extra_headers,
+                    temperature=0.2,
+                    **kwargs
                 )
             except Exception as e:
                 err_str = str(e)

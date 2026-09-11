@@ -11,4 +11,4 @@ The runtime validates results before publishing their memory changes, graph chan
 
 The built-in HitL node runs in the trusted Go runtime and stores a separate hash-bound decision. Its Markdown preview is not an authorization parser. Older RFC-026/027 prose is historical where it conflicts with this document.
 
-Contract tests: runtime/agent/worker_test.go and tests/test_workers.py.
+Contract tests: runtime/agent/worker_test.go, runtime/memory/runtime_state_test.go, tests/test_workers.py and tests/test_memory_quality.py.

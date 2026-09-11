@@ -22,7 +22,9 @@ def main():
         
         system_prompt = parameters.get("system_prompt", "You are a helpful assistant.")
         user_prompt = parameters.get("user_prompt", "Complete the task.")
-        llm_model = parameters.get("llm_model", "groq/llama-3.1-8b-instant")
+        llm_model = parameters.get("llm_model") or os.environ.get("RETICLE_DEFAULT_MODEL")
+        if not llm_model:
+            raise ValueError("llm_model or RETICLE_DEFAULT_MODEL is required")
         
         # Check ECC
         ecc_agent_file = parameters.get("ecc_agent", None)

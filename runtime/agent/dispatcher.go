@@ -119,6 +119,7 @@ func (d *Dispatcher) Start() {
 
 		task.Parameters = copyParameters(task.Parameters)
 		task.Memory = copyParameters(task.Memory)
+		task.MemoryMetadata = make(map[string]MemoryReference)
 		// Inject instructions dynamically
 		if d.Instructions != nil {
 			task.Instructions = d.Instructions.GetForTask(task.AgentID, task.Workflow)
@@ -138,8 +139,10 @@ func (d *Dispatcher) Start() {
 				// Execution-scoped first (per-prompt), then global fallback
 				if val, found := d.RuntimeState.Get(memory.ScopeExecution, task.ExecutionID, key); found {
 					task.Memory[key] = val.Value
+					task.MemoryMetadata[key] = MemoryReference{Scope: val.Scope, ScopeID: val.ScopeID, Version: val.Version}
 				} else if val, found := d.RuntimeState.Get(memory.ScopeGlobal, "global", key); found {
 					task.Memory[key] = val.Value
+					task.MemoryMetadata[key] = MemoryReference{Scope: val.Scope, ScopeID: val.ScopeID, Version: val.Version}
 				}
 			}
 		}
@@ -153,12 +156,16 @@ func (d *Dispatcher) Start() {
 				// Hierarchical resolution: Agent -> Execution -> Workflow -> Global
 				if val, found := d.RuntimeState.Get(memory.ScopeAgent, string(workerID), key); found {
 					task.Memory[key] = val.Value
+					task.MemoryMetadata[key] = MemoryReference{Scope: val.Scope, ScopeID: val.ScopeID, Version: val.Version}
 				} else if val, found := d.RuntimeState.Get(memory.ScopeExecution, task.ExecutionID, key); found {
 					task.Memory[key] = val.Value
+					task.MemoryMetadata[key] = MemoryReference{Scope: val.Scope, ScopeID: val.ScopeID, Version: val.Version}
 				} else if val, found := d.RuntimeState.Get(memory.ScopeWorkflow, task.Workflow, key); found {
 					task.Memory[key] = val.Value
+					task.MemoryMetadata[key] = MemoryReference{Scope: val.Scope, ScopeID: val.ScopeID, Version: val.Version}
 				} else if val, found := d.RuntimeState.Get(memory.ScopeGlobal, "global", key); found {
 					task.Memory[key] = val.Value
+					task.MemoryMetadata[key] = MemoryReference{Scope: val.Scope, ScopeID: val.ScopeID, Version: val.Version}
 				}
 			}
 		}

@@ -10,6 +10,7 @@ import shlex
 import socket
 import ssl
 import subprocess
+import shutil
 import sys
 import tempfile
 import urllib.parse

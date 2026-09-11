@@ -1,7 +1,8 @@
 import os
 import subprocess
 
-os.environ['GROQ_API_KEY'] = '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'
+if not os.environ.get('GROQ_API_KEY'):
+    raise RuntimeError('Set GROQ_API_KEY in the process environment before running this manual test')
 p = subprocess.Popen(['python', r'd:\Reticle\cmd\forge\workspaces\forge_workspace_20260806_095140\workers\game-designer-agent.py'], 
                      stdin=subprocess.PIPE, 
                      stdout=subprocess.PIPE, 

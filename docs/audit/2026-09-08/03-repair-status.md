@@ -4,6 +4,8 @@ The original [findings](01-findings.md) and [recommendations](02-recommendations
 
 ## Result and limits
 
+Follow-up: [shared-memory effectiveness review](04-shared-memory-review.md) records additional fixes and measured lookup improvements, plus unresolved lifecycle limits. [ML environment selection](../../../ml-environments.md) distinguishes proposed hardware profiles from current behavior; [environment configuration](../../../environment.md) now documents AWS identity options and the missing deployment adapter.
+
 The repair implements authenticated local control, contained file tools and attachments, a common worker protocol/SDK, specialist registration, ordered result handling, cancellation across compilation/execution, scoped generated workers, lazy dependency provisioning, Studio lifecycle recovery, schemas, documentation and offline regression gates.
 
 This is not a claim that every grouped finding is fully closed. Rows marked **Partial** identify remaining engineering work; **External** requires a real environment, credential source or owner decision. In particular, protected cloud deployment and active pentesting are intentionally unavailable through the generic specialist command loop until an action-specific authorized adapter exists. Native execution remains trusted code running with the user's OS permissions.
@@ -85,18 +87,18 @@ The saved [initial repair verification](evidence/repair-verification.json) and [
 
 - Runtime and Forge Go package tests pass, including real child-process output contracts, result-before-dependent dispatch, cancellation-before-submission, approval tampering, path/control authorization, routing leases and attachment ownership.
 - All four standalone Go example modules build through go test. They have no package-level tests and were not executed against providers.
-- Eight Python unittest cases pass: six generator variants, contained literal file operations, public URL restrictions, mocked SDK completion/exhaustion, no-retry-after-effects, RAG snapshot reconciliation and ComfyUI configuration/path checks. No LLM or service request is needed.
+- Thirteen Python unittest cases pass, covering the worker contracts above plus shared-memory prompt visibility, conditional mutations, credential-literal scanning and the paired memory-quality harness. No LLM or service request is needed for this default suite.
 - Five Studio projection tests pass: reconnect snapshots, mixed-session batches, immutable lifecycle transitions, out-of-order replay and fatal-overload handling.
 - Studio typecheck and production bundle build pass. Lint exits successfully with eight warnings. Vite reports future config-loader compatibility and large editor/application chunks; a successful bundle is not a signed/installed Electron acceptance test.
 - Whitespace validation uses git diff --check with line-ending conversion disabled for this mixed-ending checkout.
 
-Local Go is 1.27.1 and Node is 26.8.1. Linux race checks are specified in CI but were not run on this Windows machine (no configured C toolchain). The test suite does not validate actual cloud identities, paid provider access, GPU training quality, checkpoint resumption, ComfyUI service cancellation, or clean dependency installation.
+Local Go is 1.27.1 and Node is 26.8.1. Linux race checks are specified in CI. A local race attempt reported that CGO must be enabled, so the race detector was not completed on this Windows machine. The test suite does not validate actual cloud identities, paid provider access, GPU training quality, checkpoint resumption, ComfyUI service cancellation, or clean dependency installation.
 
 ## Required follow-up
 
 1. Identify the missing .env key names and their credential source. Existing catalogued provider slots were populated when inspected; only names/presence were inspected, never values in reports. The new .env.example and environment guide include optional integrations. No secrets can be reconstructed from source code.
 2. Choose the cloud target/identity, prepared immutable job image and ML hardware/budget, then run adapter-specific acceptance checks. Protected mutations remain refused until their exact authorization path exists.
-3. Finish the engineering items marked Partial: reproducible specialist locks, durable replay/effect journal, completed-state retention and remote resource reconciliation.
+3. Finish the engineering items still marked Partial: reproducible specialist locks, external-effect reconciliation and remote resource reconciliation. RFC-044 now provides bounded local memory retention and restart snapshots; a replicated or high-throughput journal/database backend remains future scaling work.
 4. Supply the project's intended license text.
 
 ## External references used for repair decisions

@@ -7,6 +7,22 @@ import sys
 import time
 import forge_utils as toolset
 
+def shared_memory_context(memory):
+    """Expose dispatched facts, excluding runtime controls, with an explicit size limit."""
+    controls = {"user_prompt", "workspace_dir", "max_retries", "allow_native_execution",
+                "ide_context", "prompt_attachments", "prompt_history", "global_effort",
+                "agent_complexity", "task_timeout_seconds"}
+    facts = {key: value for key, value in memory.items() if key not in controls}
+    if len(json.dumps(facts, ensure_ascii=False).encode("utf-8")) > 65536:
+        raise ValueError("Shared memory exceeds 64 KiB: select fewer required_memory keys or use summaries/artifact references")
+    return facts
+
+def build_user_context(req, memory):
+    return {"prompt":req.get("parameters",{}).get("user_prompt",memory.get("user_prompt")),
+            "inputs":req.get("inputs",[]), "context":memory.get("ide_context"),
+            "attachments":memory.get("prompt_attachments"), "history":memory.get("prompt_history"),
+            "shared_memory":shared_memory_context(memory), "memory_metadata":req.get("memory_metadata",{})}
+
 def run(instructions, kind="coding"):
     req = json.load(sys.stdin)
     model = req.get("parameters", {}).get("llm_model")
@@ -22,6 +38,7 @@ def run(instructions, kind="coding"):
     graph_mutation = None
     definitions = dict(toolset._definitions)
     definitions["remember"] = ("Save a JSON value in this execution's memory", {"key":"string", "value_json":"string"})
+    definitions["remember_if_version"] = ("Update an execution-memory key only if its execution-scoped revision in memory_metadata still matches; use 0 to create an absent execution key", {"key":"string", "value_json":"string", "expected_version":"string"})
     definitions["delegate"] = ("Request a registered agent and then return to this supervisor", {"target_agent":"string"})
     implementations = {}
     if kind == "rag":
@@ -29,19 +46,44 @@ def run(instructions, kind="coding"):
         for name, key in (("index_directory","path"),("query_knowledge","query"),("remove_path_from_index","path")):
             definitions[name] = (name.replace("_"," "), {key:"string"})
             implementations[name] = getattr(rag_tools,name)
-    if kind == "frontend":
-        import comfy_tools
-        definitions["generate_local_asset"]=("Generate an image using configured local ComfyUI",{"prompt":"string","output_path":"string"})
-        implementations["generate_local_asset"] = comfy_tools.generate_local_asset
+    import comfy_tools
+    import urllib.request, urllib.parse
+    comfy_checkpoints = ""
+    try:
+        host = os.getenv("COMFYUI_HOST", "http://127.0.0.1:8188").rstrip("/")
+        req_chk = urllib.request.Request(host+"/object_info/CheckpointLoaderSimple")
+        with urllib.request.urlopen(req_chk, timeout=2) as res:
+            chk_data = json.loads(res.read(1024*1024))
+            ckpt_list = chk_data.get("CheckpointLoaderSimple", {}).get("input", {}).get("required", {}).get("ckpt_name", [[]])[0]
+            if ckpt_list:
+                comfy_checkpoints = " Available checkpoints: " + ", ".join(ckpt_list)
+    except Exception:
+        pass
+
+    definitions["generate_local_asset"]=(
+        f"Generate an image using configured local ComfyUI.{comfy_checkpoints}",
+        {
+            "prompt":"string",
+            "output_path":"string",
+            "checkpoint":"string"
+        }
+    )
+    implementations["generate_local_asset"] = comfy_tools.generate_local_asset
     tools=[{"type":"function","function":{"name":name,"description":desc,"parameters":{"type":"object","properties":{k:{"type":v} for k,v in props.items()},"required":list(props),"additionalProperties":False}}} for name,(desc,props) in definitions.items()]
     verified = False
     effects_started = False
     messages = [{"role":"system", "content": instructions + "\n" + req.get("parameters",{}).get("system_prompt","") + "\nUse workspace-relative paths. Terminal cwd is src. Finish only after checking your work. An exhausted loop is a failure."},
-                {"role":"user", "content":json.dumps({"prompt":req.get("parameters",{}).get("user_prompt",mem.get("user_prompt")),"inputs":req.get("inputs",[]),"context":mem.get("ide_context"),"attachments":mem.get("prompt_attachments"),"history":mem.get("prompt_history")})}]
+                {"role":"user", "content":json.dumps(build_user_context(req, mem))}]
     kwargs = {}
     key_name = req.get("parameters", {}).get("api_key")
     if model.startswith(("ollama/", "ollama_chat/")):
         kwargs["api_base"] = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    elif model.startswith("llama/"):
+        model = "openai/" + model[6:]
+        llama_host = os.getenv("LLAMA_HOST", "http://localhost:8080").rstrip("/")
+        kwargs["api_base"] = llama_host + "/v1"
+        if key_name and key_name in os.environ:
+            kwargs["api_key"] = os.environ[key_name]
     elif key_name:
         kwargs["api_key"] = os.environ[key_name]
     started = time.monotonic()
@@ -49,7 +91,11 @@ def run(instructions, kind="coding"):
         if time.monotonic() - started > 900:
             raise TimeoutError("Agent time budget exhausted")
         try:
-            response = completion(model=model, messages=messages, tools=tools, timeout=90, num_retries=0, **kwargs)
+            extra_headers = {
+                "HTTP-Referer": "https://github.com/ManasN9401/Reticle",
+                "X-Title": "Reticle Agentic Harness",
+            }
+            response = completion(model=model, messages=messages, tools=tools, timeout=90, num_retries=0, extra_headers=extra_headers, **kwargs)
         except Exception:
             if not effects_started:
                 print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr, flush=True)
@@ -73,10 +119,15 @@ def run(instructions, kind="coding"):
                         raise ValueError("No successful verification has been recorded")
                     sys.stdout.write(json.dumps({"id":req["id"],"memory":memory_updates,"graph_mutation":graph_mutation,"artifact":{"id":req["id"]+"_output","name":kind+" output","type":"document/markdown","data":args["summary"]}})+"\n")
                     return
-                if name == "remember":
+                if name in ("remember", "remember_if_version"):
                     if not args["key"] or len(args["key"]) > 120 or len(args["value_json"]) > 65536:
                         raise ValueError("Memory key/value exceeds the task limit")
-                    memory_updates.append({"key":args["key"],"value":json.loads(args["value_json"]),"scope":"execution"})
+                    update={"key":args["key"],"value":json.loads(args["value_json"]),"scope":"execution"}
+                    if name == "remember_if_version":
+                        expected=int(args["expected_version"])
+                        if expected < 0: raise ValueError("Expected version must be non-negative")
+                        update["expected_version"]=expected
+                    memory_updates.append(update)
                     result = "Memory will be committed with the final response"
                 elif name == "delegate":
                     import re

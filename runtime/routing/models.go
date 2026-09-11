@@ -106,8 +106,8 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 	type ORModel struct {
 		ID      string `json:"id"`
 		Pricing struct {
-			Prompt     string `json:"prompt"`
-			Completion string `json:"completion"`
+			Prompt     any `json:"prompt"`
+			Completion any `json:"completion"`
 		} `json:"pricing"`
 	}
 	type ORResp struct {
@@ -164,9 +164,23 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		added := 0
 		for _, m := range allORModels {
 			cost := -1.0
-			input, inputErr := strconv.ParseFloat(m.Pricing.Prompt, 64)
-			output, outputErr := strconv.ParseFloat(m.Pricing.Completion, 64)
-			if inputErr == nil && outputErr == nil && input >= 0 && output >= 0 {
+			
+			parseCost := func(v any) float64 {
+				switch val := v.(type) {
+				case string:
+					f, _ := strconv.ParseFloat(val, 64)
+					return f
+				case float64:
+					return val
+				default:
+					return -1.0
+				}
+			}
+			
+			input := parseCost(m.Pricing.Prompt)
+			output := parseCost(m.Pricing.Completion)
+			
+			if input >= 0 && output >= 0 {
 				cost = (input + output) * 500000
 			}
 			if isFreeKey && cost > 0.0 && !strings.HasSuffix(m.ID, ":free") {
@@ -186,7 +200,10 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 					}
 				}
 				if !isPremium {
-					continue
+					// If using a free key, we must allow free models through
+					if !isFreeKey || (cost > 0.0 && !strings.HasSuffix(m.ID, ":free")) {
+						continue
+					}
 				}
 			}
 
@@ -345,6 +362,100 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			resp.Body.Close()
 		}
 		log.Info("Ollama not detected or unreachable, skipping local models", "host", ollamaHost)
+	}
+
+	// 5. ComfyUI (Virtual Local Image Generator)
+	comfyHost := os.Getenv("COMFYUI_HOST")
+	if comfyHost == "" {
+		comfyHost = "http://127.0.0.1:8188"
+	}
+	comfyHost = strings.TrimRight(comfyHost, "/")
+	reqComfy, _ := http.NewRequest("GET", comfyHost+"/object_info/CheckpointLoaderSimple", nil)
+	if resp, err := client.Do(reqComfy); err == nil && resp.StatusCode == 200 {
+		var comfyData map[string]any
+		if b, err := io.ReadAll(resp.Body); err == nil {
+			json.Unmarshal(b, &comfyData)
+			if loader, ok := comfyData["CheckpointLoaderSimple"].(map[string]any); ok {
+				if inputs, ok := loader["input"].(map[string]any); ok {
+					if required, ok := inputs["required"].(map[string]any); ok {
+						if ckptName, ok := required["ckpt_name"].([]any); ok && len(ckptName) > 0 {
+							if ckptList, ok := ckptName[0].([]any); ok {
+								for _, ckptRaw := range ckptList {
+									if ckptStr, ok := ckptRaw.(string); ok {
+										newAvailableModels = append(newAvailableModels, Model{
+											ID:         "comfyui/" + ckptStr,
+											Cost:       0.0,
+											Capability: 10.0,
+											APIKeyEnv:  "COMFYUI_HOST",
+											Enabled:    true,
+											Modality:   "image",
+										})
+									}
+								}
+								log.Info("Dynamically loaded ComfyUI models", "host", comfyHost, "count", len(ckptList))
+							}
+						}
+					}
+				}
+			}
+		}
+		resp.Body.Close()
+	} else {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		log.Info("ComfyUI not detected or unreachable, falling back to default", "host", comfyHost)
+		newAvailableModels = append(newAvailableModels, Model{
+			ID:         "comfyui/default",
+			Cost:       0.0,
+			Capability: 10.0,
+			APIKeyEnv:  "COMFYUI_HOST",
+			Enabled:    true,
+			Modality:   "image",
+		})
+	}
+
+	// 6. Generic OpenAI-compatible local server (llama.cpp/llama-server)
+	type LlamaModel struct {
+		ID string `json:"id"`
+	}
+	type LlamaResp struct {
+		Data []LlamaModel `json:"data"`
+	}
+
+	llamaHost := os.Getenv("LLAMA_HOST")
+	if llamaHost == "" {
+		llamaHost = "http://localhost:8080"
+	}
+	llamaHost = strings.TrimRight(llamaHost, "/")
+
+	reqLlama, _ := http.NewRequest("GET", llamaHost+"/v1/models", nil)
+	llamaKey := os.Getenv("LLAMA_API_KEY")
+	if llamaKey != "" {
+		reqLlama.Header.Set("Authorization", "Bearer "+llamaKey)
+	}
+	if resp, err := client.Do(reqLlama); err == nil && resp.StatusCode == 200 {
+		var llamaData LlamaResp
+		if b, err := io.ReadAll(resp.Body); err == nil {
+			json.Unmarshal(b, &llamaData)
+			for _, m := range llamaData.Data {
+				newAvailableModels = append(newAvailableModels, Model{
+					ID:         "llama/" + m.ID,
+					Cost:       0.0, // Local is free
+					Capability: estimateCapability(m.ID),
+					APIKeyEnv:  "LLAMA_API_KEY",
+					Enabled:    true,
+					Modality:   detectModality(m.ID),
+				})
+			}
+			log.Info("Dynamically loaded Llama models", "host", llamaHost, "count", len(llamaData.Data))
+		}
+		resp.Body.Close()
+	} else {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		log.Info("Llama server not detected, unreachable, or auth failed", "host", llamaHost)
 	}
 
 	if len(newAvailableModels) == 0 {

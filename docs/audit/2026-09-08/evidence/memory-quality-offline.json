@@ -1,0 +1,12 @@
+{
+  "model": null,
+  "attempts": 1,
+  "cases": [
+    {"id": "relevant-fact", "contract_pass": true},
+    {"id": "conflicting-scope", "contract_pass": true},
+    {"id": "stale-fact", "contract_pass": true},
+    {"id": "structured-fact", "contract_pass": true}
+  ],
+  "summary": {"mode": "offline-contract", "passed": 4, "total": 4},
+  "elapsed_seconds": 0.0
+}
