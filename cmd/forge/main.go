@@ -374,6 +374,9 @@ func main() {
 	fmt.Printf("Concurrency Limit: %d\n", *batchSize)
 	fmt.Println("Commands:")
 	fmt.Println("  exit                - Shutdown Orchestrator")
+	fmt.Println("  models list         - List all available models and their status")
+	fmt.Println("  models enable <ID>  - Enable a model by its ID or Key")
+	fmt.Println("  models disable <ID> - Disable a model by its ID or Key")
 	fmt.Println("  @group:NAME [PROMPT]- Queue prompt in a sequential group")
 	fmt.Println("  [PROMPT]            - Queue prompt in default parallel mode")
 	fmt.Print("> ")
@@ -382,6 +385,58 @@ func main() {
 		text := strings.TrimSpace(reader.Text())
 		if text == "exit" {
 			return
+		}
+		if text == "models list" {
+			routing.ModelsMutex.RLock()
+			fmt.Println("\nAvailable Models:")
+			for _, m := range routing.AvailableModels {
+				status := "DISABLED"
+				if m.Enabled {
+					status = "ENABLED "
+				}
+				fmt.Printf("  [%s] %-50s (Mod: %-6s, Cap: %4.1f, Cost: %5.2f, Key: %s)\n", status, m.ID, m.Modality, m.Capability, m.Cost, m.APIKeyEnv)
+			}
+			routing.ModelsMutex.RUnlock()
+			fmt.Print("> ")
+			continue
+		}
+		if strings.HasPrefix(text, "models enable ") {
+			target := strings.TrimSpace(strings.TrimPrefix(text, "models enable "))
+			routing.ModelsMutex.Lock()
+			found := false
+			for i := range routing.AvailableModels {
+				if routing.AvailableModels[i].ID == target || routing.AvailableModels[i].Key() == target {
+					routing.AvailableModels[i].Enabled = true
+					found = true
+				}
+			}
+			routing.ModelsMutex.Unlock()
+			if found {
+				fmt.Printf("[INFO] Enabled model: %s\n", target)
+			} else {
+				fmt.Printf("[ERROR] Model not found: %s\n", target)
+			}
+			fmt.Print("> ")
+			continue
+		}
+		if strings.HasPrefix(text, "models disable ") {
+			target := strings.TrimSpace(strings.TrimPrefix(text, "models disable "))
+			routing.ModelsMutex.Lock()
+			found := false
+			for i := range routing.AvailableModels {
+				if routing.AvailableModels[i].ID == target || routing.AvailableModels[i].Key() == target {
+					routing.AvailableModels[i].Enabled = false
+					found = true
+				}
+			}
+			routing.ModelsMutex.Unlock()
+			if found {
+				fmt.Printf("[INFO] Disabled model: %s\n", target)
+			} else {
+				fmt.Printf("[ERROR] Model not found: %s\n", target)
+			}
+			fmt.Print("> ")
+			continue
 		}
 		if text == "" {
 			fmt.Print("> ")

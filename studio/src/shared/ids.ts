@@ -133,7 +133,7 @@ export function indicatesMockFallback(log: string | undefined): boolean {
   return log ? MOCK_PATTERN.test(log) : false
 }
 
-/** Worker LLM diagnostics are prefixed `[LLM]`; shown in a separate inspector tab. */
+/** Worker LLM diagnostics are prefixed `[LLM]` or `[LLM_STREAM]`; shown in a separate inspector tab. */
 export function isLlmLog(log: string | undefined): boolean {
-  return log ? log.includes('[LLM]') : false
+  return log ? log.includes('[LLM]') || log.includes('[LLM_STREAM]') : false
 }
