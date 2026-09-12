@@ -132,6 +132,40 @@ def run(instructions, kind="coding"):
             message_dict = {"role": "assistant"}
             if content_buffer:
                 message_dict["content"] = "".join(content_buffer)
+                
+                # FALLBACK: Try to parse raw JSON into a tool call if native tool_calls are missing
+                if not tool_calls_buffer:
+                    content_str = message_dict["content"].strip()
+                    try:
+                        import re
+                        parsed = None
+                        json_match = re.search(r'```(?:json)?\s*(\{.*\}|\[.*\])\s*```', content_str, re.DOTALL)
+                        if json_match:
+                            parsed = json.loads(json_match.group(1))
+                        else:
+                            start_idx = content_str.find('{')
+                            end_idx = content_str.rfind('}')
+                            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                                parsed = json.loads(content_str[start_idx:end_idx+1])
+                        
+                        if parsed:
+                            tcs = []
+                            if isinstance(parsed, dict):
+                                if "tool_calls" in parsed and isinstance(parsed["tool_calls"], list):
+                                    for idx, tc in enumerate(parsed["tool_calls"]):
+                                        tcs.append({"id": f"call_man_{idx}", "type": "function", "function": {"name": tc.get("name", tc.get("function", {}).get("name", "")), "arguments": json.dumps(tc.get("arguments", tc.get("function", {}).get("arguments", {}))) if isinstance(tc.get("arguments", tc.get("function", {}).get("arguments", {})), dict) else tc.get("arguments", tc.get("function", {}).get("arguments", ""))}})
+                                elif "name" in parsed and "arguments" in parsed:
+                                    tcs.append({"id": "call_man_0", "type": "function", "function": {"name": parsed["name"], "arguments": json.dumps(parsed["arguments"]) if isinstance(parsed["arguments"], dict) else parsed["arguments"]}})
+                                elif len(parsed) == 1:
+                                    key = list(parsed.keys())[0]
+                                    if isinstance(parsed[key], dict):
+                                        tcs.append({"id": "call_man_0", "type": "function", "function": {"name": key, "arguments": json.dumps(parsed[key])}})
+                            
+                            if tcs:
+                                message_dict["tool_calls"] = tcs
+                    except Exception:
+                        pass
+
             if tool_calls_buffer:
                 message_dict["tool_calls"] = []
                 for idx in sorted(tool_calls_buffer.keys()):

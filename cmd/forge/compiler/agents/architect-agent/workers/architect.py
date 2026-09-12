@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 def main():
     real_stdout = sys.stdout
-    sys.stdout = sys.stderr
-
     import litellm
     litellm.suppress_debug_info = True
 
@@ -25,7 +23,16 @@ def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
+    log_file = open("architect_debug.log", "w", encoding='utf-8')
+    sys.stderr = log_file
+    sys.stdout = log_file
+
+    with open("pre_read.log", "w") as f:
+        f.write("waiting for stdin\n")
+
     line = sys.stdin.readline()
+    with open("post_read.log", "w") as f:
+        f.write("got line: " + line[:50] + "\n")
     if not line: return
 
     req = json.loads(line)
@@ -37,6 +44,7 @@ def main():
     try:
         print(f"[{req_id}] Architecting DAG...", file=sys.stderr)
         print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr)
+        log_file.flush()
 
         available_agents_prompt = available_agents if available_agents and available_agents.strip() != "None" else "None. You MUST create all new specialized agents (set is_new: true for ALL agents)."
 
@@ -150,6 +158,7 @@ CRITICAL: Do NOT write the `system_prompt` yet. The system prompts will be gener
 CRITICAL: Every node in the `nodes` array MUST have a valid `agent_id` that EXACTLY matches the `id` of an agent defined in the `agents` list or the AVAILABLE AGENTS list. NEVER leave `agent_id` blank or null.
 CRITICAL: Node IDs MUST be highly descriptive, semantic, and human-readable (e.g. 'compile-frontend', 'research-sources', 'draft-outline'). DO NOT use generic IDs like 'node-1' or 'node-2'.
 CRITICAL: Every edge in the `edges` array MUST reference `from` and `to` nodes that EXACTLY match the `id` of a node defined in the `nodes` array. NEVER reference a node that does not exist.
+CRITICAL: Keep your reasoning brief. Do NOT repeat instructions or rules. Output the JSON as soon as possible without getting stuck in a loop.
 
 Output ONLY the raw JSON. Do not output markdown code blocks.
 """
@@ -176,36 +185,45 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 
         kwargs = {}
         if model.startswith(("ollama/", "ollama_chat/")):
-            kwargs["api_base"] = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+            kwargs["api_base"] = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
             if not api_key: api_key = "dummy"
         elif model.startswith("llama/"):
             model = "openai/" + model[6:]
-            llama_host = os.getenv("LLAMA_HOST", "http://localhost:8080").rstrip("/")
+            llama_host = os.getenv("LLAMA_HOST", "http://127.0.0.1:8080").rstrip("/")
             kwargs["api_base"] = llama_host + "/v1"
             if not api_key: api_key = "dummy"
+
+        if api_key:
+            kwargs["api_key"] = api_key
 
         @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=2, min=5, max=120))
         def get_architect_response():
             try:
                 # Architect output is just a schema with 'TBD' system prompts, so it's very small
-                target_max_tokens = 4096
-                if "gemini" in model.lower() or "claude" in model.lower():
-                    target_max_tokens = 8192
+                target_max_tokens = 8192
                 
                 extra_headers = {
                     "HTTP-Referer": "https://github.com/ManasN9401/Reticle",
                     "X-Title": "Reticle Agentic Harness",
                 }
+                print(f"Calling litellm.completion... with kwargs: {kwargs}", file=sys.stderr)
+                log_file.flush()
                 resp = completion(
                     model=model,
-                    api_key=api_key,
                     max_tokens=target_max_tokens,
                     messages=conversation,
-                    timeout=1800,
-                    extra_headers=extra_headers,
                     temperature=0.2,
+                    timeout=7200,
+                    extra_headers=extra_headers,
+                    stop=["```\n", "``` "],
                     **kwargs
                 )
+                print("litellm.completion returned!", file=sys.stderr)
+                raw_text = getattr(resp.choices[0].message, "content", "") or ""
+                reasoning = getattr(resp.choices[0].message, "reasoning_content", "") or ""
+                print(f"RAW LLM REASONING:\n{reasoning}\n", file=sys.stderr)
+                print(f"RAW LLM OUTPUT:\n{raw_text}\n", file=sys.stderr)
+                log_file.flush()
             except Exception as e:
                 err_str = str(e)
                 if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str or "APIError" in err_str or "APIConnectionError" in err_str or "502" in err_str or "503" in err_str or "too large" in err_str.lower() or "context_window" in err_str.lower() or "max_tokens" in err_str.lower() or "BadRequest" in err_str or "InvalidRequest" in err_str or "model_ter" in err_str.lower() or "invalid_request_error" in err_str.lower() or "402" in err_str or "payment" in err_str.lower() or "credits" in err_str.lower() or "purchased" in err_str.lower() or "authenticationerror" in err_str.lower() or "timeout" in err_str.lower():
@@ -301,6 +319,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     conversation.append({"role": "assistant", "content": assistant_content})
                     conversation.append({"role": "user", "content": f"{err_msg}\nFix this and output the raw JSON again."})
                 print(f"[ARCHITECT] {err_msg}", file=sys.stderr)
+                log_file.flush()
                 raise Exception(err_msg) # This triggers the @retry
 
             return data
@@ -319,16 +338,18 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 try:
                     resp = completion(
                         model=model,
-                        api_key=api_key,
-                        max_tokens=1500,
-                        messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}]
+                        max_tokens=8192,
+                        temperature=0.2,
+                        messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}],
+                        timeout=7200,
+                        **kwargs
                     )
                     return resp.choices[0].message.content.strip()
                 except Exception as e:
                     print(f"[{agent['id']}] Error generating prompt: {e}", file=sys.stderr)
                     return "Error generating prompt. You must figure out what to do based on your description: " + agent.get("description", "")
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(new_agents), 20)) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future_to_agent = {executor.submit(generate_prompt, a): a for a in new_agents}
                 for future in concurrent.futures.as_completed(future_to_agent):
                     a = future_to_agent[future]

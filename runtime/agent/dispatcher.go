@@ -170,15 +170,15 @@ func (d *Dispatcher) Start() {
 			}
 		}
 
-		timeout := 1800
+		timeout := 7200
 		if value, ok := task.Memory["task_timeout_seconds"]; ok {
 			fmt.Sscan(fmt.Sprint(value), &timeout)
 		}
 		if timeout < 1 {
 			timeout = 1
 		}
-		if timeout > 3600 {
-			timeout = 3600
+		if timeout > 7200 {
+			timeout = 7200
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 		d.activeTasksMu.Lock()
