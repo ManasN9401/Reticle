@@ -143,7 +143,7 @@ export const COMMANDS: Command[] = [
     title: 'Start Forge',
     section: 'Run',
     keys: 'F5',
-    run: () => startForge(),
+    run: () => useUi.getState().setLauncherOpen(true),
     enabled: canStartForge,
     disabledReason: 'forge.exe is already running, or no binary is configured.',
   },

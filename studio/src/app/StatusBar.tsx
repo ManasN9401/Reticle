@@ -81,7 +81,7 @@ export function StatusBar() {
       <StatusItem
         onClick={() => {
           if (canStopForge()) void stopForge()
-          else if (canStartForge()) void startForge()
+          else if (canStartForge()) useUi.getState().setLauncherOpen(true)
         }}
         disabled={!canStartForge() && !canStopForge()}
         title={

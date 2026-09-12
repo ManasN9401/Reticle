@@ -36,6 +36,7 @@ def main():
 
     try:
         print(f"[{req_id}] Architecting DAG...", file=sys.stderr)
+        print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr)
 
         available_agents_prompt = available_agents if available_agents and available_agents.strip() != "None" else "None. You MUST create all new specialized agents (set is_new: true for ALL agents)."
 
@@ -68,8 +69,8 @@ def main():
             with open(os.path.join(base_dir, "docs", "standards", "007 AGENT_STANDARD.md"), "r", encoding="utf-8") as f:
                 agent_std = f.read()
 
-            # Truncate for strict context limits on Groq
-            if "groq" in model.lower():
+            # Truncate for strict context limits on Groq and local models
+            if "groq" in model.lower() or "llama" in model.lower() or "ollama" in model.lower() or "qwen" in model.lower():
                 rfc_008 = rfc_008[:1000] + "\n...(TRUNCATED)"
                 rfc_027 = rfc_027[:1000] + "\n...(TRUNCATED)"
                 agent_std = agent_std[:1000] + "\n...(TRUNCATED)"
@@ -176,17 +177,19 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         kwargs = {}
         if model.startswith(("ollama/", "ollama_chat/")):
             kwargs["api_base"] = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+            if not api_key: api_key = "dummy"
         elif model.startswith("llama/"):
             model = "openai/" + model[6:]
             llama_host = os.getenv("LLAMA_HOST", "http://localhost:8080").rstrip("/")
             kwargs["api_base"] = llama_host + "/v1"
+            if not api_key: api_key = "dummy"
 
         @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=2, min=5, max=120))
         def get_architect_response():
             try:
                 # Architect output is just a schema with 'TBD' system prompts, so it's very small
-                target_max_tokens = 8000
-                if "gemini" in model.lower() or "llama" in model.lower() or "claude" in model.lower():
+                target_max_tokens = 4096
+                if "gemini" in model.lower() or "claude" in model.lower():
                     target_max_tokens = 8192
                 
                 extra_headers = {
@@ -198,7 +201,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     api_key=api_key,
                     max_tokens=target_max_tokens,
                     messages=conversation,
-                    timeout=60,
+                    timeout=1800,
                     extra_headers=extra_headers,
                     temperature=0.2,
                     **kwargs
@@ -207,6 +210,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 err_str = str(e)
                 if "RateLimit" in err_str or "429" in err_str or "quota" in err_str.lower() or "overloaded" in err_str.lower() or "NotFoundError" in err_str or "404" in err_str or "APIError" in err_str or "APIConnectionError" in err_str or "502" in err_str or "503" in err_str or "too large" in err_str.lower() or "context_window" in err_str.lower() or "max_tokens" in err_str.lower() or "BadRequest" in err_str or "InvalidRequest" in err_str or "model_ter" in err_str.lower() or "invalid_request_error" in err_str.lower() or "402" in err_str or "payment" in err_str.lower() or "credits" in err_str.lower() or "purchased" in err_str.lower() or "authenticationerror" in err_str.lower() or "timeout" in err_str.lower():
                     # We fail FAST on hard limits so the Go orchestrator can catch it and route to a new model
+                    print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr)
                     print(f"[LLM] Hard limit reached on {model}: {err_str[:150]}", file=sys.stderr)
                     sys.exit(1)
                 else:
@@ -215,6 +219,9 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 
             try:
                 content = resp.choices[0].message.content
+                if content:
+                    for line in content.split("\n"):
+                        print(f"[LLM] {line}", file=sys.stderr, flush=True)
                 raw_content = content.strip() if content else ""
 
                 # Robust JSON extraction

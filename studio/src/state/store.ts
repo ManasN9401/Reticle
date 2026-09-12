@@ -47,7 +47,7 @@ export interface StudioStore {
   scrubEventId: number | null
 
   setSystemPrefersLight(light: boolean): void
-  initialize(): Promise<void>
+  initialize(): Promise<() => void>
   selectRun(execId: string | null): void
   selectNode(nodeId: string | null): void
   setScrub(eventId: number | null): void
@@ -113,49 +113,58 @@ export const useStudio = create<StudioStore>((set, get) => ({
     const backfill = await bridge.logs.query({ limit: 4_000 })
     set({ logs: backfill.records, logsTruncated: backfill.truncated })
 
-    bridge.window.onState((next) => set({ windowState: next }))
-    bridge.connection.onState((next) => set({ connection: next }))
-    bridge.forge.onState((next) => set({ forge: next }))
-    bridge.settings.onChange((next) => set({ settings: next }))
+    const unsubs = [
+      bridge.window.onState((next) => set({ windowState: next })),
+      bridge.connection.onState((next) => set({ connection: next })),
+      bridge.forge.onState((next) => set({ forge: next })),
+      bridge.settings.onChange((next) => set({ settings: next })),
 
-    bridge.projection.onPush(({ state, events: batch }) => {
-      set((prev) => ({
-        projection: state,
-        timeline: appendCapped(prev.timeline, toTicks(batch), TIMELINE_LIMIT),
-      }))
-    })
+      bridge.projection.onPush(({ state, events: batch }) => {
+        set((prev) => ({
+          projection: state,
+          timeline: appendCapped(prev.timeline, toTicks(batch), TIMELINE_LIMIT),
+        }))
+      }),
 
-    bridge.logs.onBatch((batch) => {
-      set((prev) => ({
-        logs: appendCapped(prev.logs, batch.records, LOG_LIMIT),
-        logsTruncated: prev.logsTruncated || batch.truncated,
-      }))
-    })
+      bridge.logs.onBatch((batch) => {
+        set((prev) => ({
+          logs: appendCapped(prev.logs, batch.records, LOG_LIMIT),
+          logsTruncated: prev.logsTruncated || batch.truncated,
+        }))
+      }),
 
-    // forge's own stdout/stderr is not on the event bus, so fold it into the
-    // same stream the user is already reading.
-    bridge.forge.onOutput((chunk: ForgeOutputChunk) => {
-      set((prev) => ({
-        logs: appendCapped(
-          prev.logs,
-          [
-            {
-              seq: -Date.now() - prev.logs.length,
-              at: chunk.at,
-              level: chunk.stream === 'stderr' ? 'warn' : 'info',
-              message: chunk.line,
-              agentId: 'forge',
-              isLlm: false,
-            },
-          ],
-          LOG_LIMIT,
-        ),
-      }))
-    })
+      bridge.forge.onOutput((chunk: ForgeOutputChunk) => {
+        // The Go orchestrator echoes all its structured events to stdout prefixed with EVENT.
+        // We already receive and parse the actual JSON events over the WebSocket,
+        // so we ignore the stdout echo to prevent duplicate logs in the UI.
+        if (/^\[\d{2}:\d{2}:\d{2}\]\s+EVENT/.test(chunk.line)) return
+
+        set((prev) => ({
+          logs: appendCapped(
+            prev.logs,
+            [
+              {
+                seq: -Date.now() - prev.logs.length,
+                at: chunk.at,
+                level: chunk.stream === 'stderr' ? 'warn' : 'info',
+                message: chunk.line,
+                agentId: 'forge',
+                isLlm: false,
+              },
+            ],
+            LOG_LIMIT,
+          ),
+        }))
+      }),
+    ]
 
     if (!get().selectedExecId) {
       const run = latestRun(projection)
       if (run) set({ selectedExecId: run.execId })
+    }
+
+    return () => {
+      unsubs.forEach((unsub) => unsub())
     }
   },
 

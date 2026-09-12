@@ -22,6 +22,7 @@ import {
 } from '@/state/actions'
 import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
+import { useUi } from '@/state/ui'
 import type { NodeStyle, SettingsPatch, ThemePreference } from '@shared/ipc'
 import { KeysSection } from './KeysSection'
 import { ModelsSection } from './ModelsSection'
@@ -265,7 +266,7 @@ function ForgeSection({ patch }: { patch: Patch }) {
               <Play size={11} strokeWidth={2.2} />
             )
           }
-          onClick={() => (canStopForge() ? stopForge() : startForge())}
+          onClick={() => (canStopForge() ? stopForge() : useUi.getState().setLauncherOpen(true))}
         >
           {canStopForge() ? 'Stop' : 'Start'}
         </Button>

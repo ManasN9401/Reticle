@@ -36,6 +36,7 @@ export interface UiStore {
   activeTabId: string
 
   paletteOpen: boolean
+  launcherOpen: boolean
   inspectorOpen: boolean
 
   /** Node id whose approval checkpoint is being reviewed. */
@@ -55,6 +56,7 @@ export interface UiStore {
   setActiveTab(id: string): void
 
   setPalette(open: boolean): void
+  setLauncherOpen(open: boolean): void
   toggleInspector(): void
   setReviewNode(nodeId: string | null): void
 }
@@ -73,6 +75,7 @@ export const useUi = create<UiStore>((set, get) => ({
   activeTabId: GRAPH_TAB.id,
 
   paletteOpen: false,
+  launcherOpen: false,
   inspectorOpen: true,
   reviewNodeId: null,
 
@@ -137,6 +140,10 @@ export const useUi = create<UiStore>((set, get) => ({
 
   setPalette(open) {
     set({ paletteOpen: open })
+  },
+
+  setLauncherOpen(open) {
+    set({ launcherOpen: open })
   },
 
   toggleInspector() {

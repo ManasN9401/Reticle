@@ -43,6 +43,7 @@ export function LogPanel() {
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
     return logs.filter((record) => {
+      if (record.isLlm) return false
       if (!levels.has(record.level)) return false
       if (run && record.execId && record.execId !== run.execId) return false
       if (scopeToNode && selectedNodeId && record.nodeId !== selectedNodeId) return false
@@ -204,6 +205,8 @@ export function LogPanel() {
 }
 
 function LogRow({ record, height }: { record: LogRecord; height: number }) {
+  if (record.isLlm) return null
+
   return (
     <div
       className="mono flex items-center gap-2 px-2 text-code leading-none hover:bg-bg-1"
@@ -226,7 +229,6 @@ function LogRow({ record, height }: { record: LogRecord; height: number }) {
         className={cn(
           'truncate-1 min-w-0 flex-1',
           record.level === 'error' ? 'text-st-failed' : 'text-fg-2',
-          record.isLlm && 'text-fg-3 italic',
         )}
         title={record.message}
       >

@@ -78,33 +78,95 @@ def run(instructions, kind="coding"):
     key_name = req.get("parameters", {}).get("api_key")
     if model.startswith(("ollama/", "ollama_chat/")):
         kwargs["api_base"] = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        if "api_key" not in kwargs and not os.environ.get(key_name or ""):
+            kwargs["api_key"] = "dummy"
     elif model.startswith("llama/"):
         model = "openai/" + model[6:]
         llama_host = os.getenv("LLAMA_HOST", "http://localhost:8080").rstrip("/")
         kwargs["api_base"] = llama_host + "/v1"
         if key_name and key_name in os.environ:
             kwargs["api_key"] = os.environ[key_name]
+        else:
+            kwargs["api_key"] = "dummy"
     elif key_name:
         kwargs["api_key"] = os.environ[key_name]
     started = time.monotonic()
     for iteration in range(30):
-        if time.monotonic() - started > 900:
+        if time.monotonic() - started > 3600:
             raise TimeoutError("Agent time budget exhausted")
         try:
             extra_headers = {
                 "HTTP-Referer": "https://github.com/ManasN9401/Reticle",
                 "X-Title": "Reticle Agentic Harness",
             }
-            response = completion(model=model, messages=messages, tools=tools, timeout=90, num_retries=0, extra_headers=extra_headers, **kwargs)
+            response = completion(model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
+            content_buffer = []
+            tool_calls_buffer = {}
+            for chunk in response:
+                delta = chunk.choices[0].delta
+                if hasattr(delta, "content") and delta.content:
+                    # Stream JSON chunk to stderr
+                    sys.stderr.write(f"\n[LLM_STREAM] {json.dumps(delta.content)}\n")
+                    sys.stderr.flush()
+                    content_buffer.append(delta.content)
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_calls_buffer:
+                            tc_id = getattr(tc, "id", None) or ""
+                            tc_name = ""
+                            if hasattr(tc, "function") and hasattr(tc.function, "name") and tc.function.name:
+                                tc_name = tc.function.name
+                            tool_calls_buffer[idx] = {"id": tc_id, "function": {"name": tc_name, "arguments": ""}}
+                        else:
+                            if hasattr(tc, "id") and tc.id:
+                                tool_calls_buffer[idx]["id"] = tc.id
+                            if hasattr(tc, "function") and hasattr(tc.function, "name") and tc.function.name:
+                                tool_calls_buffer[idx]["function"]["name"] = tc.function.name
+                        if hasattr(tc, "function") and hasattr(tc.function, "arguments") and tc.function.arguments:
+                            tool_calls_buffer[idx]["function"]["arguments"] += tc.function.arguments
+                            sys.stderr.write(f"\n[LLM_STREAM] {json.dumps(tc.function.arguments)}\n")
+                            sys.stderr.flush()
+
+            # Reconstruct the message
+            message_dict = {"role": "assistant"}
+            if content_buffer:
+                message_dict["content"] = "".join(content_buffer)
+            if tool_calls_buffer:
+                message_dict["tool_calls"] = []
+                for idx in sorted(tool_calls_buffer.keys()):
+                    message_dict["tool_calls"].append({
+                        "id": tool_calls_buffer[idx]["id"],
+                        "type": "function",
+                        "function": tool_calls_buffer[idx]["function"]
+                    })
+            
+            messages.append(message_dict)
+            if "tool_calls" not in message_dict:
+                messages.append({"role":"user","content":"Use tools to verify and finish with mark_task_complete."})
+                continue
+            
+            # Create a mock message object with tool_calls for the remainder of the loop
+            class MockMessage:
+                pass
+            message = MockMessage()
+            message.tool_calls = []
+            class MockFunction:
+                pass
+            class MockToolCall:
+                pass
+            for tc in message_dict["tool_calls"]:
+                mtc = MockToolCall()
+                mtc.id = tc["id"]
+                mtc.function = MockFunction()
+                mtc.function.name = tc["function"]["name"]
+                mtc.function.arguments = tc["function"]["arguments"]
+                message.tool_calls.append(mtc)
+
         except Exception:
             if not effects_started:
                 print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr, flush=True)
             raise
-        message = response.choices[0].message
-        messages.append(message.model_dump(exclude_none=True))
-        if not message.tool_calls:
-            messages.append({"role":"user","content":"Use tools to verify and finish with mark_task_complete."})
-            continue
         for call in message.tool_calls:
             name = call.function.name
             try:

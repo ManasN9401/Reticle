@@ -13,6 +13,7 @@ import { SideBar } from './SideBar'
 import { MainSurface } from './MainSurface'
 import { StatusBar } from './StatusBar'
 import { TitleBar } from './TitleBar'
+import { LaunchForgeDialog } from './LaunchForgeDialog'
 import { isEnabled, matchKeybinding, runCommand } from './commands'
 
 export function Shell() {
@@ -35,7 +36,19 @@ export function Shell() {
   useApplyTheme()
 
   useEffect(() => {
-    void initialize()
+    let cleanup: (() => void) | undefined
+    let unmounted = false
+    void initialize().then((fn) => {
+      if (unmounted) {
+        fn()
+      } else {
+        cleanup = fn
+      }
+    })
+    return () => {
+      unmounted = true
+      cleanup?.()
+    }
   }, [initialize])
 
   // Native-menu commands resolve through the same registry as the palette.
@@ -136,6 +149,7 @@ export function Shell() {
 
       <StatusBar />
       <CommandPalette />
+      <LaunchForgeDialog />
     </div>
   )
 }

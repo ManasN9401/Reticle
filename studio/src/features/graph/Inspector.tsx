@@ -242,13 +242,32 @@ function NodeLog({
       </div>
     )
   }
+  if (llm) {
+    const combined = filtered.map(r => {
+      if (r.message.startsWith('[LLM_STREAM] ')) {
+        try {
+          const jsonStr = r.message.substring('[LLM_STREAM] '.length)
+          return JSON.parse(jsonStr)
+        } catch { return '' }
+      }
+      // Legacy compatibility for old logs
+      return r.message.replace(/^\[LLM\]\s*/, '') + '\n'
+    }).join('')
+
+    return (
+      <div className="px-4 py-4 text-xs text-fg-2 whitespace-pre-wrap font-sans leading-relaxed select-text">
+        {combined}
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col py-1">
       {filtered.map((record) => (
         <div
           key={record.seq}
           className={cn(
-            'mono px-3 py-0.5 text-2xs leading-relaxed break-words whitespace-pre-wrap',
+            'mono px-3 py-0.5 text-2xs leading-relaxed break-words whitespace-pre-wrap select-text',
             record.level === 'error' ? 'text-st-failed' : 'text-fg-3',
           )}
         >
