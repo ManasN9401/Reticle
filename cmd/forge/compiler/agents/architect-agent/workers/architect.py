@@ -68,6 +68,14 @@ def main():
         if not model:
             print("[ARCHITECT] Fatal Error: No llm_model provided by dispatcher!", file=sys.stderr)
             sys.exit(1)
+            
+        skills_dir = os.path.join(base_dir, "skills")
+        available_skills = []
+        if os.path.exists(skills_dir):
+            for item in os.listdir(skills_dir):
+                if os.path.isdir(os.path.join(skills_dir, item)):
+                    available_skills.append(item)
+        available_skills_prompt = ", ".join(available_skills) if available_skills else "None"
 
         try:
             with open(os.path.join(base_dir, "docs", "rfc", "RFC-008-Agent-Architecture.md"), "r", encoding="utf-8") as f:
@@ -97,6 +105,10 @@ CRITICAL DAG RULE: Your graph MUST be a Directed Acyclic Graph. Edges must flow 
 
 AVAILABLE AGENTS:
 {available_agents_prompt}
+
+AVAILABLE SKILLS:
+{available_skills_prompt}
+CRITICAL INSTRUCTION: When assigning `skills` to an agent, you MUST ONLY use skill IDs from the AVAILABLE SKILLS list above. NEVER invent or hallucinate new skills (e.g., 'html', 'python', 'latex'). If a skill doesn't exist in the list exactly as written, do NOT request it.
 
 {complexity_prompt}
 {hitl_rule}
