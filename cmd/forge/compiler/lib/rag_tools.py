@@ -3,6 +3,9 @@ from functools import lru_cache
 import hashlib
 import json
 import os
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+import warnings
+warnings.filterwarnings("ignore", message=".*unauthenticated requests.*")
 from pathlib import Path
 import uuid
 from forge_utils import safe_path, MAX_FILE

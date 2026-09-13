@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { isLlmLog } from '@shared/ids'
 import type { RuntimeEvent } from '@shared/events'
 import type {
   ConnectionState,
@@ -149,7 +150,7 @@ export const useStudio = create<StudioStore>((set, get) => ({
                 level: chunk.stream === 'stderr' ? 'warn' : 'info',
                 message: chunk.line,
                 agentId: 'forge',
-                isLlm: false,
+                isLlm: isLlmLog(chunk.line),
               },
             ],
             LOG_LIMIT,

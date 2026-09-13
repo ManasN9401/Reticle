@@ -73,8 +73,8 @@ def main():
         available_skills = []
         if os.path.exists(skills_dir):
             for item in os.listdir(skills_dir):
-                if os.path.isdir(os.path.join(skills_dir, item)):
-                    available_skills.append(item)
+                if item.endswith(".yaml"):
+                    available_skills.append(item[:-5])
         available_skills_prompt = ", ".join(available_skills) if available_skills else "None"
 
         try:
@@ -108,7 +108,8 @@ AVAILABLE AGENTS:
 
 AVAILABLE SKILLS:
 {available_skills_prompt}
-CRITICAL INSTRUCTION: When assigning `skills` to an agent, you MUST ONLY use skill IDs from the AVAILABLE SKILLS list above. NEVER invent or hallucinate new skills (e.g., 'html', 'python', 'latex'). If a skill doesn't exist in the list exactly as written, do NOT request it.
+CRITICAL INSTRUCTION: When assigning `skills` to an agent, you MUST ONLY use skill IDs from the AVAILABLE SKILLS list above. NEVER invent or hallucinate new skills.
+CRITICAL INSTRUCTION: ONLY assign skills that are ABSOLUTELY ESSENTIAL for the specific agent's exact task! Do NOT assign massive ML or DevOps skills (like 'ml-engineering' or 'devops-infrastructure') to simple frontend or backend agents. If no skill perfectly fits, assign an empty list: [].
 
 {complexity_prompt}
 {hitl_rule}

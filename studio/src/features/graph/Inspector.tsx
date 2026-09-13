@@ -94,7 +94,7 @@ export function Inspector() {
           </div>
           {node.failure.stderr ? (
             <pre className="mono mt-1.5 max-h-40 overflow-auto text-2xs whitespace-pre-wrap text-fg-3">
-              {node.failure.stderr}
+              {node.failure.stderr.split('\n').filter((l: string) => !l.trim().startsWith('[LLM_STREAM]')).join('\n').trim()}
             </pre>
           ) : null}
         </div>
