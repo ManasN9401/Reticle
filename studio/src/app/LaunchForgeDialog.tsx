@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
 import { FolderOpen } from 'lucide-react'
-import { cn } from '@/design/cn'
 import { Button, Input, Toggle } from '@/design/primitives'
 import { useUi } from '@/state/ui'
 import { useStudio } from '@/state/store'
@@ -25,13 +24,13 @@ function PathInput({
         placeholder="Default (creates new session)"
       />
       {value ? (
-        <Button size="sm" variant="ghost" onClick={() => onChange('')}>
+        <Button size="sm" variant="subtle" onClick={() => onChange('')}>
           Clear
         </Button>
       ) : null}
       <Button
         size="sm"
-        variant="ghost"
+        variant="subtle"
         icon={<FolderOpen size={14} />}
         onClick={async () => {
           const path = await pick()
@@ -149,10 +148,10 @@ function DialogContents() {
         </div>
 
         <footer className="flex justify-end gap-3 border-t border-line-1 bg-bg-1 px-5 py-3">
-          <Button variant="ghost" onClick={() => setLauncherOpen(false)}>
+          <Button variant="subtle" onClick={() => setLauncherOpen(false)}>
             Cancel
           </Button>
-          <Button variant="solid" onClick={submit}>
+          <Button variant="primary" onClick={submit}>
             Start Run
           </Button>
         </footer>

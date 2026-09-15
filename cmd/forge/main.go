@@ -471,28 +471,3 @@ func main() {
 	fmt.Println("\n[INFO] Shutting down...")
 	time.Sleep(2 * time.Second) // Let telemetry flush
 }
-
-func cleanupWorkspaces(workspacesDir string, keepCount int) {
-	entries, err := os.ReadDir(workspacesDir)
-	if err != nil {
-		return
-	}
-
-	var dirs []os.DirEntry
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), "forge_workspace_") {
-			dirs = append(dirs, entry)
-		}
-	}
-
-	// Sort oldest to newest (assuming lexicographical timestamp naming)
-	if len(dirs) <= keepCount {
-		return
-	}
-
-	for i := 0; i < len(dirs)-keepCount; i++ {
-		dirPath := filepath.Join(workspacesDir, dirs[i].Name())
-		fmt.Printf("[INFO] Cleaning up old workspace: %s\n", dirs[i].Name())
-		os.RemoveAll(dirPath)
-	}
-}

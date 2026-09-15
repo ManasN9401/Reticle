@@ -4,7 +4,6 @@ import {
   canStopForge,
   connect,
   disconnect,
-  startForge,
   stopForge,
 } from '@/state/actions'
 import { bridge } from '@/state/bridge'

@@ -84,12 +84,6 @@ def main():
                 rfc_027 = f.read()
             with open(os.path.join(base_dir, "docs", "standards", "007 AGENT_STANDARD.md"), "r", encoding="utf-8") as f:
                 agent_std = f.read()
-
-            # Truncate for strict context limits on Groq and local models
-            if "groq" in model.lower() or "llama" in model.lower() or "ollama" in model.lower() or "qwen" in model.lower():
-                rfc_008 = rfc_008[:1000] + "\n...(TRUNCATED)"
-                rfc_027 = rfc_027[:1000] + "\n...(TRUNCATED)"
-                agent_std = agent_std[:1000] + "\n...(TRUNCATED)"
         except Exception as e:
             print(f"[LLM] Error reading standards: {e}", file=sys.stderr)
 
