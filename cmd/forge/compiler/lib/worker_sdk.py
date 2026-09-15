@@ -90,6 +90,14 @@ def run(instructions, kind="coding"):
             kwargs["api_key"] = "dummy"
     elif key_name:
         kwargs["api_key"] = os.environ[key_name]
+    
+    if "llm_num_ctx" in mem:
+        kwargs["num_ctx"] = int(mem["llm_num_ctx"])
+    if "llm_max_tokens" in mem:
+        kwargs["max_tokens"] = int(mem["llm_max_tokens"])
+    if "llm_temperature" in mem:
+        kwargs["temperature"] = float(mem["llm_temperature"])
+
     started = time.monotonic()
     for iteration in range(30):
         if time.monotonic() - started > 3600:

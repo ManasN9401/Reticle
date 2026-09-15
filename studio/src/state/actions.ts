@@ -108,6 +108,19 @@ export async function resolveApproval(request: HitlResolveRequest) {
   return result
 }
 
+export async function updateSettings(settings: {
+  num_ctx?: number
+  max_tokens?: number
+  temperature?: number
+  use_bayesian_routing?: boolean
+}): Promise<boolean> {
+  if (!bridge) return false
+  return bridge.connection.send({
+    action: 'update_settings',
+    ...settings,
+  })
+}
+
 export async function openFileInEditor(path: string, title?: string): Promise<void> {
   useUi.getState().openTab({
     id: `file:${path}`,

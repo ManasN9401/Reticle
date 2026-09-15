@@ -307,6 +307,28 @@ func main() {
 		Owner:   "forge",
 	})
 
+	orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+		Scope:   memory.ScopeGlobal,
+		ScopeID: "global",
+		Key:     "llm_num_ctx",
+		Value:   orch.Settings.NumCtx,
+		Owner:   "forge",
+	})
+	orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+		Scope:   memory.ScopeGlobal,
+		ScopeID: "global",
+		Key:     "llm_max_tokens",
+		Value:   orch.Settings.MaxTokens,
+		Owner:   "forge",
+	})
+	orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+		Scope:   memory.ScopeGlobal,
+		ScopeID: "global",
+		Key:     "llm_temperature",
+		Value:   orch.Settings.Temperature,
+		Owner:   "forge",
+	})
+
 	time.Sleep(500 * time.Millisecond) // Let memory propagate
 
 	// Pass the Compiler DAG to the Waitlist Manager so it can build sessions dynamically

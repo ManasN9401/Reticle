@@ -6,6 +6,7 @@ import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
 import { modelKey, type RoutingModel } from '@shared/events'
 import type { EnvKeyEntry } from '@shared/ipc'
+import { updateSettings } from '@/state/actions'
 
 type StatusFilter = 'all' | 'enabled' | 'disabled'
 type HealthFilter = 'all' | 'ok' | 'rate-limited' | 'missing-key'
@@ -41,6 +42,20 @@ export function ModelsSection() {
   const [status, setStatus] = useState<StatusFilter>('all')
   const [health, setHealth] = useState<HealthFilter>('all')
   const [sort, setSort] = useState<SortKey>('capability')
+
+  const [numCtx, setNumCtx] = useState(8192)
+  const [maxTokens, setMaxTokens] = useState(4096)
+  const [temperature, setTemperature] = useState(0.1)
+  const [bayesian, setBayesian] = useState(false)
+
+  const applySettings = async () => {
+    await updateSettings({
+      num_ctx: numCtx,
+      max_tokens: maxTokens,
+      temperature,
+      use_bayesian_routing: bayesian
+    })
+  }
 
   const load = useCallback(async () => {
     if (!bridge) return
@@ -195,9 +210,55 @@ export function ModelsSection() {
   const missingCount = models.filter((m) => healthOf(m) === 'missing-key').length
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1">
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-3 rounded border border-line-1 p-4 bg-bg-2">
+        <h3 className="text-sm font-semibold text-fg-1">LLM Tuning</h3>
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-fg-1">Context Window</label>
+            <Input
+              type="number"
+              className="w-24"
+              value={numCtx}
+              onChange={(e) => setNumCtx(Number(e.target.value))}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-fg-1">Max Output</label>
+            <Input
+              type="number"
+              className="w-24"
+              value={maxTokens}
+              onChange={(e) => setMaxTokens(Number(e.target.value))}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-fg-1">Temperature</label>
+            <Input
+              type="number"
+              step="0.1"
+              className="w-24"
+              value={temperature}
+              onChange={(e) => setTemperature(Number(e.target.value))}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5 pb-1">
+            <Toggle
+              label="Bayesian Routing"
+              checked={bayesian}
+              onChange={setBayesian}
+            />
+          </div>
+          <div className="flex-1" />
+          <Button variant="primary" onClick={applySettings}>
+            Apply Settings
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[200px] flex-1">
           <Search
             size={12}
             strokeWidth={1.8}
@@ -419,6 +480,7 @@ export function ModelsSection() {
           })}
         </div>
       )}
+    </div>
     </div>
   )
 }

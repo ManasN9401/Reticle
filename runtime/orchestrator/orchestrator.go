@@ -13,12 +13,19 @@ import (
 	"github.com/reticle/runtime/memory"
 )
 
+type LlmSettings struct {
+	NumCtx      int
+	MaxTokens   int
+	Temperature float64
+}
+
 type Orchestrator struct {
 	Logger       *logger.Logger
 	Bus          *events.Bus
 	Artifacts    *memory.ArtifactStore
 	RuntimeState *memory.RuntimeState
 	SessionState *memory.SessionState
+	Settings     LlmSettings
 }
 
 func generateSessionID() string {
@@ -41,6 +48,12 @@ func New() *Orchestrator {
 	artifacts := memory.NewArtifactStoreWithRetention(policy.MaxArtifactVersions)
 	runtimeState := memory.NewRuntimeStateWithPolicy(policy)
 	sessionState := memory.NewSessionState(sessionID)
+
+	llmSettings := LlmSettings{
+		NumCtx:      8192,
+		MaxTokens:   4096,
+		Temperature: 0.1,
+	}
 
 	root := os.Getenv("RETICLE_ROOT")
 	if root != "" && os.Getenv("RETICLE_MEMORY_PERSISTENCE") != "false" {
@@ -83,6 +96,7 @@ func New() *Orchestrator {
 		Artifacts:    artifacts,
 		RuntimeState: runtimeState,
 		SessionState: sessionState,
+		Settings:     llmSettings,
 	}
 }
 

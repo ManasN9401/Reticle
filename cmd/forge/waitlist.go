@@ -244,6 +244,19 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 						wm.orchestrator.Logger.Info("Global settings updated", "use_bayesian_routing", bayesian)
 					}
 				}
+				if numCtx, ok := payload["num_ctx"].(float64); ok {
+					wm.orchestrator.Settings.NumCtx = int(numCtx)
+					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{Scope: memory.ScopeGlobal, ScopeID: "global", Key: "llm_num_ctx", Value: int(numCtx), Owner: "forge"})
+				}
+				if maxTokens, ok := payload["max_tokens"].(float64); ok {
+					wm.orchestrator.Settings.MaxTokens = int(maxTokens)
+					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{Scope: memory.ScopeGlobal, ScopeID: "global", Key: "llm_max_tokens", Value: int(maxTokens), Owner: "forge"})
+				}
+				if temperature, ok := payload["temperature"].(float64); ok {
+					wm.orchestrator.Settings.Temperature = temperature
+					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{Scope: memory.ScopeGlobal, ScopeID: "global", Key: "llm_temperature", Value: temperature, Owner: "forge"})
+				}
+				wm.orchestrator.Logger.Info("LLM settings updated", "num_ctx", wm.orchestrator.Settings.NumCtx, "max_tokens", wm.orchestrator.Settings.MaxTokens, "temperature", wm.orchestrator.Settings.Temperature)
 			}
 		}
 	})

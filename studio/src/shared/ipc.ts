@@ -150,6 +150,13 @@ export type OutboundCommand =
   | { action: 'kill'; id: string }
   | { action: 'pause'; id: string }
   | { action: 'resume'; id: string }
+  | { 
+      action: 'update_settings'
+      num_ctx?: number
+      max_tokens?: number
+      temperature?: number
+      use_bayesian_routing?: boolean
+    }
 
 export type ForgePhase = 'stopped' | 'starting' | 'running' | 'exited' | 'error'
 

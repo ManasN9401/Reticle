@@ -86,7 +86,7 @@ export const useStudio = create<StudioStore>((set, get) => ({
   async initialize() {
     if (!bridge) {
       set({ ready: true, bridgeMissing: true })
-      return
+      return () => {}
     }
 
     const [windowState, connection, forge, settings, projection, events] =
