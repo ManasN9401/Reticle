@@ -46,6 +46,7 @@ type WorkerFailure struct {
 
 type Task struct {
 	ID             TaskID                     `json:"id"`
+	AttemptID      string                     `json:"attempt_id,omitempty"`
 	AgentID        string                     `json:"agent_id,omitempty"`
 	ExecutionID    string                     `json:"execution,omitempty"`
 	Workflow       string                     `json:"workflow,omitempty"`
@@ -56,6 +57,7 @@ type Task struct {
 	MemoryMetadata map[string]MemoryReference `json:"memory_metadata,omitempty"`
 	Instructions   []string                   `json:"instructions,omitempty"`
 	Modality       string                     `json:"modality,omitempty"`
+	Capabilities   []Capability               `json:"capabilities,omitempty"`
 }
 
 type MemoryReference struct {
@@ -92,6 +94,7 @@ type Worker struct {
 	Args           []string
 	EnvVars        []string
 	RequiredMemory []string
+	Capabilities   []Capability
 	Logger         *logger.Logger
 	Bus            *events.Bus
 }
@@ -116,7 +119,7 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 	if err != nil {
 		return fail(WorkerProtocolError, err)
 	}
-	w.Bus.Publish("WorkerStarted", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID)})
+	w.Bus.Publish("WorkerStarted", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "attempt_id": req.AttemptID})
 	if w.ID == "hitl-agent" {
 		err := AwaitApproval(ctx, os.Getenv("RETICLE_ROOT"), req, func(line string) {
 			w.Bus.Publish("WorkerLog", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "log": line})
@@ -124,7 +127,6 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 		if err != nil {
 			return fail(WorkerProtocolError, err)
 		}
-		w.Bus.Publish("WorkerCompleted", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID)})
 		return &TaskResponse{ID: req.ID, Result: "Approved"}, nil
 	}
 	executable, explicit := w.Executable, append([]string(nil), w.EnvVars...)
@@ -142,16 +144,22 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Env = workerEnvironment(req, explicit)
 	out := &limitedOutput{limit: 10 * 1024 * 1024}
-	errout := &limitedOutput{limit: 256 * 1024, onChunk: func(p []byte) {
-		for _, line := range strings.Split(string(p), "\n") {
+	errout := &limitedOutput{
+		limit: 256 * 1024,
+		onLine: func(line string) bool {
+			line = strings.TrimSuffix(line, "\n")
+			line = strings.TrimSuffix(line, "\r")
 			if line != "" {
 				w.Bus.Publish("WorkerLog", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "log": logger.Redact(line)})
 			}
-		}
-	}}
+			return !strings.HasPrefix(strings.TrimSpace(line), "[LLM_STREAM]")
+		},
+	}
 	cmd.Stdout = out
 	cmd.Stderr = errout
 	err = cmd.Run()
+	out.flush()
+	errout.flush()
 	if ctx.Err() != nil {
 		reason := WorkerTimeout
 		if errors.Is(ctx.Err(), context.Canceled) {
@@ -229,7 +237,7 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 	}
 	if len(entries) > 0 || resp.Artifact != nil {
 		result := make(chan error, 1)
-		w.Bus.Publish("TaskResultCommitRequested", "worker", memory.ResultCommitRequest{Entries: entries, Artifact: resp.Artifact, Result: result})
+		w.Bus.Publish("TaskResultCommitRequested", "worker", memory.ResultCommitRequest{AttemptID: req.AttemptID, Entries: entries, Artifact: resp.Artifact, Result: result})
 		select {
 		case err := <-result:
 			if err != nil {
@@ -240,9 +248,8 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 		}
 	}
 	if resp.GraphMutation != nil {
-		w.Bus.Publish("GraphMutationRequested", "worker", map[string]any{"task_id": req.ID, "worker_id": w.ID, "execution": req.ExecutionID, "mutation": resp.GraphMutation})
+		w.Bus.Publish("GraphMutationRequested", "worker", map[string]any{"task_id": req.ID, "worker_id": w.ID, "execution": req.ExecutionID, "attempt_id": req.AttemptID, "mutation": resp.GraphMutation})
 	}
-	w.Bus.Publish("WorkerCompleted", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID)})
 	return &resp, nil
 }
 
@@ -251,25 +258,55 @@ type limitedOutput struct {
 	bytes.Buffer
 	limit    int
 	exceeded bool
-	onChunk  func([]byte)
+	onLine   func(string) bool // return true to keep in buffer
+	lineBuf  bytes.Buffer
 }
 
 func (b *limitedOutput) Write(p []byte) (int, error) {
 	n := len(p)
-	remaining := b.limit - b.Len()
-	if n > remaining {
-		b.exceeded = true
-		p = p[:remaining]
+	for _, ch := range p {
+		b.lineBuf.WriteByte(ch)
+		if ch == '\n' {
+			b.flushLine()
+		}
 	}
-	if b.onChunk != nil && len(p) > 0 {
-		b.onChunk(p)
-	}
-	b.Buffer.Write(p)
 	return n, nil
+}
+
+func (b *limitedOutput) flushLine() {
+	if b.lineBuf.Len() == 0 {
+		return
+	}
+	line := b.lineBuf.String()
+	b.lineBuf.Reset()
+
+	keep := true
+	if b.onLine != nil {
+		keep = b.onLine(line)
+	}
+	if keep {
+		remaining := b.limit - b.Buffer.Len()
+		if len(line) > remaining {
+			b.exceeded = true
+			if remaining > 0 {
+				b.Buffer.WriteString(line[:remaining])
+			}
+		} else {
+			b.Buffer.WriteString(line)
+		}
+	}
+}
+
+func (b *limitedOutput) flush() {
+	b.flushLine()
 }
 
 func workerEnvironment(req Task, explicit []string) []string {
 	allowed := map[string]bool{"PATH": true, "PATHEXT": true, "SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "TEMP": true, "TMP": true, "HOME": true, "USERPROFILE": true, "LANG": true, "LC_ALL": true, "PYTHONIOENCODING": true, "OLLAMA_HOST": true, "COMFYUI_HOST": true, "COMFYUI_CHECKPOINT": true, "RETICLE_WORKER_IMAGE": true, "RETICLE_COMMAND_TIMEOUT": true, "RETICLE_MEMORY_LIMIT": true, "RETICLE_CPU_LIMIT": true}
+	if hasCapability(req.Capabilities, CapabilityGPUUse) {
+		allowed["RETICLE_ML_PROFILE"] = true
+		allowed["RETICLE_GPU_DEVICES"] = true
+	}
 	if key, ok := req.Parameters["api_key"].(string); ok && key != "" {
 		// A model-auth parameter cannot request an arbitrary parent secret.
 		switch key {
@@ -282,7 +319,7 @@ func workerEnvironment(req Task, explicit []string) []string {
 			allowed[name] = true
 		}
 	}
-	env := []string{"PYTHONIOENCODING=utf-8", "PYTHONUNBUFFERED=1"}
+	env := []string{"PYTHONIOENCODING=utf-8", "PYTHONUNBUFFERED=1", "PYTHONNODEBUGRANGES=1"}
 	for _, item := range os.Environ() {
 		key, _, _ := strings.Cut(item, "=")
 		if allowed[strings.ToUpper(key)] {

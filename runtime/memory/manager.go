@@ -2,6 +2,8 @@ package memory
 
 import (
 	"fmt"
+	"strings"
+	"sync"
 
 	"github.com/reticle/runtime/events"
 )
@@ -9,11 +11,13 @@ import (
 // Manager is the umbrella structure that holds all state managers.
 // It subscribes to the Event Bus and translates update requests into physical state mutations.
 type Manager struct {
-	Artifacts   *ArtifactStore
-	Runtime     *RuntimeState
-	Session     *SessionState
-	bus         *events.Bus
-	persistence *SnapshotFile
+	Artifacts         *ArtifactStore
+	Runtime           *RuntimeState
+	Session           *SessionState
+	bus               *events.Bus
+	persistence       *SnapshotFile
+	commitMu          sync.Mutex
+	committedAttempts map[string]struct{}
 }
 
 func NewManager(am *ArtifactStore, rs *RuntimeState, ss *SessionState, b *events.Bus) *Manager {
@@ -22,19 +26,23 @@ func NewManager(am *ArtifactStore, rs *RuntimeState, ss *SessionState, b *events
 
 func NewPersistentManager(am *ArtifactStore, rs *RuntimeState, ss *SessionState, b *events.Bus, path string) (*Manager, error) {
 	persistence := NewSnapshotFile(path)
-	if err := persistence.Load(rs, am); err != nil {
+	committed, err := persistence.LoadWithCommits(rs, am)
+	if err != nil {
 		return nil, err
 	}
-	return newManager(am, rs, ss, b, persistence), nil
+	m := newManager(am, rs, ss, b, persistence)
+	m.committedAttempts = committed
+	return m, nil
 }
 
 func newManager(am *ArtifactStore, rs *RuntimeState, ss *SessionState, b *events.Bus, persistence *SnapshotFile) *Manager {
 	m := &Manager{
-		Artifacts:   am,
-		Runtime:     rs,
-		Session:     ss,
-		bus:         b,
-		persistence: persistence,
+		Artifacts:         am,
+		Runtime:           rs,
+		Session:           ss,
+		bus:               b,
+		persistence:       persistence,
+		committedAttempts: make(map[string]struct{}),
 	}
 	m.subscribe()
 	return m
@@ -44,7 +52,7 @@ func (m *Manager) persist() error {
 	if m.persistence == nil {
 		return nil
 	}
-	if err := m.persistence.Save(m.Runtime, m.Artifacts); err != nil {
+	if err := m.persistence.SaveWithCommits(m.Runtime, m.Artifacts, m.committedAttempts); err != nil {
 		m.bus.Publish("MemoryPersistenceFailed", "memory", map[string]any{"reason": err.Error(), "restart_recovery_at_risk": true})
 		return err
 	}
@@ -61,6 +69,8 @@ func (m *Manager) subscribe() {
 		if !ok {
 			return
 		}
+		m.commitMu.Lock()
+		defer m.commitMu.Unlock()
 
 		before, existed := m.Runtime.Get(entry.Scope, entry.ScopeID, entry.Key)
 		stored, err := m.Runtime.set(entry)
@@ -118,6 +128,8 @@ func (m *Manager) subscribe() {
 	})
 
 	storeArtifact := func(artifact *Artifact, result chan error) {
+		m.commitMu.Lock()
+		defer m.commitMu.Unlock()
 		if artifact == nil {
 			if result != nil {
 				result <- fmt.Errorf("artifact is required")
@@ -157,6 +169,14 @@ func (m *Manager) subscribe() {
 		if !ok {
 			return
 		}
+		m.commitMu.Lock()
+		defer m.commitMu.Unlock()
+		if request.AttemptID != "" {
+			if _, exists := m.committedAttempts[request.AttemptID]; exists {
+				request.Result <- nil
+				return
+			}
+		}
 		type priorEntry struct {
 			requested MemoryEntry
 			value     MemoryEntry
@@ -186,7 +206,11 @@ func (m *Manager) subscribe() {
 			artifactBefore, _ = m.Artifacts.GetAllVersions(request.Artifact.ID)
 			m.Artifacts.save(request.Artifact)
 		}
+		if request.AttemptID != "" {
+			m.committedAttempts[request.AttemptID] = struct{}{}
+		}
 		if err := m.persist(); err != nil {
+			delete(m.committedAttempts, request.AttemptID)
 			if request.Artifact != nil {
 				_ = m.Artifacts.restoreSeries(request.Artifact.ID, artifactBefore)
 			}
@@ -208,6 +232,8 @@ func (m *Manager) subscribe() {
 	})
 
 	releaseExecution := func(e events.RuntimeEvent) {
+		m.commitMu.Lock()
+		defer m.commitMu.Unlock()
 		var execution string
 		switch payload := e.Payload.(type) {
 		case map[string]any:
@@ -220,9 +246,21 @@ func (m *Manager) subscribe() {
 		}
 		before := m.Runtime.Snapshot()
 		removed := m.Runtime.DeleteScope(ScopeExecution, execution)
-		if removed > 0 {
+		removedAttempts := 0
+		removedAttemptIDs := make([]string, 0)
+		for attemptID := range m.committedAttempts {
+			if strings.HasPrefix(attemptID, execution+"/") {
+				delete(m.committedAttempts, attemptID)
+				removedAttempts++
+				removedAttemptIDs = append(removedAttemptIDs, attemptID)
+			}
+		}
+		if removed > 0 || removedAttempts > 0 {
 			if err := m.persist(); err != nil {
 				_ = m.Runtime.Restore(before)
+				for _, attemptID := range removedAttemptIDs {
+					m.committedAttempts[attemptID] = struct{}{}
+				}
 				return
 			}
 			m.bus.Publish("MemoryScopeReleased", "memory", map[string]any{"scope": ScopeExecution, "scope_id": execution, "entries": removed})
@@ -231,5 +269,9 @@ func (m *Manager) subscribe() {
 	m.bus.Subscribe("WorkflowCompleted", releaseExecution)
 	m.bus.Subscribe("WorkflowFailed", releaseExecution)
 	m.bus.Subscribe("ExecutionKilled", releaseExecution)
-	m.bus.Subscribe("RuntimeShutdown", func(events.RuntimeEvent) { _ = m.persist() })
+	m.bus.Subscribe("RuntimeShutdown", func(events.RuntimeEvent) {
+		m.commitMu.Lock()
+		defer m.commitMu.Unlock()
+		_ = m.persist()
+	})
 }

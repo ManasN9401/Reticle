@@ -19,10 +19,12 @@ func AwaitApproval(ctx context.Context, root string, req Task, log func(string))
 		return fmt.Errorf("approval root is not configured")
 	}
 	payload, err := json.Marshal(struct {
-		Task   TaskID
-		Inputs []TaskInput
-		Prompt any
-	}{req.ID, req.Inputs, req.Memory["user_prompt"]})
+		Task      TaskID      `json:"task"`
+		Inputs    []TaskInput `json:"inputs"`
+		Prompt    any         `json:"prompt"`
+		Action    any         `json:"protected_action,omitempty"`
+		ExpiresAt time.Time   `json:"expires_at"`
+	}{req.ID, req.Inputs, req.Memory["user_prompt"], req.Parameters["protected_action"], time.Now().UTC().Add(30 * time.Minute)})
 	if err != nil {
 		return err
 	}
@@ -48,6 +50,11 @@ func AwaitApproval(ctx context.Context, root string, req Task, log func(string))
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			// Expiry is deliberately checked against the request file timestamp so
+			// an old decision cannot authorize a later retry.
+			if info, statErr := os.Stat(target); statErr == nil && time.Since(info.ModTime()) > 30*time.Minute {
+				return fmt.Errorf("approval expired")
+			}
 			b, err := os.ReadFile(target + ".decision.json")
 			if os.IsNotExist(err) {
 				continue

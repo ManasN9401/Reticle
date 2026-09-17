@@ -2,12 +2,15 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/reticle/runtime/events"
 	"github.com/reticle/runtime/logger"
 	"github.com/reticle/runtime/memory"
 	"github.com/reticle/runtime/routing"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +26,7 @@ type Dispatcher struct {
 	Instructions *InstructionStore
 	Router       *routing.ModelRouter
 	RuntimeState *memory.RuntimeState
+	Devices      *DeviceLeaseManager
 
 	workersMu     sync.RWMutex
 	cancelled     map[string]bool
@@ -41,6 +45,7 @@ func NewDispatcher(l *logger.Logger, b *events.Bus, is *InstructionStore, r *rou
 		RuntimeState: rs,
 		activeTasks:  make(map[string]map[TaskID]context.CancelFunc),
 		cancelled:    make(map[string]bool),
+		Devices:      NewDeviceLeaseManager(),
 	}
 }
 
@@ -50,8 +55,18 @@ func (d *Dispatcher) RegisterWorker(w *Worker) {
 	d.Workers[w.ID] = w
 }
 
+func (d *Dispatcher) HasWorker(execution, worker string) bool {
+	d.workersMu.RLock()
+	defer d.workersMu.RUnlock()
+	if _, ok := d.Workers[WorkerID(execution+"__"+worker)]; ok {
+		return true
+	}
+	_, ok := d.Workers[WorkerID(worker)]
+	return ok
+}
+
 func (d *Dispatcher) Start() {
-	d.Bus.Subscribe("RuntimeOverloaded", func(events.RuntimeEvent) {
+	stopOnRuntimeFailure := func(event events.RuntimeEvent) {
 		d.activeTasksMu.Lock()
 		defer d.activeTasksMu.Unlock()
 		for id, tasks := range d.activeTasks {
@@ -60,8 +75,10 @@ func (d *Dispatcher) Start() {
 				cancel()
 			}
 		}
-		d.Logger.Error("Event queue capacity exceeded; active work cancelled. Restart required.")
-	})
+		d.Logger.Error("Runtime cannot safely persist or route work; active work cancelled. Restart required.", "event", event.Type)
+	}
+	d.Bus.Subscribe("RuntimeOverloaded", stopOnRuntimeFailure)
+	d.Bus.Subscribe("RuntimePersistenceFailed", stopOnRuntimeFailure)
 	d.Bus.Subscribe("RuntimeShutdown", func(events.RuntimeEvent) {
 		d.activeTasksMu.Lock()
 		for id, tasks := range d.activeTasks {
@@ -120,6 +137,7 @@ func (d *Dispatcher) Start() {
 		task.Parameters = copyParameters(task.Parameters)
 		task.Memory = copyParameters(task.Memory)
 		task.MemoryMetadata = make(map[string]MemoryReference)
+		task.Capabilities = append([]Capability(nil), worker.Capabilities...)
 		// Inject instructions dynamically
 		if d.Instructions != nil {
 			task.Instructions = d.Instructions.GetForTask(task.AgentID, task.Workflow)
@@ -216,6 +234,27 @@ func (d *Dispatcher) Start() {
 				maxRetries = 15
 			}
 			lastFailure := &WorkerFailure{Reason: "cancelled", ExitCode: -1, Stderr: "Execution cancelled"}
+			if hasCapability(w.Capabilities, CapabilityGPUUse) {
+				devices, err := ParseDeviceList(os.Getenv("RETICLE_GPU_DEVICES"))
+				if err != nil {
+					d.Bus.Publish("WorkerFailed", "dispatcher", map[string]any{"task_id": string(t.ID), "worker_id": string(w.ID), "reason": "invalid_gpu_devices", "stderr": err.Error()})
+					return
+				}
+				warnings, err := AssessMLProfile(os.Getenv("RETICLE_ML_PROFILE"), DetectMLHostEnvironment(), devices)
+				if err != nil {
+					d.Bus.Publish("WorkerFailed", "dispatcher", map[string]any{"task_id": string(t.ID), "worker_id": string(w.ID), "reason": "invalid_ml_profile", "stderr": err.Error()})
+					return
+				}
+				for _, warning := range warnings {
+					d.Bus.Publish("WorkerLog", "dispatcher", map[string]any{"task_id": string(t.ID), "worker_id": string(w.ID), "log": "ML environment warning: " + warning})
+				}
+				release, err := d.Devices.Acquire(ctx, string(t.ID), devices)
+				if err != nil {
+					d.Bus.Publish("WorkerFailed", "dispatcher", map[string]any{"task_id": string(t.ID), "worker_id": string(w.ID), "reason": "gpu_admission_cancelled", "stderr": err.Error()})
+					return
+				}
+				defer release()
+			}
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				if ctx.Err() != nil {
@@ -269,28 +308,35 @@ func (d *Dispatcher) Start() {
 					}
 				}
 
+				t.AttemptID = newAttemptID(t.ExecutionID)
 				payload := map[string]any{
-					"task_id":   string(t.ID),
-					"worker_id": w.ID,
+					"task_id":    string(t.ID),
+					"worker_id":  w.ID,
+					"attempt_id": t.AttemptID,
+					"number":     attempt,
 				}
 				if t.Parameters != nil {
 					if m, ok := t.Parameters["llm_model"]; ok {
 						payload["llm_model"] = m
+						payload["model"] = m
 					}
 				}
 
+				d.Bus.Publish(events.EventType("AttemptStarted"), events.Component("dispatcher"), payload)
 				d.Bus.Publish(events.EventType("TaskDispatched"), events.Component("dispatcher"), payload)
 
 				select {
 				case d.slots <- struct{}{}:
 				case <-ctx.Done():
-					d.Bus.Publish("WorkerFailed", "dispatcher", map[string]any{"task_id": string(t.ID), "worker_id": string(w.ID), "reason": "timeout", "stderr": ctx.Err().Error()})
+					d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": "timeout"})
+					d.Bus.Publish("WorkerFailed", "dispatcher", map[string]any{"task_id": string(t.ID), "worker_id": string(w.ID), "attempt_id": t.AttemptID, "reason": "timeout", "stderr": ctx.Err().Error()})
 					return
 				}
 				_, failure := w.Execute(ctx, t)
 				<-d.slots
 
 				if ctx.Err() != nil {
+					d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": "cancelled"})
 					d.Logger.Info("Worker execution was cancelled (likely killed by user). Aborting retries.", "worker_id", w.ID)
 					cleanupExecutionContainers(t.ExecutionID)
 					lastFailure = &WorkerFailure{Reason: "killed", ExitCode: -1, Stderr: "Context cancelled"}
@@ -298,11 +344,14 @@ func (d *Dispatcher) Start() {
 				}
 
 				if failure == nil {
+					d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "succeeded"})
+					d.Bus.Publish("WorkerCompleted", "dispatcher", map[string]any{"task_id": string(t.ID), "worker_id": string(w.ID), "attempt_id": t.AttemptID})
 					if d.Router != nil {
 						d.Router.UpdateProbability(string(w.ID), string(t.ID), true)
 					}
 					return // Success
 				}
+				d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": string(failure.Reason)})
 
 				if failure.Reason == WorkerProtocolError || failure.Reason == WorkerStartFailed || failure.Reason == WorkerInvalidJSON {
 					lastFailure = failure
@@ -348,14 +397,23 @@ func (d *Dispatcher) Start() {
 			d.Logger.Error("Worker execution aborted after exhausting all retries. The task could not complete successfully.", "worker_id", w.ID)
 			d.Logger.Error("TROUBLESHOOTING: If the logs show repeated 429 Quota Exceeded errors, your API keys are out of credits or being throttled. Please check your provider billing dashboards or add new API keys to your environment.", "worker_id", w.ID)
 			d.Bus.Publish(events.EventType("WorkerFailed"), events.Component("dispatcher"), map[string]any{
-				"task_id":   string(t.ID),
-				"worker_id": w.ID,
-				"reason":    lastFailure.Reason,
-				"exit_code": lastFailure.ExitCode,
-				"stderr":    lastFailure.Stderr,
+				"task_id":    string(t.ID),
+				"worker_id":  w.ID,
+				"attempt_id": t.AttemptID,
+				"reason":     lastFailure.Reason,
+				"exit_code":  lastFailure.ExitCode,
+				"stderr":     lastFailure.Stderr,
 			})
 		}(worker, task, isForced)
 	})
+}
+
+func newAttemptID(execution string) string {
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err == nil {
+		return execution + "/" + hex.EncodeToString(bytes)
+	}
+	return fmt.Sprintf("%s/%d", execution, time.Now().UnixNano())
 }
 
 func copyParameters(p map[string]any) map[string]any {

@@ -19,24 +19,24 @@ type WorkflowYAML struct {
 }
 
 type WorkflowEdge struct {
-	From string
-	To   string
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 type WorkflowNode struct {
-	ID         string
-	WorkerID   string
-	Modality   string
-	Parameters map[string]any
+	ID         string         `json:"id"`
+	WorkerID   string         `json:"worker_id"`
+	Modality   string         `json:"modality,omitempty"`
+	Parameters map[string]any `json:"parameters,omitempty"`
 }
 
 type WorkflowDefinition struct {
-	ID       string
-	Name     string
-	Version  string
-	Nodes    map[string]WorkflowNode
-	Edges    []WorkflowEdge
-	Roots    []string
-	Parents  map[string][]string
-	Children map[string][]string
+	ID       string                  `json:"id"`
+	Name     string                  `json:"name,omitempty"`
+	Version  string                  `json:"version,omitempty"`
+	Nodes    map[string]WorkflowNode `json:"nodes"`
+	Edges    []WorkflowEdge          `json:"edges,omitempty"`
+	Roots    []string                `json:"roots"`
+	Parents  map[string][]string     `json:"parents,omitempty"`
+	Children map[string][]string     `json:"children,omitempty"`
 }

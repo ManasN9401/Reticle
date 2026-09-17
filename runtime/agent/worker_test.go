@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -166,5 +167,129 @@ func TestExecutionDefinitionIsolation(t *testing.T) {
 	a.Workflow.Nodes["a"].Parameters["effort"] = "low"
 	if b.Workflow.Nodes["a"].Parameters["effort"] != "high" {
 		t.Fatal("shared mutable parameters")
+	}
+}
+
+func TestPersistentExecutionRecoveryRequiresReconciliation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "executions", "state.json")
+	bus := events.NewBus("first")
+	engine, err := NewPersistentGraphEngine(&logger.Logger{}, bus, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.Start()
+	wf := &WorkflowDefinition{ID: "fixture", Nodes: map[string]WorkflowNode{"node": {ID: "node", WorkerID: "fixture"}}, Roots: []string{"node"}, Parents: map[string][]string{}, Children: map[string][]string{}}
+	if err := engine.SubmitWorkflow(wf, "durable"); err != nil {
+		t.Fatal(err)
+	}
+	bus.Close()
+
+	bus2 := events.NewBus("second")
+	defer bus2.Close()
+	recovered, err := NewPersistentGraphEngine(&logger.Logger{}, bus2, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := recovered.Executions["durable"]
+	if execution == nil || execution.Status != ExecutionInterrupted || execution.NodeStates["node"] != NodeInterrupted {
+		t.Fatalf("in-flight work was not recovered as interrupted: %#v", execution)
+	}
+}
+
+func TestEffectRecoveryAndReconciliation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "effects", "state.json")
+	manager, err := NewPersistentEffectManager(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Begin(EffectRecord{ID: "apply-1", AttemptID: "run/attempt", Adapter: "fake-cloud", Target: "account/region", RequestHash: "abc"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Begin(EffectRecord{ID: "apply-1", AttemptID: "run/other-attempt", Adapter: "fake-cloud", Target: "account/region", RequestHash: "abc"}); err == nil {
+		t.Fatal("effect identity was reused across attempts")
+	}
+	restarted, err := NewPersistentEffectManager(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, _ := restarted.Get("apply-1")
+	if record.State != EffectInterrupted {
+		t.Fatalf("running effect was not interrupted: %#v", record)
+	}
+	if err := restarted.Reconcile("apply-1", EffectSucceeded, "external-42", "observed complete"); err != nil {
+		t.Fatal(err)
+	}
+	record, _ = restarted.Get("apply-1")
+	if record.State != EffectSucceeded || record.ExternalID != "external-42" {
+		t.Fatalf("bad reconciliation: %#v", record)
+	}
+}
+
+func TestDeviceLeaseSerializesOwners(t *testing.T) {
+	manager := NewDeviceLeaseManager()
+	release, err := manager.Acquire(context.Background(), "one", []string{"0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := manager.Acquire(ctx, "two", []string{"0"}); err == nil {
+		t.Fatal("contended device lease was granted")
+	}
+	release()
+	releaseTwo, err := manager.Acquire(context.Background(), "two", []string{"0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseTwo()
+}
+
+func TestMLHostDetectionAndWindowsWarning(t *testing.T) {
+	if classifyMLHost("linux", "5.15.0-microsoft-standard-WSL2", "") != MLHostWSL2 || classifyMLHost("windows", "", "") != MLHostWindows {
+		t.Fatal("ML host environment was not classified correctly")
+	}
+	warnings, err := AssessMLProfile("amd-rocm", MLHostWindows, []string{"0"})
+	if err != nil || len(warnings) != 1 || !strings.Contains(warnings[0], "Windows") {
+		t.Fatalf("expected a native Windows AMD warning, got %v, %v", warnings, err)
+	}
+	if _, err := AssessMLProfile("amd-rocm", MLHostWindows, nil); err == nil {
+		t.Fatal("accelerator profile accepted without an explicit device")
+	}
+}
+
+func TestRegistryRejectsUnknownCapability(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "worker.py"), []byte("# fixture"), 0600)
+	os.WriteFile(filepath.Join(dir, "definition.yml"), []byte("id: fixture\nname: Fixture\nversion: 1\nruntime: python\nentrypoint: worker.py\ncapabilities: [cloud.root]\n"), 0600)
+	if NewRegistry().LoadAgents(dir) == nil {
+		t.Fatal("unknown capability silently accepted")
+	}
+}
+
+func TestRegistryRejectsUnpinnedSkillDependency(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "skill.yml"), []byte("id: unsafe\nname: Unsafe\nversion: 1\ndependencies: [requests]\n"), 0600)
+	if NewRegistry().LoadSkills(dir) == nil {
+		t.Fatal("unpinned dependency silently accepted")
+	}
+}
+
+func TestGraphMutationRequiresActiveAttemptAndBudget(t *testing.T) {
+	bus := events.NewBus("mutation")
+	engine := NewGraphEngine(&logger.Logger{}, bus)
+	engine.SetWorkerValidator(func(_ string, worker string) bool { return worker == "delegate" })
+	engine.Start()
+	wf := &WorkflowDefinition{ID: "fixture", Nodes: map[string]WorkflowNode{"supervisor": {ID: "supervisor", WorkerID: "supervisor"}}, Roots: []string{"supervisor"}, Parents: map[string][]string{}, Children: map[string][]string{}}
+	if err := engine.SubmitWorkflow(wf, "mutation-run"); err != nil {
+		t.Fatal(err)
+	}
+	mutation := &GraphMutation{Action: "delegate", TargetAgent: "delegate"}
+	bus.Publish("GraphMutationRequested", "test", map[string]any{"task_id": TaskID("mutation-run|supervisor"), "attempt_id": "stale", "mutation": mutation})
+	bus.Publish("AttemptStarted", "test", map[string]any{"task_id": TaskID("mutation-run|supervisor"), "attempt_id": "active"})
+	bus.Publish("GraphMutationRequested", "test", map[string]any{"task_id": TaskID("mutation-run|supervisor"), "attempt_id": "active", "mutation": mutation})
+	bus.Close()
+	execution := engine.Executions["mutation-run"]
+	if len(execution.Workflow.Nodes) != 2 || execution.GraphRevision != 1 {
+		t.Fatalf("expected exactly one committed mutation: nodes=%d revision=%d", len(execution.Workflow.Nodes), execution.GraphRevision)
 	}
 }

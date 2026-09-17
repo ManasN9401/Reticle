@@ -68,9 +68,10 @@ type ArtifactWriteRequest struct {
 // ResultCommitRequest atomically persists one worker's memory mutations and
 // optional artifact before the worker completion event can be published.
 type ResultCommitRequest struct {
-	Entries  []MemoryEntry
-	Artifact *Artifact
-	Result   chan error
+	AttemptID string
+	Entries   []MemoryEntry
+	Artifact  *Artifact
+	Result    chan error
 }
 
 // RetentionPolicy bounds ephemeral state. Zero values use safe defaults.

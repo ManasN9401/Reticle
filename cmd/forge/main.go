@@ -206,8 +206,18 @@ func main() {
 		fmt.Printf("[UI] Legacy Telemetry running on http://localhost:%d\n", *portFlag)
 	}
 
-	graphEngine := agent.NewGraphEngine(orch.Logger, orch.Bus)
-	graphEngine.Start()
+	graphPath := filepath.Join(rootDir, ".reticle", "executions", "state.json")
+	graphEngine, err := agent.NewPersistentGraphEngine(orch.Logger, orch.Bus, graphPath)
+	if err != nil {
+		orch.Logger.Error("Execution restart recovery failed", "error", err)
+		return
+	}
+	effectManager, err := agent.NewPersistentEffectManager(filepath.Join(rootDir, ".reticle", "effects", "state.json"))
+	if err != nil {
+		orch.Logger.Error("External-effect recovery failed", "error", err)
+		return
+	}
+	effectManager.Start(orch.Bus)
 
 	registry := agent.NewRegistry()
 	compilerDir, _ := filepath.Abs(filepath.Join("compiler"))
@@ -258,6 +268,8 @@ func main() {
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)
+	graphEngine.SetWorkerValidator(dispatcher.HasWorker)
+	graphEngine.Start()
 
 	waitlistPath := filepath.Join(workspaceDir, "waitlist.json")
 	wm := NewWaitlistManager(waitlistPath, *batchSize, graphEngine, orch, registry, dispatcher, envManager)

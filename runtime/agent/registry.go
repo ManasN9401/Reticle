@@ -32,10 +32,11 @@ type AgentDefinition struct {
 	Runtime    RuntimeType `yaml:"runtime"`
 	Entrypoint string      `yaml:"entrypoint"`
 
-	Inputs  []string `yaml:"inputs"`  // ArtifactTypes
-	Outputs []string `yaml:"outputs"` // ArtifactTypes
-	Skills  []string `yaml:"skills"`  // Skill IDs
-	Memory  []string `yaml:"memory"`  // Required shared memory keys
+	Inputs       []string     `yaml:"inputs"`  // ArtifactTypes
+	Outputs      []string     `yaml:"outputs"` // ArtifactTypes
+	Skills       []string     `yaml:"skills"`  // Skill IDs
+	Memory       []string     `yaml:"memory"`  // Required shared memory keys
+	Capabilities []Capability `yaml:"capabilities"`
 
 	Subscriptions []SubscriptionYAML `yaml:"subscriptions"`
 }
@@ -97,6 +98,12 @@ func (r *Registry) LoadAgents(directory string) error {
 		if def.Entrypoint == "" || (def.Runtime != RuntimePython && def.Runtime != RuntimeBinary && def.Runtime != RuntimeGo) {
 			return fmt.Errorf("%s: valid runtime and entrypoint required", path)
 		}
+		if len(def.Capabilities) == 0 {
+			def.Capabilities = defaultWorkerCapabilities()
+		}
+		if err := validateCapabilities(def.Capabilities); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 		if def.Entrypoint != "" && !filepath.IsAbs(def.Entrypoint) {
 			// Resolve relative to the directory containing the YAML file
 			yamlDir := filepath.Dir(path)
@@ -139,11 +146,22 @@ func (r *Registry) LoadSkills(directory string) error {
 		if def.ID == "" {
 			return fmt.Errorf("skill definition in %s is missing ID", path)
 		}
+		for _, dependency := range def.Dependencies {
+			if !isPinnedPythonDependency(dependency) {
+				return fmt.Errorf("skill %s dependency %q must use an exact name==version pin", def.ID, dependency)
+			}
+		}
 
 		r.Skills[def.ID] = def
 	}
 
 	return nil
+}
+
+var pinnedPythonDependency = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9_,.-]+\])?==[A-Za-z0-9][A-Za-z0-9.!+_-]*$`)
+
+func isPinnedPythonDependency(dependency string) bool {
+	return pinnedPythonDependency.MatchString(strings.TrimSpace(dependency))
 }
 
 func (r *Registry) LoadWorkflows(directory string) error {
@@ -302,6 +320,7 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 
 		w := NewWorker(id, executable, args, envVars, l, b)
 		w.RequiredMemory = def.Memory
+		w.Capabilities = append([]Capability(nil), def.Capabilities...)
 		w.Prepare = prepare
 		workers[id] = w
 	}

@@ -8,12 +8,13 @@ import (
 	"sync"
 )
 
-const snapshotFormatVersion = 1
+const snapshotFormatVersion = 2
 
 type persistedState struct {
-	FormatVersion int                        `json:"format_version"`
-	Runtime       []MemoryEntry              `json:"runtime"`
-	Artifacts     map[ArtifactID][]*Artifact `json:"artifacts"`
+	FormatVersion     int                        `json:"format_version"`
+	Runtime           []MemoryEntry              `json:"runtime"`
+	Artifacts         map[ArtifactID][]*Artifact `json:"artifacts"`
+	CommittedAttempts []string                   `json:"committed_attempts,omitempty"`
 }
 
 // SnapshotFile provides atomic, permission-restricted restart snapshots.
@@ -26,6 +27,11 @@ type SnapshotFile struct {
 func NewSnapshotFile(path string) *SnapshotFile { return &SnapshotFile{path: path} }
 
 func (f *SnapshotFile) Load(runtime *RuntimeState, artifacts *ArtifactStore) error {
+	_, err := f.LoadWithCommits(runtime, artifacts)
+	return err
+}
+
+func (f *SnapshotFile) LoadWithCommits(runtime *RuntimeState, artifacts *ArtifactStore) (map[string]struct{}, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	data, err := os.ReadFile(f.path)
@@ -33,31 +39,45 @@ func (f *SnapshotFile) Load(runtime *RuntimeState, artifacts *ArtifactStore) err
 		data, err = os.ReadFile(f.path + ".previous")
 	}
 	if os.IsNotExist(err) {
-		return nil
+		return make(map[string]struct{}), nil
 	}
 	if err != nil {
-		return fmt.Errorf("read memory snapshot: %w", err)
+		return nil, fmt.Errorf("read memory snapshot: %w", err)
 	}
 	var snapshot persistedState
 	if err := json.Unmarshal(data, &snapshot); err != nil {
-		return fmt.Errorf("decode memory snapshot: %w", err)
+		return nil, fmt.Errorf("decode memory snapshot: %w", err)
 	}
-	if snapshot.FormatVersion != snapshotFormatVersion {
-		return fmt.Errorf("unsupported memory snapshot format %d", snapshot.FormatVersion)
+	if snapshot.FormatVersion != 1 && snapshot.FormatVersion != snapshotFormatVersion {
+		return nil, fmt.Errorf("unsupported memory snapshot format %d", snapshot.FormatVersion)
 	}
 	if err := runtime.Restore(snapshot.Runtime); err != nil {
-		return fmt.Errorf("restore runtime memory: %w", err)
+		return nil, fmt.Errorf("restore runtime memory: %w", err)
 	}
 	if err := artifacts.Restore(snapshot.Artifacts); err != nil {
-		return fmt.Errorf("restore artifacts: %w", err)
+		return nil, fmt.Errorf("restore artifacts: %w", err)
 	}
-	return nil
+	committed := make(map[string]struct{}, len(snapshot.CommittedAttempts))
+	for _, id := range snapshot.CommittedAttempts {
+		if id != "" {
+			committed[id] = struct{}{}
+		}
+	}
+	return committed, nil
 }
 
 func (f *SnapshotFile) Save(runtime *RuntimeState, artifacts *ArtifactStore) error {
+	return f.SaveWithCommits(runtime, artifacts, nil)
+}
+
+func (f *SnapshotFile) SaveWithCommits(runtime *RuntimeState, artifacts *ArtifactStore, committed map[string]struct{}) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	snapshot := persistedState{FormatVersion: snapshotFormatVersion, Runtime: runtime.Snapshot(), Artifacts: artifacts.Snapshot()}
+	committedIDs := make([]string, 0, len(committed))
+	for id := range committed {
+		committedIDs = append(committedIDs, id)
+	}
+	snapshot := persistedState{FormatVersion: snapshotFormatVersion, Runtime: runtime.Snapshot(), Artifacts: artifacts.Snapshot(), CommittedAttempts: committedIDs}
 	data, err := json.Marshal(snapshot)
 	if err != nil {
 		return fmt.Errorf("encode memory snapshot: %w", err)

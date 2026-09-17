@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -101,6 +102,10 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 	if _, err := os.Stat(basePythonExe); os.IsNotExist(err) {
 		basePythonExe = pythonExeUnix
 	}
+	pythonVersion, err := environmentCommand(ctx, basePythonExe, "--version").CombinedOutput()
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to identify worker interpreter: %s - %w", string(pythonVersion), err)
+	}
 
 	// Install base dependencies if needed
 	baseDeps := []string{"litellm==1.99.0", "requests==2.34.2", "tenacity==9.1.4"}
@@ -151,7 +156,8 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 
 	if len(dependencies) > 0 {
 		// Use a mutex to prevent race conditions on agent-specific libs if the same agent runs concurrently
-		envHash := sha256.Sum256([]byte(basePythonExe + baseDepsString + strings.Join(dependencies, "\n")))
+		identity := strings.Join([]string{basePythonExe, strings.TrimSpace(string(pythonVersion)), runtime.GOOS, runtime.GOARCH, baseDepsString, strings.Join(dependencies, "\n")}, "\n")
+		envHash := sha256.Sum256([]byte(identity))
 		agentLibsPath := filepath.Join(em.BaseDir, fmt.Sprintf("%s-%x-libs", strings.TrimPrefix(string(agentID), strings.Split(string(agentID), "__")[0]+"__"), envHash[:8]))
 		if err := os.MkdirAll(agentLibsPath, 0755); err != nil {
 			return "", nil, fmt.Errorf("failed to create agent libs dir: %w", err)

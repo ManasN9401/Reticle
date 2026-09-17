@@ -188,6 +188,47 @@ func TestWorkerResultCommitIsAtomic(t *testing.T) {
 	}
 }
 
+func TestAttemptCommitIsIdempotentAcrossRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	bus := events.NewBus("first")
+	artifacts := NewArtifactStore()
+	if _, err := NewPersistentManager(artifacts, NewRuntimeState(), NewSessionState("first"), bus, path); err != nil {
+		t.Fatal(err)
+	}
+	commit := func(value string) error {
+		result := make(chan error, 1)
+		bus.Publish("TaskResultCommitRequested", "test", ResultCommitRequest{AttemptID: "run/attempt-1", Artifact: &Artifact{ID: "result", Name: "result", Type: "text/plain", Data: value}, Result: result})
+		return <-result
+	}
+	if err := commit("first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := commit("duplicate"); err != nil {
+		t.Fatal(err)
+	}
+	versions, _ := artifacts.GetAllVersions("result")
+	if len(versions) != 1 || versions[0].Data != "first" {
+		t.Fatalf("duplicate attempt committed twice: %#v", versions)
+	}
+	bus.Close()
+
+	bus2 := events.NewBus("second")
+	defer bus2.Close()
+	artifacts2 := NewArtifactStore()
+	if _, err := NewPersistentManager(artifacts2, NewRuntimeState(), NewSessionState("second"), bus2, path); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	bus2.Publish("TaskResultCommitRequested", "test", ResultCommitRequest{AttemptID: "run/attempt-1", Artifact: &Artifact{ID: "result", Name: "result", Type: "text/plain", Data: "after restart"}, Result: result})
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	versions, _ = artifacts2.GetAllVersions("result")
+	if len(versions) != 1 || versions[0].Data != "first" {
+		t.Fatalf("persisted attempt identity was lost: %#v", versions)
+	}
+}
+
 func TestIsolationAndConcurrentScopes(t *testing.T) {
 	s := NewRuntimeState()
 	original := map[string]any{"items": []any{"original"}}

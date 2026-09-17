@@ -52,6 +52,27 @@
         "type": "string"
       }
     },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "workspace.read",
+          "workspace.write",
+          "network.public",
+          "process.container",
+          "process.native",
+          "memory.execution",
+          "graph.delegate",
+          "image.local",
+          "rag.local",
+          "cloud.plan",
+          "cloud.apply",
+          "security.active",
+          "gpu.use"
+        ]
+      }
+    },
     "skills": {
       "type": "array",
       "items": {

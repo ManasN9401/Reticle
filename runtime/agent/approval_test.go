@@ -51,8 +51,10 @@ func TestApprovalDecisionBinding(t *testing.T) {
 func TestWorkerEnvironmentOnlySelectedCredential(t *testing.T) {
 	t.Setenv("UNRELATED_SECRET", "private-fixture")
 	t.Setenv("GROQ_API_KEY", "selected-fixture")
-	env := strings.Join(workerEnvironment(Task{Parameters: map[string]any{"api_key": "GROQ_API_KEY"}}, nil), "\n")
-	if strings.Contains(env, "UNRELATED_SECRET=") || !strings.Contains(env, "GROQ_API_KEY=selected-fixture") {
+	t.Setenv("RETICLE_ML_PROFILE", "amd-rocm")
+	t.Setenv("RETICLE_GPU_DEVICES", "0")
+	env := strings.Join(workerEnvironment(Task{Parameters: map[string]any{"api_key": "GROQ_API_KEY"}, Capabilities: []Capability{CapabilityGPUUse}}, nil), "\n")
+	if strings.Contains(env, "UNRELATED_SECRET=") || !strings.Contains(env, "GROQ_API_KEY=selected-fixture") || !strings.Contains(env, "RETICLE_ML_PROFILE=amd-rocm") || !strings.Contains(env, "RETICLE_GPU_DEVICES=0") {
 		t.Fatal("credential scope not enforced")
 	}
 	env = strings.Join(workerEnvironment(Task{Parameters: map[string]any{"api_key": "UNRELATED_SECRET"}}, nil), "\n")
