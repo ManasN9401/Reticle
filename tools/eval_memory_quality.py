@@ -49,18 +49,27 @@ def run_model(model, context):
         timeout=60,
         num_retries=0,
     )
-    return response.choices[0].message.content
+    usage = getattr(response, "usage", None)
+    if hasattr(usage, "model_dump"):
+        usage = usage.model_dump()
+    elif usage is not None and not isinstance(usage, dict):
+        usage = {name: getattr(usage, name) for name in ("prompt_tokens", "completion_tokens", "total_tokens") if hasattr(usage, name)}
+    return response.choices[0].message.content, (usage or {})
 
 def evaluate(cases, model=None, attempts=1):
     modes = ("none", "full", "selected")
     results = {"model": model, "attempts": attempts, "cases": [], "summary": {}}
     if model is None:
+        prompt_bytes = {mode: 0 for mode in modes}
         for case in cases:
             selected = context_for(case, "selected")["shared_memory"]
             full = context_for(case, "full")["shared_memory"]
             none = context_for(case, "none")["shared_memory"]
-            results["cases"].append({"id":case["id"], "contract_pass": selected==case["selected_memory"] and not none and len(full)>=len(selected)})
+            sizes = {mode: len(json.dumps(context_for(case, mode), ensure_ascii=False).encode("utf-8")) for mode in modes}
+            for mode in modes: prompt_bytes[mode] += sizes[mode]
+            results["cases"].append({"id":case["id"], "contract_pass": selected==case["selected_memory"] and not none and len(full)>=len(selected), "prompt_bytes": sizes})
         results["summary"] = {"mode":"offline-contract", "passed":sum(x["contract_pass"] for x in results["cases"]), "total":len(cases)}
+        results["prompt_metrics"] = {"bytes_by_mode": prompt_bytes}
         return results
     totals = {mode:0 for mode in modes}
     per_case = {mode:[] for mode in modes}
@@ -69,14 +78,24 @@ def evaluate(cases, model=None, attempts=1):
         for attempt in range(attempts):
             for mode in modes:
                 error=None
+                context = context_for(case,mode)
+                trial_started = time.time()
                 try:
-                    answer=run_model(model,context_for(case,mode))
+                    model_result=run_model(model,context)
+                    if isinstance(model_result, tuple):
+                        answer, usage=model_result
+                    else:
+                        answer, usage=model_result, {}
                 except Exception as exc:
                     answer=""
+                    usage={}
                     error=type(exc).__name__
                 passed=error is None and normalize(answer)==normalize(case["expected"])
                 totals[mode]+=int(passed)
-                trial={"attempt":attempt+1,"mode":mode,"answer":answer,"pass":passed}
+                trial={"attempt":attempt+1,"mode":mode,"answer":answer,"pass":passed,
+                       "latency_seconds":round(time.time()-trial_started,3),
+                       "prompt_bytes":len(json.dumps(context,ensure_ascii=False).encode("utf-8")),
+                       "usage":usage}
                 if error is not None: trial["error"]=error
                 row["trials"].append(trial)
         results["cases"].append(row)

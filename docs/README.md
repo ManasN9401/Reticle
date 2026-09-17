@@ -10,6 +10,7 @@
 - [Core agents](core_agents.md).
 - [Environment configuration](environment.md).
 - [Memory lifecycle RFC](rfc/RFC-044-Memory-Lifecycle-Recovery-Evaluation.md).
+- [Durable execution, capabilities and effects RFC](rfc/RFC-045-Durable-Execution-Capabilities-Effects.md).
 - [Historical material boundary](archive/README.md).
 - [RFC process](governance/RFC_PROCESS.md).
 
