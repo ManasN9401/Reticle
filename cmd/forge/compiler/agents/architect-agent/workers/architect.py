@@ -8,7 +8,6 @@ import sys
 import json
 import os
 from litellm import completion
-from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 import logging
 
 logging.basicConfig(level=logging.CRITICAL)
@@ -54,7 +53,7 @@ def main():
         elif agent_complexity <= 3:
             complexity_prompt = "CRITICAL REQUIREMENT: You should generate a small graph of 2-5 agents to split the work, but keep individual responsibilities broad. Do NOT create massive parallel branches. A simple linear pipeline or small DAG is preferred."
         else:
-            complexity_prompt = "CRITICAL REQUIREMENT: You MUST categorize the complexity of the user's task. Reticle is designed for massive parallelism. You MUST decompose EVERY task into a WIDE, MULTI-BRANCH DAG. Do NOT create purely linear pipelines (e.g. A -> B -> C). Even simple tasks must be broken down into at least 3-4 specialized agents. \nFor complex applications, you MUST generate a massively parallel graph with 10, 20, or even 50+ specialized nodes (e.g., one agent per file, one agent per class, one agent per API endpoint). DO NOT anchor to the small 4-node example below; that is just a schema demonstration. Scale the number of agents and nodes to be as large as necessary to achieve extreme modularity. Single-node or purely linear workflows are STRICTLY FORBIDDEN. One of your agents MUST explicitly be responsible for creating the main entrypoint or final assembly."
+            complexity_prompt = "Choose the smallest graph that gives genuinely independent work clear ownership. Parallelize only nodes whose inputs, outputs, and writable files or subsystems do not overlap. A linear graph is valid when the work is sequential or tightly coupled. Add an integration or review node only when it resolves real cross-node work. The graph may contain at most 16 nodes."
 
         auto_approve_flag = False  # Approval is a trusted runtime decision, never prompt text.
         hitl_rule = ""
@@ -203,7 +202,6 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         if api_key:
             kwargs["api_key"] = api_key
 
-        @retry(stop=stop_after_attempt(7), wait=wait_exponential(multiplier=2, min=5, max=120))
         def get_architect_response():
             try:
                 # Architect output is just a schema with 'TBD' system prompts, so it's very small
@@ -213,7 +211,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     "HTTP-Referer": "https://github.com/ManasN9401/Reticle",
                     "X-Title": "Reticle Agentic Harness",
                 }
-                print(f"Calling litellm.completion... with kwargs: {kwargs}", file=sys.stderr)
+                print(f"Calling litellm.completion for model {model}", file=sys.stderr)
                 log_file.flush()
                 resp = completion(
                     model=model,
@@ -327,7 +325,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     conversation.append({"role": "user", "content": f"{err_msg}\nFix this and output the raw JSON again."})
                 print(f"[ARCHITECT] {err_msg}", file=sys.stderr)
                 log_file.flush()
-                raise Exception(err_msg) # This triggers the @retry
+                raise ValueError(err_msg)
 
             return data
 
