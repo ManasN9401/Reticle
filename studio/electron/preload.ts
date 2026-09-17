@@ -37,6 +37,7 @@ import type {
   TreeEntry,
   Unsubscribe,
   WindowState,
+  WorkspaceSummary,
 } from '../src/shared/ipc'
 import type { RuntimeEvent, WaitlistItem } from '../src/shared/events'
 import type { ProjectionState } from '../src/shared/projection'
@@ -117,6 +118,8 @@ const bridge: ReticleBridge = {
   workspace: {
     agents: (execId?: string) =>
       ipcRenderer.invoke(IPC.workspaceAgents, execId) as Promise<ApiResult<AgentCard[]>>,
+    summary: (execId?: string) =>
+      ipcRenderer.invoke(IPC.workspaceSummary, execId) as Promise<ApiResult<WorkspaceSummary>>,
     tree: (path?: string) =>
       ipcRenderer.invoke(IPC.workspaceTree, path) as Promise<ApiResult<TreeEntry[]>>,
     read: (path: string) =>

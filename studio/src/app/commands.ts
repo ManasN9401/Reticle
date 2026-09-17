@@ -99,6 +99,12 @@ export const COMMANDS: Command[] = [
     run: () => useUi.getState().togglePanel(),
   },
   {
+    id: 'panel.activity',
+    title: 'Show Activity',
+    section: 'View',
+    run: () => useUi.getState().setPanelTab('activity'),
+  },
+  {
     id: 'panel.logs',
     title: 'Show Logs',
     section: 'View',

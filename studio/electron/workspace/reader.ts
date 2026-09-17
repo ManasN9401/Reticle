@@ -1,11 +1,13 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import type { AgentCard, ApiResult, ReadFileResult, TreeEntry } from '../../src/shared/ipc'
+import type { AgentCard, ApiResult, ReadFileResult, TreeEntry, WorkspaceSummary } from '../../src/shared/ipc'
 import { builtinAgentsDir, envsDir, isInside, sessionsDir } from '../paths'
 
 /** Files above this size are truncated rather than shipped whole to the renderer. */
 const MAX_FILE_BYTES = 2 * 1024 * 1024
+const MAX_SUMMARY_ENTRIES = 20_000
+const RECENT_FILE_LIMIT = 8
 
 /** Directories that are large, uninteresting, or both. */
 const SKIP_DIRS = new Set(['node_modules', '__pycache__', '.git', 'Lib', 'Scripts'])
@@ -187,6 +189,87 @@ export class WorkspaceReader {
     return ok([...byId.values()].sort((a, b) => a.id.localeCompare(b.id)))
   }
 
+  async summary(execId?: string): Promise<ApiResult<WorkspaceSummary>> {
+    const root = this.requireRoot()
+    if (!root) return fail('Reticle repository root not found.')
+
+    let scanRoot = sessionsDir(root)
+    let sessionId: string | undefined
+    if (execId) {
+      sessionId = execId.startsWith('compile-') ? execId.slice('compile-'.length) : execId
+      if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/.test(sessionId)) {
+        return fail('Invalid session identifier.')
+      }
+      scanRoot = path.join(sessionsDir(root), sessionId)
+    }
+
+    try {
+      const rootStat = await fs.stat(scanRoot)
+      if (!rootStat.isDirectory() || !isInside(root, scanRoot)) {
+        return fail('Session workspace is unavailable.')
+      }
+
+      let fileCount = 0
+      let directoryCount = 0
+      let totalBytes = 0
+      let latestModifiedAt: number | undefined
+      let visited = 0
+      let truncated = false
+      const recentFiles: TreeEntry[] = []
+      const pending = [scanRoot]
+
+      while (pending.length > 0) {
+        const current = pending.pop()
+        if (!current) break
+        const entries = await fs.readdir(current, { withFileTypes: true })
+        for (const entry of entries) {
+          if (visited >= MAX_SUMMARY_ENTRIES) {
+            truncated = true
+            pending.length = 0
+            break
+          }
+          visited += 1
+          if (entry.isSymbolicLink()) continue
+          if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue
+          const full = path.join(current, entry.name)
+          if (entry.isDirectory()) {
+            directoryCount += 1
+            pending.push(full)
+            continue
+          }
+          if (!entry.isFile()) continue
+          const stat = await fs.stat(full)
+          const modifiedAt = stat.mtimeMs
+          fileCount += 1
+          totalBytes += stat.size
+          latestModifiedAt = Math.max(latestModifiedAt ?? 0, modifiedAt)
+          recentFiles.push({
+            name: entry.name,
+            path: full,
+            isDirectory: false,
+            size: stat.size,
+            modifiedAt,
+          })
+          recentFiles.sort((a, b) => (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0))
+          if (recentFiles.length > RECENT_FILE_LIMIT) recentFiles.pop()
+        }
+      }
+
+      return ok({
+        execId: sessionId,
+        rootPath: scanRoot,
+        fileCount,
+        directoryCount,
+        totalBytes,
+        latestModifiedAt,
+        recentFiles,
+        truncated,
+      })
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   async tree(target?: string): Promise<ApiResult<TreeEntry[]>> {
     const root = this.requireRoot()
     if (!root) return fail('Reticle repository root not found.')
@@ -200,12 +283,16 @@ export class WorkspaceReader {
       const entries = await fs.readdir(dir, { withFileTypes: true })
       const result: TreeEntry[] = []
       for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue
         if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue
         const full = path.join(dir, entry.name)
         let size: number | undefined
+        let modifiedAt: number | undefined
         if (entry.isFile()) {
           try {
-            size = (await fs.stat(full)).size
+            const stat = await fs.stat(full)
+            size = stat.size
+            modifiedAt = stat.mtimeMs
           } catch {
             size = undefined
           }
@@ -215,6 +302,7 @@ export class WorkspaceReader {
           path: full,
           isDirectory: entry.isDirectory(),
           size,
+          modifiedAt,
         })
       }
       // Directories first, then alphabetical — the ordering every file tree uses.

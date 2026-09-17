@@ -190,6 +190,7 @@ function registerIpc(): void {
   handle(IPC.apiUpload, (_e, paths: string[]) => rest.upload(paths ?? []))
 
   handle(IPC.workspaceAgents, (_e, execId?: string) => workspace.agents(execId))
+  handle(IPC.workspaceSummary, (_e, execId?: string) => workspace.summary(execId))
   handle(IPC.workspaceTree, (_e, target?: string) => workspace.tree(target))
   handle(IPC.workspaceRead, (_e, target: string) => workspace.read(target))
   handle(IPC.workspaceReveal, (_e, target: string) => {

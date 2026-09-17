@@ -45,6 +45,9 @@ const ARTIFACT_EVENTS = new Set([
  */
 const STRUCTURAL_LOG_EVENTS = new Set([
   'RuntimeOverloaded',
+  'EnvironmentProvisioningStarted',
+  'EnvironmentProvisioningCompleted',
+  'EnvironmentProvisioningFailed',
   'WorkflowStarted',
   'WorkflowCompleted',
   'WorkflowFailed',
@@ -303,8 +306,12 @@ export class EventStore extends EventEmitter {
     const batch = this.pendingLogs
     this.pendingLogs = []
     const scoped = batch.filter((record) => {
-      if (this.scope.execId && record.execId !== this.scope.execId) return false
-      if (this.scope.nodeId && record.nodeId !== this.scope.nodeId) return false
+      // Environment provisioning can be shared by several runs and has no
+      // single execution identity. Keep those lifecycle records visible when
+      // the ordinary worker stream is scoped to the selected run.
+      const sharedEnvironment = record.eventType?.startsWith('EnvironmentProvisioning') ?? false
+      if (this.scope.execId && record.execId !== this.scope.execId && !sharedEnvironment) return false
+      if (this.scope.nodeId && record.nodeId !== this.scope.nodeId && !sharedEnvironment) return false
       return true
     })
     if (scoped.length === 0) return
@@ -347,7 +354,33 @@ function describe(event: RuntimeEvent): string {
       return 'runtime started'
     case 'RuntimeShutdown':
       return 'runtime shutdown'
+    case 'EnvironmentProvisioningStarted':
+      return describeEnvironment(p, 'installing')
+    case 'EnvironmentProvisioningCompleted':
+      return describeEnvironment(p, 'ready')
+    case 'EnvironmentProvisioningFailed':
+      return describeEnvironment(p, 'failed')
     default:
       return event.type
   }
+}
+
+function describeEnvironment(payload: Record<string, unknown>, status: 'installing' | 'ready' | 'failed'): string {
+  const scope = payload.scope === 'agent' ? 'agent' : 'base'
+  const title = status === 'installing'
+    ? `Installing ${scope} dependencies`
+    : status === 'ready'
+      ? `${scope === 'agent' ? 'Agent' : 'Base'} dependencies ready`
+      : `${scope === 'agent' ? 'Agent' : 'Base'} dependency installation failed`
+  const dependencies = Array.isArray(payload.dependencies)
+    ? payload.dependencies.map(String).join(' ')
+    : ''
+  const fields = [
+    payload.agent_id ? `agent_id: ${String(payload.agent_id)}` : '',
+    `deps: [${dependencies}]`,
+    `using_uv: ${String(Boolean(payload.using_uv))}`,
+    `cached: ${String(Boolean(payload.cached))}`,
+    payload.duration_ms !== undefined ? `duration_ms: ${String(payload.duration_ms)}` : '',
+  ].filter(Boolean)
+  return `${title} (${fields.join(', ')})`
 }

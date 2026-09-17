@@ -3,10 +3,13 @@ import { cn } from '@/design/cn'
 import { EmptyState, IconButton } from '@/design/primitives'
 import { LogPanel } from '@/features/logs/LogPanel'
 import { ProblemsPanel } from '@/features/problems/ProblemsPanel'
+import { ActivityPanel } from '@/features/activity/ActivityPanel'
+import { dependencyOperationCount } from '@/features/activity/dependencyActivity'
 import { useActiveRun, useStudio } from '@/state/store'
 import { useUi, type PanelTab } from '@/state/ui'
 
 const TABS: { id: PanelTab; label: string }[] = [
+  { id: 'activity', label: 'Activity' },
   { id: 'logs', label: 'Logs' },
   { id: 'problems', label: 'Problems' },
   { id: 'terminal', label: 'Terminal' },
@@ -25,6 +28,7 @@ export function DockPanel() {
     ? Object.values(run.nodes).filter((n) => n.status === 'failed').length
     : 0
   const logCount = useStudio((s) => s.logs.length)
+  const dependencyCount = useStudio((s) => dependencyOperationCount(s.logs))
 
   return (
     <section
@@ -62,6 +66,9 @@ export function DockPanel() {
             {tab.id === 'logs' && logCount > 0 ? (
               <span className="num text-2xs text-fg-4">{compact(logCount)}</span>
             ) : null}
+            {tab.id === 'activity' && dependencyCount > 0 ? (
+              <span className="num text-2xs text-fg-4">{dependencyCount}</span>
+            ) : null}
           </button>
         ))}
 
@@ -84,6 +91,7 @@ export function DockPanel() {
       </div>
 
       <div className="min-h-0 flex-1">
+        {panelTab === 'activity' ? <ActivityPanel /> : null}
         {panelTab === 'logs' ? <LogPanel /> : null}
         {panelTab === 'problems' ? <ProblemsPanel /> : null}
         {panelTab === 'terminal' ? <TerminalPlaceholder /> : null}

@@ -9,6 +9,7 @@
 - [Custom agent guide](custom_agent_guide.md).
 - [Core agents](core_agents.md).
 - [Environment configuration](environment.md).
+- [Studio workspace and activity views](studio-workspaces.md).
 - [Memory lifecycle RFC](rfc/RFC-044-Memory-Lifecycle-Recovery-Evaluation.md).
 - [Durable execution, capabilities and effects RFC](rfc/RFC-045-Durable-Execution-Capabilities-Effects.md).
 - [Historical material boundary](archive/README.md).

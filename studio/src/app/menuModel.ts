@@ -96,6 +96,7 @@ export const MENUS: MenuDefinition[] = [
     label: '&Terminal',
     items: [
       { kind: 'command', id: 'panel.terminal', label: 'Show Terminal' },
+      { kind: 'command', id: 'panel.activity', label: 'Show Activity' },
       { kind: 'command', id: 'panel.logs', label: 'Show Logs' },
       { kind: 'command', id: 'panel.problems', label: 'Show Problems' },
       { kind: 'command', id: 'panel.preview', label: 'Show Preview' },

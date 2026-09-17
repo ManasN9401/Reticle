@@ -54,6 +54,7 @@ export const IPC = {
 
   // --- workspace / filesystem ----------------------------------------------
   workspaceAgents: 'workspace:agents',
+  workspaceSummary: 'workspace:summary',
   workspaceTree: 'workspace:tree',
   workspaceRead: 'workspace:read',
   workspaceReveal: 'workspace:reveal',
@@ -297,6 +298,19 @@ export interface TreeEntry {
   path: string
   isDirectory: boolean
   size?: number
+  modifiedAt?: number
+}
+
+export interface WorkspaceSummary {
+  execId?: string
+  rootPath: string
+  fileCount: number
+  directoryCount: number
+  totalBytes: number
+  latestModifiedAt?: number
+  recentFiles: TreeEntry[]
+  /** True when the bounded scan stopped before visiting the whole tree. */
+  truncated: boolean
 }
 
 export interface ReadFileResult {
@@ -386,6 +400,7 @@ export type CommandId =
   | 'view.explorer'
   | 'view.settings'
   | 'panel.toggle'
+  | 'panel.activity'
   | 'panel.logs'
   | 'panel.terminal'
   | 'panel.preview'
@@ -490,6 +505,7 @@ export interface ReticleBridge {
 
   workspace: {
     agents(execId?: string): Promise<ApiResult<AgentCard[]>>
+    summary(execId?: string): Promise<ApiResult<WorkspaceSummary>>
     tree(path?: string): Promise<ApiResult<TreeEntry[]>>
     read(path: string): Promise<ApiResult<ReadFileResult>>
     reveal(path: string): Promise<void>

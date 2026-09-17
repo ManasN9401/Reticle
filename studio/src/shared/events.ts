@@ -19,6 +19,9 @@ export type EventType =
   | 'ExecutionPaused'
   | 'ExecutionResumed'
   | 'ExecutionKilled'
+  | 'EnvironmentProvisioningCompleted'
+  | 'EnvironmentProvisioningFailed'
+  | 'EnvironmentProvisioningStarted'
   | 'ArtifactStored'
   | 'ArtifactVersionCreated'
   | 'ArtifactsProduced'
@@ -56,6 +59,9 @@ export const EVENT_TYPES: readonly EventType[] = [
   'ExecutionPaused',
   'ExecutionResumed',
   'ExecutionKilled',
+  'EnvironmentProvisioningCompleted',
+  'EnvironmentProvisioningFailed',
+  'EnvironmentProvisioningStarted',
   'ArtifactStored',
   'ArtifactVersionCreated',
   'ArtifactsProduced',

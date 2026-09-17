@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 export type ViewId = 'runs' | 'graph' | 'agents' | 'artifacts' | 'explorer' | 'settings'
-export type PanelTab = 'logs' | 'problems' | 'terminal' | 'preview'
+export type PanelTab = 'activity' | 'logs' | 'problems' | 'terminal' | 'preview'
 
 export interface EditorTab {
   id: string
@@ -67,7 +67,7 @@ export const useUi = create<UiStore>((set, get) => ({
   sidebarWidth: 288,
 
   panelOpen: true,
-  panelTab: 'logs',
+  panelTab: 'activity',
   panelHeight: 260,
   panelMaximized: false,
 
