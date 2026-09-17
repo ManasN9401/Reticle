@@ -274,10 +274,11 @@ function applyToBatch(batch: Batch, state: ProjectionState, event: RuntimeEvent)
         run.status = 'running'
         run.startedAt = event.timestamp
       }
-      // `WorkflowEdge` carries no json tags, so these keys are capitalized.
       const edges: WireEdge[] = Array.isArray(p.edges) ? p.edges : []
       if (edges.length > 0) {
-        run.edges = edges.map((e) => ({ from: e.From, to: e.To }))
+        run.edges = edges
+          .map((edge) => ({ from: edge.from ?? edge.From ?? '', to: edge.to ?? edge.To ?? '' }))
+          .filter((edge) => edge.from.length > 0 && edge.to.length > 0)
         // Seed every node the topology mentions so the graph is complete
         // before any of them has produced an event.
         for (const edge of run.edges) {

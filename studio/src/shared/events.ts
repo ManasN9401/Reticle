@@ -101,14 +101,13 @@ export interface RuntimeEvent<P = unknown> {
 // Payload shapes
 // ---------------------------------------------------------------------------
 
-/**
- * `WorkflowEdge` has no json tags (runtime/agent/workflow.go:20-23), so these
- * arrive capitalized. This is the single most common parsing mistake against
- * this backend.
- */
+/** Current runtime events use lowercase JSON fields. Uppercase fields remain
+ * accepted when replaying logs written by older Reticle versions. */
 export interface WireEdge {
-  From: string
-  To: string
+  from?: string
+  to?: string
+  From?: string
+  To?: string
 }
 
 export interface WorkflowStartedPayload {

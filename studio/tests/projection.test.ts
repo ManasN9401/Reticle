@@ -13,6 +13,19 @@ test('reconnect restores terminal node state from snapshot', () => {
   assert.equal(state.runs.run.nodes.solo.status,'done')
 })
 
+test('workflow edges connect current and legacy event formats', () => {
+  const current=applyEvents(createProjection(),[event(1,'WorkflowStarted',{
+    exec_id:'current',edges:[{from:'architect',to:'coder'}],
+  })])
+  assert.deepEqual(current.runs.current.edges,[{from:'architect',to:'coder'}])
+  assert.deepEqual(Object.keys(current.runs.current.nodes).sort(),['architect','coder'])
+
+  const legacy=applyEvents(createProjection(),[event(1,'WorkflowStarted',{
+    exec_id:'legacy',edges:[{From:'architect',To:'writer'}],
+  })])
+  assert.deepEqual(legacy.runs.legacy.edges,[{from:'architect',to:'writer'}])
+})
+
 test('a batch spanning sessions does not retain the older run', () => {
   const state=applyEvents(createProjection(),[
     event(200,'WorkflowStarted',{exec_id:'old'}),
