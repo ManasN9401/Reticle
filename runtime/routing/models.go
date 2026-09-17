@@ -16,13 +16,21 @@ import (
 
 // Model Definition
 type Model struct {
-	CooldownUntil time.Time `json:"cooldown_until,omitempty"`
-	ID            string    `json:"id"`
-	Cost          float64   `json:"cost"`       // USD per 1M tokens, mean of input/output prices; -1 means unknown
-	Capability    float64   `json:"capability"` // Estimated performance capability
-	APIKeyEnv     string    `json:"api_key_env,omitempty"`
-	Modality      string    `json:"modality,omitempty"`
-	Enabled       bool      `json:"enabled"`
+	CooldownUntil  time.Time `json:"cooldown_until,omitempty"`
+	ObservedAt     time.Time `json:"observed_at,omitempty"`
+	ID             string    `json:"id"`
+	Provider       string    `json:"provider"`
+	EndpointEnv    string    `json:"endpoint_env,omitempty"`
+	APIKeyEnv      string    `json:"api_key_env,omitempty"`
+	MetadataSource string    `json:"metadata_source"`
+	ToolSupport    string    `json:"tool_support"` // advertised, inferred, or unknown
+	Modality       string    `json:"modality,omitempty"`
+	ContextLimit   int       `json:"context_limit,omitempty"`
+	Cost           float64   `json:"cost"` // deprecated mean USD per 1M tokens; -1 means unknown
+	InputCostPerM  float64   `json:"input_cost_per_m"`
+	OutputCostPerM float64   `json:"output_cost_per_m"`
+	Capability     float64   `json:"capability"` // estimated score, not a benchmark
+	Enabled        bool      `json:"enabled"`
 }
 
 func (m Model) Key() string {
@@ -85,8 +93,41 @@ func detectModality(id string) string {
 	return "text"
 }
 
+func finalizeModel(model Model, observedAt time.Time) Model {
+	model.ObservedAt = observedAt
+	if model.InputCostPerM == 0 && model.OutputCostPerM == 0 && model.Cost < 0 {
+		model.InputCostPerM, model.OutputCostPerM = -1, -1
+	}
+	if model.ToolSupport == "" {
+		model.ToolSupport = "unknown"
+	}
+	if model.MetadataSource == "" {
+		model.MetadataSource = "runtime-probe"
+	}
+	if slash := strings.IndexByte(model.ID, '/'); slash > 0 {
+		model.Provider = model.ID[:slash]
+	}
+	switch model.Provider {
+	case "ollama":
+		model.EndpointEnv = "OLLAMA_HOST"
+	case "comfyui":
+		model.EndpointEnv = "COMFYUI_HOST"
+	case "llama":
+		model.EndpointEnv = "LLAMA_HOST"
+	}
+	return model
+}
+
+func perMillion(value float64) float64 {
+	if value < 0 {
+		return -1
+	}
+	return value * 1_000_000
+}
+
 // FetchAvailableModels fetches and parses available models dynamically.
 func FetchAvailableModels(log *logger.Logger, loadAll bool) {
+	observedAt := time.Now().UTC()
 	newAvailableModels := make([]Model, 0)
 	newLockedKeys := make([]string, 0)
 
@@ -164,7 +205,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		added := 0
 		for _, m := range allORModels {
 			cost := -1.0
-			
+
 			parseCost := func(v any) float64 {
 				switch val := v.(type) {
 				case string:
@@ -176,10 +217,10 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 					return -1.0
 				}
 			}
-			
+
 			input := parseCost(m.Pricing.Prompt)
 			output := parseCost(m.Pricing.Completion)
-			
+
 			if input >= 0 && output >= 0 {
 				cost = (input + output) * 500000
 			}
@@ -208,12 +249,16 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			}
 
 			newAvailableModels = append(newAvailableModels, Model{
-				ID:         "openrouter/" + m.ID,
-				Cost:       cost,
-				Capability: estimateCapability(m.ID),
-				APIKeyEnv:  envKey,
-				Enabled:    true,
-				Modality:   detectModality(m.ID),
+				ID:             "openrouter/" + m.ID,
+				Cost:           cost,
+				Capability:     estimateCapability(m.ID),
+				APIKeyEnv:      envKey,
+				Enabled:        true,
+				Modality:       detectModality(m.ID),
+				InputCostPerM:  perMillion(input),
+				OutputCostPerM: perMillion(output),
+				MetadataSource: "openrouter-catalog",
+				ToolSupport:    "advertised",
 			})
 			added++
 		}
@@ -404,15 +449,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		if resp != nil {
 			resp.Body.Close()
 		}
-		log.Info("ComfyUI not detected or unreachable, falling back to default", "host", comfyHost)
-		newAvailableModels = append(newAvailableModels, Model{
-			ID:         "comfyui/default",
-			Cost:       0.0,
-			Capability: 10.0,
-			APIKeyEnv:  "COMFYUI_HOST",
-			Enabled:    true,
-			Modality:   "image",
-		})
+		log.Info("ComfyUI not detected or unreachable; no image model advertised", "host", comfyHost)
 	}
 
 	// 6. Generic OpenAI-compatible local server (llama.cpp/llama-server)
@@ -462,6 +499,9 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		log.Error("No models discovered; check provider connectivity and credentials")
 	}
 
+	for i := range newAvailableModels {
+		newAvailableModels[i] = finalizeModel(newAvailableModels[i], observedAt)
+	}
 	ModelsMutex.Lock()
 	AvailableModels = newAvailableModels
 	LockedKeys = newLockedKeys
