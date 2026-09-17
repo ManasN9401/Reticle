@@ -12,21 +12,63 @@ import (
 	"sync"
 	"time"
 
+	"github.com/reticle/runtime/events"
 	"github.com/reticle/runtime/logger"
 )
 
 type EnvironmentManager struct {
-	Logger  *logger.Logger
-	BaseDir string
-	baseMu  sync.Mutex
+	Logger   *logger.Logger
+	Bus      *events.Bus
+	BaseDir  string
+	baseMu   sync.Mutex
+	reported map[string]bool
 }
 
 // NewEnvironmentManager initializes an environment manager that stores venvs in <root>/.reticle/envs
-func NewEnvironmentManager(l *logger.Logger, rootDir string) *EnvironmentManager {
-	return &EnvironmentManager{
-		Logger:  l,
-		BaseDir: filepath.Join(rootDir, ".reticle", "envs"),
+func NewEnvironmentManager(l *logger.Logger, rootDir string, buses ...*events.Bus) *EnvironmentManager {
+	manager := &EnvironmentManager{
+		Logger:   l,
+		BaseDir:  filepath.Join(rootDir, ".reticle", "envs"),
+		reported: make(map[string]bool),
 	}
+	if len(buses) > 0 {
+		manager.Bus = buses[0]
+	}
+	return manager
+}
+
+func (em *EnvironmentManager) firstReport(key string) bool {
+	if em.reported == nil {
+		em.reported = make(map[string]bool)
+	}
+	if em.reported[key] {
+		return false
+	}
+	em.reported[key] = true
+	return true
+}
+
+func (em *EnvironmentManager) publishProvisioning(event string, agentID WorkerID, dependencies []string, hasUV, cached bool, duration time.Duration, err error) {
+	if em.Bus == nil {
+		return
+	}
+	payload := map[string]any{
+		"scope":        "base",
+		"dependencies": append([]string(nil), dependencies...),
+		"using_uv":     hasUV,
+		"cached":       cached,
+	}
+	if agentID != "" {
+		payload["scope"] = "agent"
+		payload["agent_id"] = agentID
+	}
+	if duration > 0 {
+		payload["duration_ms"] = duration.Milliseconds()
+	}
+	if err != nil {
+		payload["error"] = logger.Redact(err.Error())
+	}
+	em.Bus.Publish(events.EventType(event), events.Component("environment"), payload)
 }
 
 // Provision prepares the virtual environment for a worker and installs the aggregated skill dependencies.
@@ -125,7 +167,9 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 	}
 
 	if needsBaseInstall {
+		startedAt := time.Now()
 		em.Logger.Info("Installing base dependencies", "deps", baseDeps, "using_uv", hasUv)
+		em.publishProvisioning("EnvironmentProvisioningStarted", "", baseDeps, hasUv, false, 0, nil)
 		var cmd *exec.Cmd
 		if hasUv {
 			args := append([]string{"pip", "install", "--python", basePythonExe}, baseDeps...)
@@ -135,12 +179,19 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 			cmd = environmentCommand(ctx, basePythonExe, args...)
 		}
 		if out, err := cmd.CombinedOutput(); err != nil {
-
+			em.Logger.Error("Base dependency installation failed", "deps", baseDeps, "using_uv", hasUv, "error", err)
+			em.publishProvisioning("EnvironmentProvisioningFailed", "", baseDeps, hasUv, false, time.Since(startedAt), err)
 			return "", nil, fmt.Errorf("base install failed: %s - %w", string(out), err)
 		}
 		if err := os.WriteFile(baseDepsFile, []byte(baseDepsString), 0600); err != nil {
 			return "", nil, err
 		}
+		em.Logger.Info("Base dependencies ready", "deps", baseDeps, "using_uv", hasUv, "cached", false, "duration_ms", time.Since(startedAt).Milliseconds())
+		em.publishProvisioning("EnvironmentProvisioningCompleted", "", baseDeps, hasUv, false, time.Since(startedAt), nil)
+		em.firstReport("base")
+	} else if em.firstReport("base") {
+		em.Logger.Info("Base dependencies ready", "deps", baseDeps, "using_uv", hasUv, "cached", true)
+		em.publishProvisioning("EnvironmentProvisioningCompleted", "", baseDeps, hasUv, true, 0, nil)
 	}
 
 	// Aggregate agent-specific dependencies and env vars
@@ -173,7 +224,9 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 		}
 
 		if needsInstall {
+			startedAt := time.Now()
 			em.Logger.Info("Installing agent dependencies", "agent_id", agentID, "deps", dependencies, "using_uv", hasUv)
+			em.publishProvisioning("EnvironmentProvisioningStarted", agentID, dependencies, hasUv, false, 0, nil)
 
 			var cmd *exec.Cmd
 			if hasUv {
@@ -185,11 +238,19 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 			}
 
 			if out, err := cmd.CombinedOutput(); err != nil {
+				em.Logger.Error("Agent dependency installation failed", "agent_id", agentID, "deps", dependencies, "using_uv", hasUv, "error", err)
+				em.publishProvisioning("EnvironmentProvisioningFailed", agentID, dependencies, hasUv, false, time.Since(startedAt), err)
 				return "", nil, fmt.Errorf("agent install failed: %s - %w", string(out), err)
 			}
 			if err := os.WriteFile(depsFile, []byte(depsString), 0600); err != nil {
 				return "", nil, err
 			}
+			em.Logger.Info("Agent dependencies ready", "agent_id", agentID, "deps", dependencies, "using_uv", hasUv, "cached", false, "duration_ms", time.Since(startedAt).Milliseconds())
+			em.publishProvisioning("EnvironmentProvisioningCompleted", agentID, dependencies, hasUv, false, time.Since(startedAt), nil)
+			em.firstReport("agent:" + string(agentID))
+		} else if em.firstReport("agent:" + string(agentID)) {
+			em.Logger.Info("Agent dependencies ready", "agent_id", agentID, "deps", dependencies, "using_uv", hasUv, "cached", true)
+			em.publishProvisioning("EnvironmentProvisioningCompleted", agentID, dependencies, hasUv, true, 0, nil)
 		}
 
 		// Add PYTHONPATH to envVars

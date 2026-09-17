@@ -286,6 +286,26 @@ func TestRegistryLoadsFloatingAndProjectSkills(t *testing.T) {
 	}
 }
 
+func TestEnvironmentProvisioningPublishesStructuredStatus(t *testing.T) {
+	bus := events.NewBus("environment-test")
+	defer bus.Close()
+	received := make(chan events.RuntimeEvent, 1)
+	bus.Subscribe(events.EventType("EnvironmentProvisioningCompleted"), func(event events.RuntimeEvent) {
+		received <- event
+	})
+	manager := &EnvironmentManager{Logger: &logger.Logger{}, Bus: bus}
+	manager.publishProvisioning("EnvironmentProvisioningCompleted", "run__coder", []string{"requests==2.34.2"}, true, false, 750*time.Millisecond, nil)
+	select {
+	case event := <-received:
+		payload, ok := event.Payload.(map[string]any)
+		if !ok || payload["scope"] != "agent" || payload["agent_id"] != WorkerID("run__coder") || payload["duration_ms"] != int64(750) {
+			t.Fatalf("unexpected provisioning payload: %#v", event.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("provisioning event was not published")
+	}
+}
+
 func TestRegistryRejectsProfileDependencies(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "skill.yml"), []byte("id: unsafe\nname: Unsafe\nversion: 1\ndependency_policy: profile\ndependencies: [torch]\n"), 0600)

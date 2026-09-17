@@ -260,7 +260,7 @@ func main() {
 	// Load .env keys securely
 	loadEnv(rootDir)
 
-	envManager := agent.NewEnvironmentManager(orch.Logger, rootDir)
+	envManager := agent.NewEnvironmentManager(orch.Logger, rootDir, orch.Bus)
 	workers := registry.BuildWorkers(orch.Logger, orch.Bus, envManager)
 
 	instructionStore := agent.NewInstructionStore()
