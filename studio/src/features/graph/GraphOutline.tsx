@@ -12,7 +12,7 @@ import { useActiveRun, useStudio } from '@/state/store'
 import type { NodeStatus } from '@shared/projection'
 
 /** Failures and blocks first — the outline should surface what needs attention. */
-const ORDER: NodeStatus[] = ['failed', 'waiting', 'running', 'pending', 'done']
+const ORDER: NodeStatus[] = ['failed', 'blocked', 'interrupted', 'waiting', 'running', 'pending', 'done']
 
 export function GraphOutline() {
   const run = useActiveRun()

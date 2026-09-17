@@ -45,3 +45,14 @@ test('runtime overload fails active runs explicitly',()=>{
   assert.equal(state.runs.run.status,'failed')
   assert.match(state.runs.run.failureReason??'',/restart required/)
 })
+
+test('persistence failure interrupts active work explicitly',()=>{
+  const state=applyEvents(createProjection(),[
+    event(1,'WorkflowStarted',{exec_id:'run'}),
+    event(2,'NodeReady',{exec_id:'run',node_id:'active'}),
+    event(3,'WorkerStarted',{task_id:'run|active',worker_id:'fixture'}),
+    event(4,'RuntimePersistenceFailed',{restart_required:true}),
+  ])
+  assert.equal(state.runs.run.status,'interrupted')
+  assert.equal(state.runs.run.nodes.active.status,'interrupted')
+})

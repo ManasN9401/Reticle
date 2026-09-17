@@ -28,9 +28,9 @@ import {
  * still considers such a node `running`, but showing it as running is a lie:
  * it is blocked on a human.
  */
-export type NodeStatus = 'pending' | 'running' | 'done' | 'failed' | 'waiting'
+export type NodeStatus = 'pending' | 'running' | 'done' | 'failed' | 'waiting' | 'blocked' | 'interrupted'
 
-export type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'cancelled'
+export type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'paused' | 'cancelled' | 'interrupted'
 
 export type WaitingKind = 'human' | 'comfy'
 
@@ -237,6 +237,20 @@ function applyToBatch(batch: Batch, state: ProjectionState, event: RuntimeEvent)
       if (state.waitlist) state.waitlist={...state.waitlist,runningWorkers:0,items:(state.waitlist.items??[]).map(item=>['PENDING','RUNNING','PAUSED'].includes(item.status)?{...item,status:'FAILED'}:item)}
       return
     }
+    case 'RuntimePersistenceFailed': {
+      for (const id of batch.runOrder) {
+        const run=draftRun(batch,id)
+        if (['pending','running','paused'].includes(run.status)) {
+          run.status='interrupted';run.failureReason='Runtime persistence failed; reconcile state and restart'
+          for (const node of Object.values(run.nodes)) {
+            const draft=draftNode(batch,run,node.nodeId,node.taskId)
+            if (node.status==='running' || node.status==='waiting') draft.status='interrupted'
+            else if (node.status==='pending') draft.status='blocked'
+          }
+        }
+      }
+      return
+    }
     case 'WorkflowSnapshot':
     case 'WorkflowStarted': {
       const p = (payload ?? {}) as WorkflowStartedPayload
@@ -244,12 +258,12 @@ function applyToBatch(batch: Batch, state: ProjectionState, event: RuntimeEvent)
       if (!execId) return
       const run = draftRun(batch, execId)
       if (event.type === 'WorkflowSnapshot' && payload) {
-        const statuses: string[] = ['running','paused','completed','failed','cancelled']
+        const statuses: string[] = ['running','paused','completed','failed','cancelled','interrupted']
         if (statuses.includes(String(payload.status))) run.status = payload.status as RunStatus
         const states = payload.nodes
         if (states && typeof states === 'object') {
           for (const [id, status] of Object.entries(states)) {
-            if (['pending','running','done','failed'].includes(String(status))) {
+            if (['pending','running','done','failed','blocked','interrupted'].includes(String(status))) {
               draftNode(batch,run,id,`${execId}|${id}`).status = status as NodeStatus
             }
           }
@@ -573,6 +587,8 @@ export interface RunTotals {
   done: number
   failed: number
   waiting: number
+  blocked: number
+  interrupted: number
 }
 
 export function runTotals(run: Run | undefined): RunTotals {
@@ -583,6 +599,8 @@ export function runTotals(run: Run | undefined): RunTotals {
     done: 0,
     failed: 0,
     waiting: 0,
+    blocked: 0,
+    interrupted: 0,
   }
   if (!run) return totals
   for (const node of Object.values(run.nodes)) {

@@ -14,6 +14,7 @@
 
 export type EventType =
   | 'RuntimeOverloaded'
+  | 'RuntimePersistenceFailed'
   | 'WorkflowSnapshot'
   | 'ExecutionPaused'
   | 'ExecutionResumed'
@@ -50,6 +51,7 @@ export type EventType =
 /** Every event type the runtime is known to publish. */
 export const EVENT_TYPES: readonly EventType[] = [
   'RuntimeOverloaded',
+  'RuntimePersistenceFailed',
   'WorkflowSnapshot',
   'ExecutionPaused',
   'ExecutionResumed',

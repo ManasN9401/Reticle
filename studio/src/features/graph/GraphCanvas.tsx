@@ -28,7 +28,7 @@ import { buildGraph, layoutPositions, type AgentFlowNode, type LayoutDirection }
 import { useScrubbedRun } from './useScrubbedRun'
 
 const NODE_TYPES = { agent: AgentNode }
-const STATUSES: NodeStatus[] = ['pending', 'running', 'done', 'failed', 'waiting']
+const STATUSES: NodeStatus[] = ['pending', 'running', 'done', 'failed', 'waiting', 'blocked', 'interrupted']
 
 export function GraphCanvas() {
   return (

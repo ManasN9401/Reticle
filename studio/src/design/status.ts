@@ -13,6 +13,8 @@ export const NODE_STATUS_VAR: Record<NodeStatus, string> = {
   done: 'var(--color-st-done)',
   failed: 'var(--color-st-failed)',
   waiting: 'var(--color-st-waiting)',
+  blocked: 'var(--color-st-failed)',
+  interrupted: 'var(--color-st-waiting)',
 }
 
 export const NODE_STATUS_WEAK_VAR: Record<NodeStatus, string> = {
@@ -21,6 +23,8 @@ export const NODE_STATUS_WEAK_VAR: Record<NodeStatus, string> = {
   done: 'var(--color-st-done-weak)',
   failed: 'var(--color-st-failed-weak)',
   waiting: 'var(--color-st-waiting-weak)',
+  blocked: 'var(--color-st-failed-weak)',
+  interrupted: 'var(--color-st-waiting-weak)',
 }
 
 export const NODE_STATUS_LABEL: Record<NodeStatus, string> = {
@@ -29,6 +33,8 @@ export const NODE_STATUS_LABEL: Record<NodeStatus, string> = {
   done: 'Done',
   failed: 'Failed',
   waiting: 'Waiting',
+  blocked: 'Blocked',
+  interrupted: 'Interrupted',
 }
 
 const RUN_TO_NODE: Record<RunStatus, NodeStatus> = {
@@ -38,6 +44,7 @@ const RUN_TO_NODE: Record<RunStatus, NodeStatus> = {
   paused: 'waiting',
   cancelled: 'failed',
   failed: 'failed',
+  interrupted: 'interrupted',
 }
 
 export function runStatusVar(status: RunStatus): string {
