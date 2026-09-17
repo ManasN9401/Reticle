@@ -32,16 +32,31 @@ def run(instructions, kind="coding"):
     mem = req.get("memory", {})
     workspace = mem["workspace_dir"]
     os.environ["RETICLE_EXECUTION_ID"] = req.get("execution", "")
-    native = str(mem.get("allow_native_execution", False)).lower() == "true"
+    compatibility_capabilities = {
+        "workspace.read", "workspace.write", "network.public", "process.container",
+        "process.native", "memory.execution", "graph.delegate", "image.local", "rag.local",
+    }
+    capabilities = set(req["capabilities"]) if "capabilities" in req else compatibility_capabilities
+    native = (str(mem.get("allow_native_execution", False)).lower() == "true"
+              and "process.native" in capabilities)
     files = {}
     memory_updates = []
     graph_mutation = None
-    definitions = dict(toolset._definitions)
-    definitions["remember"] = ("Save a JSON value in this execution's memory", {"key":"string", "value_json":"string"})
-    definitions["remember_if_version"] = ("Update an execution-memory key only if its execution-scoped revision in memory_metadata still matches; use 0 to create an absent execution key", {"key":"string", "value_json":"string", "expected_version":"string"})
-    definitions["delegate"] = ("Request a registered agent and then return to this supervisor", {"target_agent":"string"})
+    tool_capabilities = {
+        "read_file": "workspace.read", "list_dir": "workspace.read", "search_codebase": "workspace.read",
+        "write_file": "workspace.write", "replace_file_content": "workspace.write",
+        "read_url": "network.public", "execute_terminal_command": "process.native" if native else "process.container",
+        "mark_task_complete": None,
+    }
+    definitions = {name: spec for name, spec in toolset._definitions.items()
+                   if tool_capabilities.get(name) is None or tool_capabilities[name] in capabilities}
+    if "memory.execution" in capabilities:
+        definitions["remember"] = ("Save a JSON value in this execution's memory", {"key":"string", "value_json":"string"})
+        definitions["remember_if_version"] = ("Update an execution-memory key only if its execution-scoped revision in memory_metadata still matches; use 0 to create an absent execution key", {"key":"string", "value_json":"string", "expected_version":"string"})
+    if "graph.delegate" in capabilities:
+        definitions["delegate"] = ("Request a registered agent and then return to this supervisor", {"target_agent":"string"})
     implementations = {}
-    if kind == "rag":
+    if kind == "rag" and "rag.local" in capabilities:
         import rag_tools
         for name, key in (("index_directory","path"),("query_knowledge","query"),("remove_path_from_index","path")):
             definitions[name] = (name.replace("_"," "), {key:"string"})
@@ -49,26 +64,28 @@ def run(instructions, kind="coding"):
     import comfy_tools
     import urllib.request, urllib.parse
     comfy_checkpoints = ""
-    try:
-        host = os.getenv("COMFYUI_HOST", "http://127.0.0.1:8188").rstrip("/")
-        req_chk = urllib.request.Request(host+"/object_info/CheckpointLoaderSimple")
-        with urllib.request.urlopen(req_chk, timeout=2) as res:
-            chk_data = json.loads(res.read(1024*1024))
-            ckpt_list = chk_data.get("CheckpointLoaderSimple", {}).get("input", {}).get("required", {}).get("ckpt_name", [[]])[0]
-            if ckpt_list:
-                comfy_checkpoints = " Available checkpoints: " + ", ".join(ckpt_list)
-    except Exception:
-        pass
+    if "image.local" in capabilities:
+        try:
+            host = os.getenv("COMFYUI_HOST", "http://127.0.0.1:8188").rstrip("/")
+            req_chk = urllib.request.Request(host+"/object_info/CheckpointLoaderSimple")
+            with urllib.request.urlopen(req_chk, timeout=2) as res:
+                chk_data = json.loads(res.read(1024*1024))
+                ckpt_list = chk_data.get("CheckpointLoaderSimple", {}).get("input", {}).get("required", {}).get("ckpt_name", [[]])[0]
+                if ckpt_list:
+                    comfy_checkpoints = " Available checkpoints: " + ", ".join(ckpt_list)
+        except Exception:
+            pass
 
-    definitions["generate_local_asset"]=(
-        f"Generate an image using configured local ComfyUI.{comfy_checkpoints}",
-        {
-            "prompt":"string",
-            "output_path":"string",
-            "checkpoint":"string"
-        }
-    )
-    implementations["generate_local_asset"] = comfy_tools.generate_local_asset
+    if "image.local" in capabilities:
+        definitions["generate_local_asset"]=(
+            f"Generate an image using configured local ComfyUI.{comfy_checkpoints}",
+            {
+                "prompt":"string",
+                "output_path":"string",
+                "checkpoint":"string"
+            }
+        )
+        implementations["generate_local_asset"] = comfy_tools.generate_local_asset
     tools=[{"type":"function","function":{"name":name,"description":desc,"parameters":{"type":"object","properties":{k:{"type":v} for k,v in props.items()},"required":list(props),"additionalProperties":False}}} for name,(desc,props) in definitions.items()]
     verified = False
     effects_started = False
@@ -110,7 +127,22 @@ def run(instructions, kind="coding"):
             response = completion(model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
             content_buffer = []
             tool_calls_buffer = {}
-            for chunk in response:
+            if hasattr(response, "choices") and hasattr(response.choices[0], "message"):
+                complete_message = response.choices[0].message
+                if getattr(complete_message, "content", None):
+                    content_buffer.append(complete_message.content)
+                for idx, tc in enumerate(getattr(complete_message, "tool_calls", None) or []):
+                    tool_calls_buffer[idx] = {
+                        "id": getattr(tc, "id", "") or "",
+                        "function": {
+                            "name": getattr(tc.function, "name", "") or "",
+                            "arguments": getattr(tc.function, "arguments", "") or "",
+                        },
+                    }
+                response_chunks = []
+            else:
+                response_chunks = response
+            for chunk in response_chunks:
                 delta = chunk.choices[0].delta
                 if hasattr(delta, "content") and delta.content:
                     # Stream JSON chunk to stderr

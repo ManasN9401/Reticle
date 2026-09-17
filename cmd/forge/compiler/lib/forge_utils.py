@@ -4,6 +4,7 @@ import http.client
 import ipaddress
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import shlex
@@ -17,6 +18,35 @@ import urllib.parse
 import urllib.request
 
 MAX_FILE = 1024 * 1024
+
+def detect_ml_host_environment():
+    system = platform.system().lower()
+    if system == "windows":
+        return "windows"
+    if system == "linux":
+        try:
+            release = Path("/proc/sys/kernel/osrelease").read_text(encoding="utf-8").lower()
+        except OSError:
+            release = platform.release().lower()
+        if os.getenv("WSL_INTEROP") or "microsoft" in release:
+            return "wsl2"
+        return "linux"
+    return "other"
+
+def assess_ml_profile(profile, gpu, host):
+    if profile not in ("cpu", "amd-rocm", "nvidia-cuda", "user"):
+        raise ValueError("RETICLE_ML_PROFILE must be cpu, amd-rocm, nvidia-cuda, or user")
+    if gpu and not re.fullmatch(r"[0-9]+(?:,[0-9]+)*", gpu):
+        raise ValueError("RETICLE_GPU_DEVICES must list explicit numeric devices")
+    if profile == "cpu" and gpu:
+        raise ValueError("CPU profile cannot request RETICLE_GPU_DEVICES")
+    if profile in ("amd-rocm", "nvidia-cuda") and not gpu:
+        raise ValueError(f"{profile} profile requires explicit RETICLE_GPU_DEVICES")
+    if profile == "amd-rocm" and host == "windows":
+        return ["Native Windows AMD support is limited to PyTorch and AMD's current listed GPUs; current Windows documentation does not support training. Verify the RX 7800 XT against the current AMD matrix."]
+    if profile == "amd-rocm" and host == "wsl2":
+        return ["WSL2 detected: verify the exact Windows driver, WSL distribution, ROCm image and RX 7800 XT support before running an experiment."]
+    return []
 
 def safe_path(workspace, relative, *, base="src"):
     if not isinstance(relative, str) or "\\" in relative or ":" in relative:
@@ -178,12 +208,18 @@ def execute_terminal_command(command, workspace_dir, allow_native=False):
     try:
         root = safe_path(workspace_dir, ".")
         timeout = min(max(int(os.getenv("RETICLE_COMMAND_TIMEOUT", "120")), 1), 3600)
+        gpu = os.getenv("RETICLE_GPU_DEVICES", "").strip()
+        profile = os.getenv("RETICLE_ML_PROFILE", "cpu").strip().lower()
+        host = detect_ml_host_environment()
+        warnings = assess_ml_profile(profile, gpu, host)
         if allow_native:
             argv = command
             env = os.environ.copy()
             env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
             options = dict(shell=True, cwd=root, env=env)
         else:
+            if profile == "amd-rocm" and host == "windows":
+                raise ValueError("Native Windows AMD execution requires the explicit native-execution setting; Linux ROCm device mappings cannot be applied to this Windows container path")
             # Each command owns its container; timeout/cancellation cleanup cannot
             # accidentally remove another run's shared container.
             import uuid
@@ -195,18 +231,19 @@ def execute_terminal_command(command, workspace_dir, allow_native=False):
                     "--pids-limit", "256", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                     "--mount", f"type=bind,source={root},target=/workspace/src", "-w", "/workspace/src",
                     image, "sh", "-c", command]
-            gpu = os.getenv("RETICLE_GPU_DEVICES", "")
+            if profile == "amd-rocm":
+                argv[2:2] = ["--device=/dev/kfd", "--device=/dev/dri", "--group-add=video"]
             if gpu:
-                if not re.fullmatch(r"[0-9]+(?:,[0-9]+)*", gpu):
-                    raise ValueError("RETICLE_GPU_DEVICES must list explicit numeric devices")
-                argv[2:2] = ["--gpus", "device=" + gpu]
+                if profile == "nvidia-cuda":
+                    argv[2:2] = ["--gpus", "device=" + gpu]
             options = {}
         # Temporary output files bound resident memory even for verbose children.
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
             result = subprocess.run(argv, stdout=stdout, stderr=stderr, timeout=timeout, **options)
             stdout.seek(0); stderr.seek(0)
             output = (stdout.read(10000) + b"\n" + stderr.read(10000)).decode("utf-8", errors="replace")
-        return f"Exit code: {result.returncode}\n{output}"
+        warning_text = "".join(f"ML environment warning: {warning}\n" for warning in warnings)
+        return f"Exit code: {result.returncode}\n{warning_text}{output}"
     except Exception as exc:
         return f"Error executing command: {exc}"
     finally:

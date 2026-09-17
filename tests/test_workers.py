@@ -59,6 +59,14 @@ class WorkerContracts(unittest.TestCase):
         for url in ("file:///etc/passwd","http://127.0.0.1/","http://localhost/"):
             self.assertTrue(forge_utils.read_url(url,".").startswith("Error"))
 
+    def test_windows_amd_profile_is_detected_and_warned(self):
+        with patch.object(forge_utils.platform,"system",return_value="Windows"):
+            self.assertEqual(forge_utils.detect_ml_host_environment(),"windows")
+        warnings=forge_utils.assess_ml_profile("amd-rocm","0","windows")
+        self.assertTrue(any("Windows" in warning and "RX 7800 XT" in warning for warning in warnings))
+        with tempfile.TemporaryDirectory() as temp,patch.dict("os.environ",{"RETICLE_ML_PROFILE":"amd-rocm","RETICLE_GPU_DEVICES":"0"},clear=False),patch.object(forge_utils,"detect_ml_host_environment",return_value="windows"):
+            self.assertIn("requires the explicit native-execution setting",forge_utils.execute_terminal_command("python --version",temp,False))
+
     def test_sdk_verification_and_memory(self):
         import worker_sdk
         def response(name, args):

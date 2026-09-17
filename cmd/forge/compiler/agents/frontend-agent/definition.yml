@@ -16,3 +16,11 @@ memory:
   - prompt_attachments
   - ide_context
   - global_effort
+capabilities:
+  - workspace.read
+  - workspace.write
+  - network.public
+  - process.container
+  - process.native
+  - memory.execution
+  - image.local

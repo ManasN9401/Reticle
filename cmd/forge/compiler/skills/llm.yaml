@@ -2,5 +2,5 @@ id: llm-worker
 name: LLM Worker Base
 description: Provides litellm and requests
 dependencies:
-  - litellm
-  - requests
+  - litellm==1.99.0
+  - requests==2.34.2
