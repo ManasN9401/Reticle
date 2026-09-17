@@ -2,6 +2,7 @@ id: "data-analytics-stats"
 name: "Data Analytics & Statistics"
 version: "1.0.0"
 description: "Industry best practices for data analytics, statistical modeling, and data science workflows."
+dependency_policy: "floating"
 dependencies:
   - "pandas"
   - "numpy"

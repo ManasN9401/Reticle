@@ -2,6 +2,7 @@ id: "osint-investigation"
 name: "OSINT Investigation"
 version: "1.0.0"
 description: "Production-grade Open Source Intelligence (OSINT) methodologies and toolchains."
+dependency_policy: "floating"
 dependencies:
   - "requests"
   - "beautifulsoup4"

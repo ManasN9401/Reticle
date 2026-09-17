@@ -268,9 +268,29 @@ func TestRegistryRejectsUnknownCapability(t *testing.T) {
 
 func TestRegistryRejectsUnpinnedSkillDependency(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "skill.yml"), []byte("id: unsafe\nname: Unsafe\nversion: 1\ndependencies: [requests]\n"), 0600)
+	os.WriteFile(filepath.Join(dir, "skill.yml"), []byte("id: unsafe\nname: Unsafe\nversion: 1\ndependency_policy: locked\ndependencies: [requests]\n"), 0600)
 	if NewRegistry().LoadSkills(dir) == nil {
 		t.Fatal("unpinned dependency silently accepted")
+	}
+}
+
+func TestRegistryLoadsFloatingAndProjectSkills(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "skill.yml"), []byte("id: compatible\nname: Compatible\nversion: 1\ndependency_policy: floating\ndependencies: [requests]\n"), 0600)
+	registry := NewRegistry()
+	if err := registry.LoadSkills(dir); err != nil {
+		t.Fatalf("explicit floating dependency was rejected: %v", err)
+	}
+	if err := NewRegistry().LoadSkills(filepath.Join("..", "..", "skills")); err != nil {
+		t.Fatalf("project skill registry does not load: %v", err)
+	}
+}
+
+func TestRegistryRejectsProfileDependencies(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "skill.yml"), []byte("id: unsafe\nname: Unsafe\nversion: 1\ndependency_policy: profile\ndependencies: [torch]\n"), 0600)
+	if NewRegistry().LoadSkills(dir) == nil {
+		t.Fatal("profile-managed skill accepted a package dependency")
 	}
 }
 

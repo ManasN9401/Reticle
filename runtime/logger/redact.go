@@ -20,6 +20,12 @@ func Redact(text string) string {
 func safeArgs(args []any) []any {
 	out := append([]any(nil), args...)
 	for i := 1; i < len(out); i += 2 {
+		// encoding/json represents most error implementations as {}, which hid
+		// the useful diagnostic as map[]. Preserve their text before redaction.
+		if err, ok := out[i].(error); ok {
+			out[i] = Redact(err.Error())
+			continue
+		}
 		b, err := json.Marshal(out[i])
 		if err != nil {
 			continue

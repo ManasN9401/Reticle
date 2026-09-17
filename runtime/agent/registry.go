@@ -42,12 +42,13 @@ type AgentDefinition struct {
 }
 
 type SkillDefinition struct {
-	ID           string   `yaml:"id"`
-	Name         string   `yaml:"name"`
-	Version      string   `yaml:"version"`
-	Description  string   `yaml:"description"`
-	Dependencies []string `yaml:"dependencies"`
-	EnvVars      []string `yaml:"env_vars"`
+	ID               string   `yaml:"id"`
+	Name             string   `yaml:"name"`
+	Version          string   `yaml:"version"`
+	Description      string   `yaml:"description"`
+	DependencyPolicy string   `yaml:"dependency_policy"`
+	Dependencies     []string `yaml:"dependencies"`
+	EnvVars          []string `yaml:"env_vars"`
 }
 
 type SubscriptionYAML struct {
@@ -146,10 +147,8 @@ func (r *Registry) LoadSkills(directory string) error {
 		if def.ID == "" {
 			return fmt.Errorf("skill definition in %s is missing ID", path)
 		}
-		for _, dependency := range def.Dependencies {
-			if !isPinnedPythonDependency(dependency) {
-				return fmt.Errorf("skill %s dependency %q must use an exact name==version pin", def.ID, dependency)
-			}
+		if err := validateSkillDependencies(&def); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
 		}
 
 		r.Skills[def.ID] = def
@@ -159,9 +158,43 @@ func (r *Registry) LoadSkills(directory string) error {
 }
 
 var pinnedPythonDependency = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9_,.-]+\])?==[A-Za-z0-9][A-Za-z0-9.!+_-]*$`)
+var safePythonDependency = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9_,.-]+\])?(==[A-Za-z0-9][A-Za-z0-9.!+_-]*)?$`)
 
 func isPinnedPythonDependency(dependency string) bool {
 	return pinnedPythonDependency.MatchString(strings.TrimSpace(dependency))
+}
+
+func validateSkillDependencies(def *SkillDefinition) error {
+	policy := strings.ToLower(strings.TrimSpace(def.DependencyPolicy))
+	if policy == "" {
+		// Existing third-party and project skills predate dependency policies.
+		// Keep them loadable while making their non-reproducible behavior explicit
+		// to callers that inspect the parsed definition.
+		policy = "floating"
+		def.DependencyPolicy = policy
+	}
+
+	switch policy {
+	case "profile":
+		if len(def.Dependencies) != 0 {
+			return fmt.Errorf("skill %s uses dependency_policy profile and must not declare Python dependencies", def.ID)
+		}
+		return nil
+	case "floating", "locked":
+	default:
+		return fmt.Errorf("skill %s has unsupported dependency_policy %q", def.ID, def.DependencyPolicy)
+	}
+
+	for _, dependency := range def.Dependencies {
+		dependency = strings.TrimSpace(dependency)
+		if !safePythonDependency.MatchString(dependency) {
+			return fmt.Errorf("skill %s dependency %q must be a package name or exact name==version pin", def.ID, dependency)
+		}
+		if policy == "locked" && !isPinnedPythonDependency(dependency) {
+			return fmt.Errorf("skill %s dependency %q must use an exact name==version pin under the locked policy", def.ID, dependency)
+		}
+	}
+	return nil
 }
 
 func (r *Registry) LoadWorkflows(directory string) error {

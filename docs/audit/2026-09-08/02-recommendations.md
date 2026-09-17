@@ -256,7 +256,7 @@ After timeout, crash or restart, transition the operation to `interrupted` and r
 
 ## 12. Strengthen release gates and reproducibility
 
-The repository has meaningful offline Go, Python and Studio checks. CI now pins Go 1.21 and Python 3.12 and configures Go/Python checks on Ubuntu and Windows. Node remains pinned to major 26 for Studio on Ubuntu. Skill dependencies require exact direct pins and cache identity includes interpreter/platform details, but transitive Python resolutions and job images are not fully locked.
+The repository has meaningful offline Go, Python and Studio checks. CI now pins Go 1.21 and Python 3.12 and configures Go/Python checks on Ubuntu and Windows. Node remains pinned to major 26 for Studio on Ubuntu. Locked skills require exact direct pins, profile-managed skills use a selected prepared environment, and legacy floating skills remain explicitly non-reproducible. Cache identity includes interpreter/platform details, but transitive Python resolutions and job images are not fully locked.
 
 Use the following gates:
 

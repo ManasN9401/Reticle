@@ -10,7 +10,7 @@ AMD's [current PyTorch installer](https://rocm.docs.amd.com/projects/ai-ecosyste
 
 ## Current limitations
 
-The orchestration SDK uses exact direct pins and registry skills reject unpinned dependencies. Experiment frameworks belong in a selected prepared image or user-supplied environment; Reticle does not silently install a generic GPU stack. The ML skill text prefers PyTorch, but profile selection does not establish that an image contains an AMD-compatible build.
+The orchestration SDK uses exact direct pins. Registry skills support `locked`, `floating` and `profile` dependency policies; the ML skill uses `profile`, so experiment frameworks belong in the selected prepared image or user-supplied environment. Reticle does not silently install a generic GPU stack. The ML skill text prefers PyTorch, but profile selection does not establish that an image contains an AMD-compatible build.
 
 `RETICLE_ML_PROFILE` selects `cpu`, `amd-rocm`, `nvidia-cuda` or `user`. `RETICLE_WORKER_IMAGE`, CPU/memory limits and command deadlines remain configurable. Accelerator profiles require numeric `RETICLE_GPU_DEVICES`. NVIDIA uses Docker GPU selection; Linux/WSL AMD maps `/dev/kfd` and `/dev/dri` and adds the video group. Native Windows AMD commands require explicitly enabled native execution and produce a compatibility warning. The runtime leases selected devices between its own attempts. This wiring is not proof that the OS, driver, ROCm/CUDA release, image and framework are compatible.
 
