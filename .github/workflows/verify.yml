@@ -6,24 +6,31 @@ permissions:
   contents: read
 jobs:
   go:
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         module: [runtime, cmd/forge, examples/01_readme_generator, examples/02_book_creator, examples/03_startup_launch, examples/04_memory_test]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v7
         with:
-          go-version: stable
+          go-version: '1.21.x'
           cache-dependency-path: '**/go.sum'
       - run: go test -race ./...
         working-directory: ${{ matrix.module }}
   python:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - run: python3 -B -m unittest discover -s tests
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -B -m unittest discover -s tests
   studio:
     runs-on: ubuntu-latest
     defaults:
