@@ -1,5 +1,6 @@
 # Reticle documentation
 
+- [Logic and documentation review, 18 September 2026](audit/2026-09-18/01-logic-and-documentation-review.md): current code findings, verification evidence and documentation-quality assessment.
 - [Audit findings, 8 September 2026](audit/2026-09-08/01-findings.md): historical findings against the recorded commit.
 - [Architecture recommendations](audit/2026-09-08/02-recommendations.md).
 - [Repair status](audit/2026-09-08/03-repair-status.md): implementation and verification follow-up.

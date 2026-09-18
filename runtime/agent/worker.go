@@ -152,7 +152,7 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 			if line != "" {
 				w.Bus.Publish("WorkerLog", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "log": logger.Redact(line)})
 			}
-			return !strings.HasPrefix(strings.TrimSpace(line), "[LLM_STREAM]")
+			return !strings.Contains(line, "[LLM_STREAM]")
 		},
 	}
 	cmd.Stdout = out
