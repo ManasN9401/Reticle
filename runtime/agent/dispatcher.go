@@ -357,8 +357,8 @@ func (d *Dispatcher) Start() {
 					lastFailure = failure
 					break
 				}
-				// Only route around recognized provider failures with explicit proof
-				// that the failed worker did not start an external effect.
+				// Only route around recognized provider or model-behavior failures with
+				// explicit proof that the worker did not start an external effect.
 				disposition := classifyProviderFailure(failure)
 				if !disposition.retryable {
 					lastFailure = failure
@@ -465,6 +465,9 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 	if (strings.Contains(message, "tool calling") && strings.Contains(message, "not supported")) ||
 		strings.Contains(message, "only available on agentic harnesses") {
 		return providerFailureDisposition{retryable: true, disableModel: true, category: "model_incompatible"}
+	}
+	if containsAny("agent stalled: repeated identical tool requests", "agent iteration budget exhausted", "agent time budget exhausted") {
+		return providerFailureDisposition{retryable: true, category: "model_behavior"}
 	}
 	if containsAny("free-models-per-day", "openrouter_free_tier_daily") {
 		return providerFailureDisposition{retryable: true, penalizeProvider: true, penalizeFamily: true, category: "provider_account_quota"}

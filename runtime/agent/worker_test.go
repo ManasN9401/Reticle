@@ -107,6 +107,8 @@ func TestRetriesRequireNoEffectProof(t *testing.T) {
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] MidStreamFallbackError: A Timeout Occurred", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] 403 Forbidden", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] BadRequestError", true},
+		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] Agent stalled: repeated identical tool requests", true},
+		{"Agent stalled: repeated identical tool requests", false},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] command failed", false},
 	} {
 		if retryableProviderFailure(&WorkerFailure{Reason: WorkerExitedNonZero, Stderr: fixture.text}) != fixture.want {
@@ -135,6 +137,8 @@ func TestProviderFailureDisposition(t *testing.T) {
 		{"missing model", "NotFoundError: 404 Not Found", false, false, false, "model_request"},
 		{"tool support", "tool calling is not supported", false, true, false, "model_incompatible"},
 		{"harness gate", "403: model is only available on agentic harnesses", false, true, false, "model_incompatible"},
+		{"repeated tools", "Agent stalled: repeated identical tool requests for 3 consecutive iterations", false, false, false, "model_behavior"},
+		{"iteration budget", "Agent iteration budget exhausted without verified completion", false, false, false, "model_behavior"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

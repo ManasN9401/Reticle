@@ -38,6 +38,28 @@ def _emit_llm(kind, text, **metadata):
     sys.stderr.write(f"\n[LLM_STREAM] {json.dumps(event, ensure_ascii=False)}\n")
     sys.stderr.flush()
 
+def _tool_call_signature(tool_calls):
+    """Canonicalize a tool round so repeated no-progress rounds are detectable."""
+    signature = []
+    for call in tool_calls:
+        function = call.get("function", {})
+        name = str(function.get("name", ""))
+        raw_arguments = function.get("arguments", "") or ""
+        try:
+            arguments = json.dumps(json.loads(raw_arguments), sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            arguments = str(raw_arguments).strip()
+        signature.append((name, arguments))
+    return tuple(sorted(signature))
+
+def _tool_repeat_state(previous, rounds, tool_calls):
+    signature = _tool_call_signature(tool_calls)
+    if not signature:
+        return None, 0
+    if signature == previous:
+        return signature, rounds + 1
+    return signature, 1
+
 def _meaningful_terminal_verification(kind, parts):
     """Recognize commands that inspect or validate the produced work."""
     if not parts:
@@ -195,8 +217,13 @@ def run(instructions, kind="coding"):
         kwargs["api_key"] = os.environ[key_name]
     
     started = time.monotonic()
+    last_tool_signature = None
+    repeated_tool_rounds = 0
     for iteration in range(30):
         if time.monotonic() - started > 3600:
+            _emit_llm("status", "Stopped: agent time budget exhausted")
+            if not effects_started:
+                print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr, flush=True)
             raise TimeoutError("Agent time budget exhausted")
         try:
             extra_headers = {
@@ -302,6 +329,22 @@ def run(instructions, kind="coding"):
                         "type": "function",
                         "function": tool_calls_buffer[idx]["function"]
                     })
+
+            if "tool_calls" in message_dict and not effects_started:
+                last_tool_signature, repeated_tool_rounds = _tool_repeat_state(
+                    last_tool_signature, repeated_tool_rounds, message_dict["tool_calls"]
+                )
+                if repeated_tool_rounds >= 3:
+                    _emit_llm(
+                        "status",
+                        "Stopped: repeated identical tool requests for 3 consecutive iterations",
+                    )
+                    raise RuntimeError(
+                        "Agent stalled: repeated identical tool requests for 3 consecutive iterations"
+                    )
+            elif "tool_calls" not in message_dict and not effects_started:
+                last_tool_signature = None
+                repeated_tool_rounds = 0
             
             messages.append(message_dict)
             if "tool_calls" not in message_dict:
@@ -394,7 +437,16 @@ def run(instructions, kind="coding"):
                                 record_verification(name, path, checked_path=path)
             except Exception as exc:
                 result = f"Error: {exc}"
-            messages.append({"role":"tool","tool_call_id":call.id,"content":str(result)[:20000]})
+            result_text = str(result)
+            if result_text.startswith("Error"):
+                detail = result_text.splitlines()[0][:300]
+                _emit_llm("tool", f"\nFailed {name}: {detail}", name=name)
+            else:
+                _emit_llm("tool", f"\nCompleted {name}", name=name)
+            messages.append({"role":"tool","tool_call_id":call.id,"content":result_text[:20000]})
+    _emit_llm("status", "Stopped: agent iteration budget exhausted without verified completion")
+    if not effects_started:
+        print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr, flush=True)
     raise RuntimeError("Agent iteration budget exhausted without verified completion")
 
 if __name__ == "__main__":

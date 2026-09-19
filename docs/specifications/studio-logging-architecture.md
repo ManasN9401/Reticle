@@ -32,7 +32,9 @@ Workers write one JSON object per diagnostic event to stderr, prefixed with `[LL
 
 The architect and generated workers request streaming responses. They publish response tokens as they arrive and publish reasoning only when LiteLLM receives an explicit reasoning field from the provider. Reticle does not infer or manufacture hidden model reasoning. Providers and models that do not expose reasoning therefore show response and tool activity without a reasoning section.
 
-Tool argument bodies are not copied into LLM diagnostics. They can contain large file contents or sensitive values; the LLM tab reports the requested tool name while the normal Log tab retains the worker's compact tool execution record.
+Tool argument bodies and successful tool output are not copied into diagnostics because they can contain large file contents or sensitive values. The LLM tab reports the requested tool name and whether it completed. For a failed tool call, it also shows a bounded first-line error so path and validation mistakes can be diagnosed without dumping file contents.
+
+Workers also report whether each tool completed or failed without copying successful tool output into the diagnostic stream. If a model requests the same canonical set of tools with the same arguments for three consecutive iterations before starting any external effect, the worker stops the loop with an explicit side-effect-free stall classification. The dispatcher records the model failure and routes the next configured attempt normally. Iteration and time-budget exhaustion receive the same treatment only when the worker proves that no external effect started.
 
 ---
 

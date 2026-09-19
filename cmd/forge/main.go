@@ -112,7 +112,7 @@ func main() {
 	legacyFlag := flag.Bool("legacy", false, "Use legacy terminal UI (no web UI)")
 	nativeFlag := flag.Bool("native", false, "Run worker terminal commands natively on the host instead of in a Docker container")
 	allModelsFlag := flag.Bool("all-models", false, "Load all available models (instead of just premium tier)")
-	retriesFlag := flag.Int("retries", 3, "Maximum attempts per node; only transient provider failures are retried")
+	retriesFlag := flag.Int("retries", 3, "Maximum attempts per node; retries require an explicitly side-effect-free provider or model-behavior failure")
 	flag.Parse()
 	if *batchSize < 1 || *batchSize > 16 || *retriesFlag < 1 || *retriesFlag > 15 || *portFlag < 1 || *portFlag > 65535 {
 		fmt.Fprintln(os.Stderr, "Invalid batch, retry or port configuration")

@@ -166,6 +166,25 @@ class CompilerContractsTest(unittest.TestCase):
             {"kind": "reasoning", "text": "first\nsecond"},
         )
 
+    def test_tool_signature_ignores_argument_formatting_and_call_order(self):
+        first = [
+            {"function": {"name": "read_file", "arguments": '{"path": "design-spec.md"}'}},
+            {"function": {"name": "list_dir", "arguments": '{"path":"."}'}},
+        ]
+        reordered = [
+            {"function": {"name": "list_dir", "arguments": '{ "path" : "." }'}},
+            {"function": {"name": "read_file", "arguments": '{"path":"design-spec.md"}'}},
+        ]
+        self.assertEqual(
+            self.worker_sdk._tool_call_signature(first),
+            self.worker_sdk._tool_call_signature(reordered),
+        )
+        signature, rounds = self.worker_sdk._tool_repeat_state(None, 0, first)
+        signature, rounds = self.worker_sdk._tool_repeat_state(signature, rounds, reordered)
+        signature, rounds = self.worker_sdk._tool_repeat_state(signature, rounds, first)
+        self.assertEqual(rounds, 3)
+        self.assertEqual(self.worker_sdk._tool_repeat_state(signature, rounds, []), (None, 0))
+
 
 if __name__ == "__main__":
     unittest.main()
