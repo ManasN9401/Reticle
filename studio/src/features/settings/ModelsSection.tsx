@@ -9,7 +9,7 @@ import type { EnvKeyEntry } from '@shared/ipc'
 import { updateSettings } from '@/state/actions'
 
 type StatusFilter = 'all' | 'enabled' | 'disabled'
-type HealthFilter = 'all' | 'ok' | 'rate-limited' | 'missing-key'
+type HealthFilter = 'all' | 'ok' | 'unavailable' | 'missing-key'
 type SortKey = 'capability' | 'cost' | 'id' | 'provider'
 
 /** Model ids are `<provider>/<rest>`; the prefix is the routing provider. */
@@ -24,7 +24,7 @@ function providerOf(id: string): string {
  * The list is served live by the orchestrator (`GET /api/models`) and each
  * entry is bound to an API key slot, so the useful axes to slice by are the
  * provider, the key, and whether that key is currently usable — a model whose
- * key is rate-limited or absent from `.env` cannot run, and that is invisible
+ * key is unavailable or absent from `.env` cannot run, and that is invisible
  * from the model id alone.
  */
 export function ModelsSection() {
@@ -89,7 +89,7 @@ export function ModelsSection() {
     (model: RoutingModel): HealthFilter => {
       const env = model.api_key_env
       if (!env) return 'ok'
-      if (lockedKeys.includes(env)) return 'rate-limited'
+      if (lockedKeys.includes(env)) return 'unavailable'
       if (keyPresence.get(env) === false) return 'missing-key'
       return 'ok'
     },
@@ -206,7 +206,7 @@ export function ModelsSection() {
   }
 
   const enabledCount = models.filter((m) => m.enabled).length
-  const lockedCount = models.filter((m) => healthOf(m) === 'rate-limited').length
+  const lockedCount = models.filter((m) => healthOf(m) === 'unavailable').length
   const missingCount = models.filter((m) => healthOf(m) === 'missing-key').length
 
   return (
@@ -287,7 +287,7 @@ export function ModelsSection() {
           {keySlots.map((k) => (
             <option key={k} value={k}>
               {k}
-              {lockedKeys.includes(k) ? ' (rate-limited)' : ''}
+              {lockedKeys.includes(k) ? ' (unavailable)' : ''}
               {keyPresence.get(k) === false ? ' (not set)' : ''}
             </option>
           ))}
@@ -310,7 +310,7 @@ export function ModelsSection() {
         >
           <option value="all">Any health</option>
           <option value="ok">Usable</option>
-          <option value="rate-limited">Rate-limited</option>
+          <option value="unavailable">Unavailable</option>
           <option value="missing-key">Key not set</option>
         </FilterSelect>
 
@@ -342,10 +342,10 @@ export function ModelsSection() {
         {lockedCount > 0 ? (
           <button
             type="button"
-            onClick={() => setHealth('rate-limited')}
+            onClick={() => setHealth('unavailable')}
             className="num text-st-waiting hover:underline"
           >
-            {lockedCount} rate-limited
+            {lockedCount} unavailable
           </button>
         ) : null}
         {missingCount > 0 ? (
@@ -429,7 +429,7 @@ export function ModelsSection() {
                         className={
                           state === 'ok'
                             ? 'shrink-0 text-fg-4'
-                            : state === 'rate-limited'
+                            : state === 'unavailable'
                               ? 'shrink-0 text-st-waiting'
                               : 'shrink-0 text-st-failed'
                         }
@@ -438,8 +438,8 @@ export function ModelsSection() {
                         type="button"
                         onClick={() => setKeyFilter(model.api_key_env!)}
                         title={
-                          state === 'rate-limited'
-                            ? `${model.api_key_env} is rate-limited`
+                          state === 'unavailable'
+                            ? `${model.api_key_env} is unavailable for routing`
                             : state === 'missing-key'
                               ? `${model.api_key_env} is not set in .env`
                               : `Filter by ${model.api_key_env}`
@@ -448,7 +448,7 @@ export function ModelsSection() {
                           'mono truncate-1 min-w-0 text-2xs hover:underline',
                           state === 'ok'
                             ? 'text-fg-3'
-                            : state === 'rate-limited'
+                            : state === 'unavailable'
                               ? 'text-st-waiting'
                               : 'text-st-failed',
                         )}

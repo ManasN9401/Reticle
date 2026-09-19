@@ -30,6 +30,8 @@ Open Studio's Problems, Activity, and Logs views and find the last structural ev
 
 Forge classifies retryable provider failures and attempts at most the configured `-retries` value, bounded to 1–15 and defaulting to 3. A retry is allowed only when the worker reports that no effect started. Routing uses enabled models, capability estimates, provider capacity, cooldown, and the per-agent outcome score.
 
+Provider SDK deprecation warnings are diagnostic and do not fail a task. For example, Gemini's warning about moving sampling guidance into system instructions is separate from a later HTTP failure. A safe `400 Bad Request` lowers the rejected model's routing score, a safe `403 Forbidden` cools down the affected key, and a safe upstream streaming timeout retries through the router. A forced model is recorded and penalized but is not replaced automatically.
+
 1. Check the selected worker's failure line and model in Studio.
 2. Confirm the named environment variable exists in the repository-root `.env`; never paste a secret into a manifest or prompt.
 3. Check the provider's own quota and model access. Reticle does not infer account balance reliably.

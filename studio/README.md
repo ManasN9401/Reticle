@@ -125,10 +125,11 @@ process through an explicit reveal, which re-hides itself after 20 seconds.
 
 **Models** lists the live catalog from `GET /api/models`, filterable by search,
 provider, **API key slot**, enabled state, and health — where health folds in
-whether that key is rate-limited (from `WaitlistUpdated.lockedKeys`) or missing
-from `.env` entirely. A model bound to a dead key cannot run, and that is
-invisible from the model id alone. Bulk enable/disable applies to the current
-filter.
+whether discovery marked that key unavailable (from `WaitlistUpdated.lockedKeys`)
+or it is missing from `.env` entirely. An OpenRouter free-tier key remains usable
+for free models until its reported limit is exhausted. A model bound to an
+unavailable key cannot run, and that is invisible from the model id alone. Bulk
+enable/disable applies to the current filter.
 
 ## Node map presentations
 

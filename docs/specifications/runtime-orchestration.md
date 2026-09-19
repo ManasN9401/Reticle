@@ -31,6 +31,8 @@ Each node in the DAG maps to a specific `Worker` process (usually a Python agent
 
 Every concrete try has a random attempt ID. The dispatcher owns retry policy, routing outcome updates and completion publication. Accepted result mutations use the attempt ID as a durable idempotency key so duplicate delivery cannot apply them twice.
 
+Provider fallback requires the worker's `[RETICLE_RETRY_SAFE: NO_EFFECTS]` proof. With that proof, rate limits, unavailable/connection failures, authentication or permission failures, upstream streaming timeouts, and recognized bad-request/model-compatibility failures may consume another bounded attempt. Authentication, permission, quota, rate-limit, connection, and service failures temporarily cool down the affected provider key. Request-shape and context failures lower the selected model's score; unsupported tool calling disables that model. An unrecognized process failure is terminal because the runtime cannot assume retry safety from an error code alone.
+
 Waitlist admission creates the isolated workspace and commits required run/compiler memory as one acknowledged batch before submitting a workflow. A workspace or memory failure terminalizes that item without starting compilation.
 
 Workers receive resolved capabilities from their manifest. The shared SDK filters its tool definitions from those grants. Native execution also requires the user's native setting.

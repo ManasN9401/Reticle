@@ -53,3 +53,9 @@ The repaired tree passed:
 Studio lint still reports seven pre-existing React advisory warnings. The production build still reports the existing Vite native-config warning and large bundle chunks. These warnings are outside the reviewed findings and do not fail the build.
 
 No live cloud account, provider API, container daemon, GPU workload, or external side effect was used in this repair pass. The code and contract fixes for those paths are covered by local tests; provider-specific integration still requires configured infrastructure.
+
+## Provider-routing follow-up
+
+On 19 September, real OpenRouter timeout and Gemini 403 traces exposed an ordering defect in the retry path: the narrow retry gate rejected those failures before the existing provider-penalty code could run. Provider failures are now classified once before routing action. With explicit `NO_EFFECTS` proof, upstream timeouts retry, authentication/permission/quota/rate-limit failures cool down the affected key, bad-request/context failures lower the selected model's score, and unsupported tool calling disables that model. Generic process failures remain terminal.
+
+The same follow-up separated an OpenRouter key's free-tier status from exhaustion. Free-tier keys remain routable to free models; only an exhausted reported limit marks the key unavailable in the waitlist/Studio projection.

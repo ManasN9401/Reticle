@@ -143,7 +143,7 @@ export function KeysSection() {
           <p className="num mt-1 text-2xs text-fg-4">
             {configured} of {keys.filter((k) => k.known).length} recognised slots
             configured
-            {lockedKeys.length > 0 ? ` · ${lockedKeys.length} currently rate-limited` : ''}
+            {lockedKeys.length > 0 ? ` · ${lockedKeys.length} currently unavailable` : ''}
           </p>
         </div>
         <IconButton label="Reload from disk" onClick={load} disabled={busy}>
@@ -291,7 +291,7 @@ function KeyRow({
               ? 'var(--color-st-done)'
               : 'var(--color-st-idle)',
         }}
-        title={locked ? 'Rate-limited' : entry.present ? 'Set' : 'Not set'}
+        title={locked ? 'Unavailable for routing' : entry.present ? 'Set' : 'Not set'}
       />
 
       <div className="min-w-0 flex-1">
@@ -302,7 +302,7 @@ function KeyRow({
           ) : null}
           {locked ? (
             <span className="rounded-[3px] bg-st-waiting-weak px-1 text-2xs text-st-waiting">
-              rate-limited
+              unavailable
             </span>
           ) : null}
           {modelCount !== undefined && modelCount > 0 ? (

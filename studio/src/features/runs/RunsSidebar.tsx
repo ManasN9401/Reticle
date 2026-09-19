@@ -221,13 +221,13 @@ export function RunsSidebar() {
 
         {waitlist?.lockedKeys && waitlist.lockedKeys.length > 0 ? (
           <section>
-            <SectionLabel>Rate-limited keys · {waitlist.lockedKeys.length}</SectionLabel>
+            <SectionLabel>Unavailable keys · {waitlist.lockedKeys.length}</SectionLabel>
             <div className="flex flex-wrap gap-1 px-3 pb-2">
               {waitlist.lockedKeys.map((key) => (
                 <span
                   key={key}
                   className="mono flex items-center gap-1 rounded-[3px] border border-line-2 bg-bg-2 px-1.5 py-0.5 text-[10px] text-st-waiting"
-                  title="This API key is in cooldown; the router is routing around it"
+                  title="This API key failed discovery or exhausted its reported limit"
                 >
                   <KeyRound size={9} strokeWidth={2} />
                   {key}
