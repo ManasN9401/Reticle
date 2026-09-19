@@ -104,11 +104,42 @@ func TestRetriesRequireNoEffectProof(t *testing.T) {
 	}{
 		{"RateLimitError", false},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] RateLimitError", true},
+		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] MidStreamFallbackError: A Timeout Occurred", true},
+		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] 403 Forbidden", true},
+		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] BadRequestError", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] command failed", false},
 	} {
 		if retryableProviderFailure(&WorkerFailure{Reason: WorkerExitedNonZero, Stderr: fixture.text}) != fixture.want {
 			t.Fatal("unsafe retry classification")
 		}
+	}
+}
+
+func TestProviderFailureDisposition(t *testing.T) {
+	tests := []struct {
+		name            string
+		stderr          string
+		providerPenalty bool
+		disableModel    bool
+		category        string
+	}{
+		{"forbidden key", "403 Forbidden", true, false, "provider_access"},
+		{"authentication", "AuthenticationError: 401 Unauthorized", true, false, "provider_access"},
+		{"rate limit", "RateLimitError", true, false, "provider_transient"},
+		{"server error", "InternalServerError: 500 Internal Server Error", true, false, "provider_transient"},
+		{"timeout", "MidStreamFallbackError: A Timeout Occurred", false, false, "timeout"},
+		{"bad request", "BadRequestError: unsupported parameter", false, false, "model_request"},
+		{"missing model", "NotFoundError: 404 Not Found", false, false, "model_request"},
+		{"tool support", "tool calling is not supported", false, true, "model_incompatible"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			failure := &WorkerFailure{Reason: WorkerExitedNonZero, Stderr: "[RETICLE_RETRY_SAFE: NO_EFFECTS] " + test.stderr}
+			got := classifyProviderFailure(failure)
+			if !got.retryable || got.penalizeProvider != test.providerPenalty || got.disableModel != test.disableModel || got.category != test.category {
+				t.Fatalf("unexpected disposition: %#v", got)
+			}
+		})
 	}
 }
 

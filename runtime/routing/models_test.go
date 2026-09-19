@@ -18,3 +18,15 @@ func TestPerMillionPreservesUnknownPrice(t *testing.T) {
 		t.Fatal("price conversion did not preserve units or unknown state")
 	}
 }
+
+func TestOpenRouterFreeTierIsUsableUntilItsLimit(t *testing.T) {
+	limit := 100.0
+	freeOnly, unavailable := openRouterKeyAccess(true, &limit, 25)
+	if !freeOnly || unavailable {
+		t.Fatalf("free-tier key was incorrectly marked unavailable: freeOnly=%v unavailable=%v", freeOnly, unavailable)
+	}
+	freeOnly, unavailable = openRouterKeyAccess(true, &limit, 100)
+	if !freeOnly || !unavailable {
+		t.Fatalf("exhausted free-tier key remained available: freeOnly=%v unavailable=%v", freeOnly, unavailable)
+	}
+}

@@ -357,8 +357,10 @@ func (d *Dispatcher) Start() {
 					lastFailure = failure
 					break
 				}
-				// Only retry transient provider failures; arbitrary command failures may have side effects.
-				if !retryableProviderFailure(failure) {
+				// Only route around recognized provider failures with explicit proof
+				// that the failed worker did not start an external effect.
+				disposition := classifyProviderFailure(failure)
+				if !disposition.retryable {
 					lastFailure = failure
 					break
 				}
@@ -367,22 +369,17 @@ func (d *Dispatcher) Start() {
 				lastFailure = failure
 
 				if d.Router != nil {
-					stderrLower := strings.ToLower(failure.Stderr)
-					if strings.Contains(failure.Stderr, "Insufficient credits") || strings.Contains(failure.Stderr, "invalid api key") || strings.Contains(failure.Stderr, "APIConnectionError") || strings.Contains(stderrLower, "exceeded your current quota") || strings.Contains(stderrLower, "code\":429") || strings.Contains(stderrLower, "code\": 429") || strings.Contains(stderrLower, "429 too many requests") || (strings.Contains(stderrLower, "ratelimiterror") && !strings.Contains(stderrLower, "request too large")) || strings.Contains(stderrLower, "403") || strings.Contains(stderrLower, "forbidden") || strings.Contains(stderrLower, "permission denied") {
+					if disposition.penalizeProvider {
 						if apiKeyEnv, ok := t.Parameters["api_key"].(string); ok && apiKeyEnv != "" {
 							d.Router.PenalizeProvider(string(w.ID), apiKeyEnv)
 						}
-					} else if strings.Contains(stderrLower, "requires terms acceptance") ||
-						strings.Contains(stderrLower, "max_tokens must be less than") ||
-						strings.Contains(stderrLower, "request too large") ||
-						strings.Contains(stderrLower, "maximum context length") {
-						d.Logger.Info("Context length exceeded for this model, penalizing it for this task and trying another.", "worker_id", w.ID)
-						// Fall through to UpdateProbability(..., false) so it picks a different model instead of aborting the whole task
-					} else if strings.Contains(stderrLower, "tool calling") && strings.Contains(stderrLower, "not supported") {
+					} else if disposition.disableModel {
 						if modelID, ok := t.Parameters["llm_model"].(string); ok && modelID != "" {
 							d.Logger.Info("Model does not support tool calling, disabling globally", "model", modelID)
 							d.Router.PenalizeModel(modelID)
 						}
+					} else if disposition.category == "model_request" {
+						d.Logger.Info("Model rejected this request; lowering its score and trying another.", "worker_id", w.ID)
 					}
 					d.Router.UpdateProbability(string(w.ID), string(t.ID), false)
 				}
@@ -435,18 +432,46 @@ func deterministicWorker(id WorkerID) bool {
 	return false
 }
 
-func retryableProviderFailure(f *WorkerFailure) bool {
-	if f.Reason != WorkerExitedNonZero {
-		return false
-	}
-	if !strings.Contains(f.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]") {
-		return false
+type providerFailureDisposition struct {
+	retryable        bool
+	penalizeProvider bool
+	disableModel     bool
+	category         string
+}
+
+func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
+	var result providerFailureDisposition
+	if f == nil || f.Reason != WorkerExitedNonZero || !strings.Contains(f.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]") {
+		return result
 	}
 	message := strings.ToLower(f.Stderr)
-	for _, marker := range []string{"ratelimiterror", "apiconnectionerror", "serviceunavailableerror", "429 too many requests", "exceeded your current quota"} {
-		if strings.Contains(message, marker) {
-			return true
+	containsAny := func(markers ...string) bool {
+		for _, marker := range markers {
+			if strings.Contains(message, marker) {
+				return true
+			}
 		}
+		return false
 	}
-	return false
+
+	if strings.Contains(message, "tool calling") && strings.Contains(message, "not supported") {
+		return providerFailureDisposition{retryable: true, disableModel: true, category: "model_incompatible"}
+	}
+	if containsAny("requires terms acceptance", "max_tokens must be less than", "request too large", "maximum context length", "badrequesterror", "bad request", "status code: 400", "400 client error", "notfounderror", "404 not found", "status code: 404", "unprocessableentityerror", "422 unprocessable") {
+		return providerFailureDisposition{retryable: true, category: "model_request"}
+	}
+	if containsAny("insufficient credits", "invalid api key", "authenticationerror", "401 unauthorized", "status code: 401", "401 client error", "exceeded your current quota", "permissiondeniederror", "403 forbidden", "status code: 403", "403 client error", "permission denied") {
+		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_access"}
+	}
+	if containsAny("ratelimiterror", "code\":429", "code\": 429", "429 too many requests", "status code: 429", "apiconnectionerror", "serviceunavailableerror", "internalservererror", "500 internal server error", "502 bad gateway", "503 service unavailable", "504 gateway timeout") {
+		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_transient"}
+	}
+	if containsAny("midstreamfallbackerror", "timeout error", "a timeout occurred", "timed out") {
+		return providerFailureDisposition{retryable: true, category: "timeout"}
+	}
+	return result
+}
+
+func retryableProviderFailure(f *WorkerFailure) bool {
+	return classifyProviderFailure(f).retryable
 }

@@ -125,6 +125,12 @@ func perMillion(value float64) float64 {
 	return value * 1_000_000
 }
 
+func openRouterKeyAccess(isFreeTier bool, limit *float64, usage float64) (freeOnly, unavailable bool) {
+	freeOnly = isFreeTier
+	unavailable = limit != nil && usage >= *limit
+	return freeOnly, unavailable
+}
+
 // FetchAvailableModels fetches and parses available models dynamically.
 func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 	observedAt := time.Now().UTC()
@@ -175,6 +181,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 		}
 
 		isFreeKey := false
+		keyUnavailable := false
 		authReq, _ := http.NewRequest("GET", "https://openrouter.ai/api/v1/auth/key", nil)
 		authReq.Header.Set("Authorization", "Bearer "+os.Getenv(envKey))
 		if authResp, err := client.Do(authReq); err == nil && authResp.StatusCode == 200 {
@@ -188,17 +195,12 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			var aData AuthResp
 			if b, err := io.ReadAll(authResp.Body); err == nil {
 				json.Unmarshal(b, &aData)
-				if aData.Data.IsFreeTier {
-					isFreeKey = true
-				}
-				if aData.Data.Limit != nil && aData.Data.Usage >= *aData.Data.Limit {
-					isFreeKey = true
-				}
+				isFreeKey, keyUnavailable = openRouterKeyAccess(aData.Data.IsFreeTier, aData.Data.Limit, aData.Data.Usage)
 			}
 			authResp.Body.Close()
 		}
 
-		if isFreeKey {
+		if keyUnavailable {
 			newLockedKeys = append(newLockedKeys, envKey)
 		}
 
