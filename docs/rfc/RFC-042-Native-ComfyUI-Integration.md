@@ -1,3 +1,11 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-19
+---
+
+> Historical design record. Current versioned specifications and schemas take precedence.
+
 > Implementation update (2026-09-08): this historical proposal is superseded where it conflicts with RFC-043 and the current specifications under docs/specifications/. See the audit repair ledger for remaining capability limits.
 
 # RFC-042: Native ComfyUI Integration (Local Asset Generation)

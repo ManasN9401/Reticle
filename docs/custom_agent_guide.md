@@ -17,9 +17,13 @@ version: 1.0.0
 runtime: python
 entrypoint: workers/security_auditor.py
 skills:
-  - "security-review"
+  - "vulnerability-assessment"
   - "osint-investigation"
+capabilities:
+  - network.public
 ```
+
+The omitted-capability behavior is a compatibility path for older v1 manifests and grants a broad tool profile. New definitions should always list the smallest required capabilities. Every skill ID must exist in the loaded skill registry; unknown IDs are logged and skipped for v1 compatibility, leaving the worker without those instructions.
 
 ## 2. Write the Worker Logic
 Create the Python worker script in `compiler/agents/workers/security_auditor.py`. Your script MUST follow the Reticle `stdin/stdout` contract:
@@ -27,7 +31,8 @@ Create the Python worker script in `compiler/agents/workers/security_auditor.py`
 1. Read a single JSON line from `sys.stdin`.
 2. Extract the `inputs` and `memory` payload.
 3. Perform your logic (e.g., calling an LLM via `litellm`).
-4. Print exactly one JSON object to `sys.stdout` containing your `artifact`.
+4. Verify the produced work and include structured `verification` evidence.
+5. Print exactly one JSON object to `sys.stdout` containing your `artifact`.
 
 ```python
 import sys
@@ -56,6 +61,11 @@ def main():
     # Broadcast result
     print(json.dumps({
         "id": req.get("id"),
+    "verification": [{
+      "tool": "security_audit",
+      "target": "upstream task inputs",
+      "outcome": "succeeded"
+    }],
         "artifact": {
             "id": f"{req.get('id')}_audit",
             "name": "Security Audit Report",
@@ -69,4 +79,4 @@ if __name__ == "__main__":
 ```
 
 ## 3. Registering the Agent
-Simply drop the `.yaml` file into the `agents/` directory. `forge.exe` automatically hot-reloads agents on startup using the `registry.LoadAgents()` pipeline. You can now reference `security-auditor` in your DAG workflows!
+Place the manifest at `agents/security-auditor/definition.yml` and the entrypoint beside it at `agents/security-auditor/workers/security_auditor.py`. Forge loads project agents at startup; restart Forge after changing a definition. You can then reference `security-auditor` in a workflow. The registry validates the required identity fields, runtime, entrypoint, capability names and entrypoint existence before creating workers.

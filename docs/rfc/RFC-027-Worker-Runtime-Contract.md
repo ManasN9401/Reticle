@@ -1,11 +1,19 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-19
+---
+
+> Historical design record. Current versioned specifications and schemas take precedence.
+
 > Implementation update (2026-09-08): this historical proposal is superseded where it conflicts with RFC-043 and the current specifications under docs/specifications/. See the audit repair ledger for remaining capability limits.
 
 # RFC-027 — Worker Runtime Contract (v1)
 
-Status: Stable
+Original status: Stable
 Version: 1.0.0
 Author: Reticle Core
-Last Updated: 2026-08-05
+Original last updated: 2026-08-05
 
 ---
 

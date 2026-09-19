@@ -1,7 +1,16 @@
+---
+status: superseded
+owner: Reticle Project
+updated: 2026-09-19
+superseded_by: ../specifications/studio-logging-architecture.md
+---
+
+> Historical decision. Current workers stream bounded/redacted diagnostics, LiteLLM retries are disabled, and the dispatcher owns retry policy.
+
 # ADR-006: Strict Logging Suppression in Worker Subprocesses
 
 ## Status
-Accepted
+Superseded
 
 ## Context
 During high-load concurrent agent execution, APIs (Groq, Gemini, OpenRouter) frequently returned `429 Too Many Requests`. The Python workers use `tenacity` for exponential backoff, which implicitly relied on `litellm`'s native logging. Every rate limit failure triggered a massive JSON stack trace in `stderr`. The Go orchestrator captured these `stderr` streams and flooded the WebSocket telemetry event bus, causing severe frame drops and crashes in the Web UI.

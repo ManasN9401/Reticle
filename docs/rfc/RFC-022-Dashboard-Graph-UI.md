@@ -1,9 +1,17 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-19
+---
+
+> Historical design record. Current versioned specifications and schemas take precedence.
+
 # RFC-022 — Dashboard & Graph UI
 
-Status: Draft
+Original status: Draft
 Version: 1.0.0
 Author: Reticle Core
-Last Updated: 2026-08-04
+Original last updated: 2026-08-04
 
 ---
 

@@ -57,11 +57,12 @@ src/features/              graph · logs · runs · agents · artifacts · hitl 
 
 ### The event store lives in the main process
 
-The backend has no state-snapshot endpoint: reconnecting replays only
-`WaitlistUpdated` and `WorkflowStarted`, so per-node status, timings and
-artifacts exist *only* as a consequence of the event stream. Holding the
-projection in the main process means run history survives reconnects, renderer
-reloads and HMR without any change to the Go side.
+On connection, Forge replays `WaitlistUpdated` and an authoritative
+`WorkflowSnapshot` for every known execution. The snapshot restores execution
+status, node status, attempt records, edges, and graph revision. Bounded event
+history still supplies historical timings and log detail that are not part of
+the durable snapshot. Holding the projection in the main process also lets the
+current view survive renderer reloads and HMR.
 
 It also absorbs two problems that would otherwise reach the UI:
 
@@ -90,21 +91,18 @@ The runtime is inconsistent about naming. Everything goes through
 | No durations | Derived from `WorkerCompleted − WorkerStarted` per task id |
 | No tokens or cost | Not instrumented anywhere — do not build panels needing them |
 
-Node status is `pending | running | done | failed`, plus a fifth Studio-only
-`waiting`, synthesized from the `[UI_STATE: WAITING_HUMAN]` sentinel inside a
-`WorkerLog` payload.
+Runtime node status is `pending | running | done | failed | blocked | interrupted`.
+Studio can additionally display `waiting`, synthesized from a trusted
+`[UI_STATE: WAITING_HUMAN]` or `[UI_STATE: WAITING_COMFY]` worker log.
 
 ### Human-in-the-loop approvals
 
-`hitl-agent` writes a markdown checkpoint, prints `[UI_STATE: WAITING_HUMAN]`,
-then polls that file every 2s for a `STATUS:` change (RFC-038). Studio drives it
-by writing the decision back, so approve/reject works with **no backend change**.
-
-The checkpoint path is scraped from the agent's own
-`Checkpoint file created at: …` log line rather than reconstructed, because
-`hitl.py:24` hardcodes `d:\Reticle\runtime\checkpoints` — a directory that does
-not exist in this repo and that `os.makedirs` therefore creates outside the tree.
-Reading the path from the log keeps Studio correct either way.
+The trusted Go `hitl-agent` implementation writes a Markdown request under
+`.reticle/approvals`, emits `[UI_STATE: WAITING_HUMAN]`, and polls every 250 ms
+for a separate JSON decision. The decision contains the request hash, so edits
+to the Markdown preview cannot approve a changed plan. Each retry creates a new
+request identity. Studio restricts decision writes to files inside the approval
+directory.
 
 ## Settings and API keys
 
@@ -155,9 +153,10 @@ filled with `--color-inset`, a crisp status stroke, and a small status core —
 solid when done, pulsing when running, hollow when pending or blocked, an `x`
 when failed. Identity lives in the label beneath; state lives in the stroke.
 
-Two details are load-bearing rather than decorative. A mocked node keeps a small
-amber dot on its upper-right vertex, because RFC-026 §8 requires mock output to
-be obviously distinguishable. And a node blocked on a human turns its *label*
+Two details are load-bearing rather than decorative. The amber mock marker is a
+compatibility diagnostic for external or historical workers that explicitly log
+mock output; current built-in workers fail honestly instead of returning mock
+success. A node blocked on a human turns its *label*
 into the Review button rather than floating a pill over it — same footprint, no
 overlap, still one click.
 

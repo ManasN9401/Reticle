@@ -1,3 +1,9 @@
+---
+status: accepted
+owner: Reticle Project
+updated: 2026-09-19
+---
+
 # Studio Logging Architecture & Recent Fixes
 
 This document outlines the logging pipeline for Reticle's React-based Studio Frontend, how logs are parsed and routed to specific UI tabs, and documents recent architectural fixes implemented to stabilize Agent orchestration.

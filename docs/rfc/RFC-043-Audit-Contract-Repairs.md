@@ -1,7 +1,7 @@
 ---
-Status: Accepted
-Author: Reticle audit repair
-Date: 2026-09-08
+status: accepted
+owner: Reticle Project
+updated: 2026-09-08
 ---
 
 # RFC-043: Repair existing runtime contracts

@@ -1,37 +1,42 @@
-# E2E Orchestrator Sequence Diagram
+---
+status: accepted
+owner: Reticle Project
+updated: 2026-09-19
+---
 
-This diagram outlines the complete flow of a user command through the Go orchestrator, down to the Python agents, and back to the Telemetry UI.
+# End-to-end orchestrator sequence
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant ForgeCLI as forge.exe (Go)
-    participant Architect as architect.py (Python)
-    participant Scaffolder as scaffolder.py (Python)
-    participant Coder as coder.py (Python)
-    participant Telemetry as Telemetry UI (WebSocket)
-    participant LLM as API (Groq/Gemini)
+    participant Waitlist
+    participant Memory
+    participant Graph as GraphEngine
+    participant Dispatcher
+    participant Worker
+    participant Studio
 
-    User->>ForgeCLI: `.\forge.exe -batch 1 "Build app..."`
-    ForgeCLI->>Telemetry: Broadcast `WorkspaceCreated`
-    
-    ForgeCLI->>Architect: Spawn Process + Inject `stdin`
-    Architect->>LLM: Request DAG (Fallback logic)
-    LLM-->>Architect: Return DAG JSON
-    Architect-->>ForgeCLI: Print JSON to `stdout`
-    ForgeCLI->>Telemetry: Broadcast `DAGGenerated`
-
-    ForgeCLI->>Scaffolder: Spawn Process + Inject DAG
-    Scaffolder-->>ForgeCLI: Print `workflow.yaml`
-    ForgeCLI->>Telemetry: Broadcast `WorkflowGenerated`
-
-    loop For each Node in Workflow
-        ForgeCLI->>Coder: Spawn Process + Inject Context
-        Coder->>LLM: Request Code (Fallback logic)
-        LLM-->>Coder: Return Code/Patches
-        Coder-->>ForgeCLI: Print diff to `stdout`
-        ForgeCLI->>Telemetry: Broadcast `AgentFinished`
+    User->>Waitlist: enqueue prompt and settings
+    Waitlist->>Memory: WriteBatch(run and compile context)
+    Memory-->>Waitlist: durable acknowledgement
+    Waitlist->>Graph: SubmitWorkflow(compiler or selected workflow)
+    Graph-->>Studio: WorkflowStarted / NodeReady
+    Graph->>Dispatcher: TaskCreated
+    Dispatcher-->>Studio: AttemptStarted / TaskDispatched
+    Dispatcher->>Worker: one JSON task on stdin
+    Worker-->>Studio: WorkerStarted / WorkerLog
+    Worker->>Memory: TaskResultCommitRequested
+    Memory-->>Worker: commit accepted
+    Worker-->>Studio: WorkerVerificationRecorded
+    Dispatcher-->>Studio: AttemptFinished / WorkerCompleted
+    Graph->>Graph: persist node and graph transition
+    alt every node is done
+        Graph-->>Waitlist: WorkflowCompleted
+        Waitlist-->>Studio: WaitlistUpdated
+    else worker or persistence fails
+        Graph-->>Waitlist: WorkflowFailed or RuntimePersistenceFailed
+        Waitlist-->>Studio: WaitlistUpdated
     end
-
-    ForgeCLI-->>User: Exit 0
 ```
+
+Compilation uses the same worker protocol and lifecycle as a task workflow. Provider selection and bounded retries occur inside the dispatcher. Event names in this diagram are defined by the current event-taxonomy specification.

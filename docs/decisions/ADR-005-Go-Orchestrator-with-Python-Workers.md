@@ -1,3 +1,9 @@
+---
+status: accepted
+owner: Reticle Project
+updated: 2026-09-19
+---
+
 # ADR-005: Bifurcated Architecture (Go Orchestrator + Python Workers)
 
 ## Status
@@ -9,7 +15,7 @@ Reticle requires an orchestration layer capable of managing highly concurrent, m
 ## Decision
 We decided to split the architecture into two distinct languages:
 1. **The Orchestrator (`forge.exe` in Go)**: Handles the event bus, workspace file routing, concurrency, WebSockets, and telemetry parsing. Go provides superior lightweight goroutines for managing hundreds of events without blocking.
-2. **The Workers (`compiler/workers/*.py` in Python)**: Handles the actual AI logic. Python is the lingua franca of AI; by using Python, we have native access to `litellm` (for seamless vendor switching), `tenacity` (for backoff), and specialized prompt engineering tools.
+2. **The workers (`cmd/forge/compiler/agents/*/workers/*.py`)**: Handle model and specialist logic through the shared SDK and Python ecosystem. LiteLLM provides provider access. Provider-library retries are disabled; the Go dispatcher owns bounded, effect-aware retry.
 
 ## Consequences
 - **Positive:** We get the best of both worlds—Go's concurrency for the backend server and Python's AI ecosystem for the agents.

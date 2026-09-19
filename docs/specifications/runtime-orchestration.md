@@ -1,3 +1,9 @@
+---
+status: accepted
+owner: Reticle Project
+updated: 2026-09-19
+---
+
 # Runtime Orchestration Architecture
 
 This document specifies the core architecture of Reticle's Orchestration Engine, handled entirely by the Go backend (specifically `workflow_engine.go` and `worker.go`).
@@ -23,7 +29,9 @@ Each node in the DAG maps to a specific `Worker` process (usually a Python agent
 3. **Data Pipes**: `stdin` is fed the initial prompt and graph context. `stdout` and `stderr` are streamed back and broadcast over the `EventBus`.
 4. **Completion**: The worker must terminate on its own (typically via an LLM JSON tool call that exits the loop) or it is killed via timeout (Iteration budget exhausted).
 
-Every concrete try has a random attempt ID. The dispatcher owns retry policy and completion publication. Accepted result mutations use the attempt ID as a durable idempotency key so duplicate delivery cannot apply them twice.
+Every concrete try has a random attempt ID. The dispatcher owns retry policy, routing outcome updates and completion publication. Accepted result mutations use the attempt ID as a durable idempotency key so duplicate delivery cannot apply them twice.
+
+Waitlist admission creates the isolated workspace and commits required run/compiler memory as one acknowledged batch before submitting a workflow. A workspace or memory failure terminalizes that item without starting compilation.
 
 Workers receive resolved capabilities from their manifest. The shared SDK filters its tool definitions from those grants. Native execution also requires the user's native setting.
 

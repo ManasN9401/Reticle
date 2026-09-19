@@ -1,6 +1,14 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-19
+---
+
+> Historical design record. Current versioned specifications and schemas take precedence.
+
 # RFC-002: System Overview
 
-**Status:** Accepted
+**Original status:** Accepted
 **Date:** 2026-09-02
 
 ## 1. Introduction

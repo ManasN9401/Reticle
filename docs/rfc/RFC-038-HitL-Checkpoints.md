@@ -1,3 +1,11 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-19
+---
+
+> Historical design record. Current versioned specifications and schemas take precedence.
+
 # RFC 038: Human-in-the-Loop (HitL) Checkpoints
 
 ## 1. Overview
@@ -15,7 +23,7 @@ When the `GraphEngine` schedules a `hitl-agent` node:
 3. The file cleanly formats the upstream Architect's proposed plan, context files, and the original user prompt.
 4. The file terminates with a strict authorization block:
 ```markdown
-STATUS: PENDING
+Original status: PENDING
 FEEDBACK: 
 ```
 

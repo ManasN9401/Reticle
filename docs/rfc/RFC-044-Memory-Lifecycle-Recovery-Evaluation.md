@@ -1,7 +1,7 @@
 ---
-Status: Accepted
-Author: Reticle memory lifecycle repair
-Date: 2026-09-09
+status: accepted
+owner: Reticle Project
+updated: 2026-09-09
 ---
 
 # RFC-044: Memory lifecycle, recovery and evaluation

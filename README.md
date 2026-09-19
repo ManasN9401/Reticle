@@ -1,6 +1,6 @@
 # Reticle Orchestrator
 
-Reticle is an ultra-high performance, polyglot agent orchestration framework designed for massive concurrency. It provides an execution runtime and an autonomous compiler (`forge.exe`) that dynamically provisions and executes swarms of agents tailored to any given prompt.
+Reticle is a local-first, polyglot agent orchestration framework. Its Go runtime executes bounded directed acyclic graphs, and its Forge compiler can generate execution-scoped workflows and Python workers from a prompt.
 
 ## Core Features
 
@@ -9,9 +9,9 @@ Reticle is an ultra-high performance, polyglot agent orchestration framework des
   - The runtime dynamically provisions an **Architect** to design a Directed Acyclic Graph (DAG), a **Scaffolder** to generate physical structure, and a **Coder** to synthesize bespoke, specialized Python agents on the fly.
 - **Polyglot Execution**: A blazing-fast Go-based orchestrator that communicates with isolated Python workers via versioned JSON over STDIO.
 - **Shared Worker Tools**: Compiled workers use a common SDK with contained file operations, bounded execution and explicit verification. The compiler writer aggregates file maps; it is not automatically injected into task workflows.
-- **Massive Load-Balancing & Failover**: Agents utilize a randomized failover pool across multiple API keys (e.g., Groq, OpenRouter). The execution seamlessly evades rate limits by spreading the swarm's traffic and implementing exponential backoff.
-- **Context-Aware Iteration**: Agents dynamically read and inject the workspace's entire filesystem (`src/`) into their context window. This enables flawless iterative development (e.g., `"Edit this file to make the enemies move faster"`).
-- **Embedded Telemetry UI**: A stunning HTML5 Canvas-based star map that visually tracks thousands of node executions in real-time. Built seamlessly into the Go binary (`//go:embed`).
+- **Bounded routing and retry**: The router selects an enabled model using capability, capacity, cooldown, and observed outcome scores. Forge owns a bounded retry policy for failures classified as transient and safe to retry.
+- **Selected workspace context**: Workers receive bounded IDE context, declared shared-memory facts, upstream artifacts, and contained workspace tools. They inspect additional files as needed instead of injecting the entire source tree into every prompt.
+- **Telemetry and Studio**: The loopback control server exposes authenticated events and artifacts. Reticle Studio projects workflow snapshots, logs, files, dependency activity, approvals, and artifacts into a desktop UI.
 
 ## Architecture
 

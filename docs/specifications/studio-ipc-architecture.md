@@ -1,35 +1,46 @@
-# Studio IPC Architecture
+---
+status: accepted
+owner: Reticle Project
+updated: 2026-09-19
+---
 
-This document specifies the inter-process communication (IPC) boundary between the Reticle Go Backend (Graph Engine & Orchestrator) and the React Frontend (Studio UI). 
+# Studio IPC architecture
 
-## 1. Overview
+Reticle Studio is an Electron desktop application. The Go runtime and Electron main process communicate over the authenticated loopback HTTP/WebSocket control server. The sandboxed React renderer never connects to Forge or the filesystem directly; it uses the typed preload bridge in `studio/src/shared/ipc.ts`.
 
-The Reticle Studio operates as an Electron-like desktop application (or web client) that heavily relies on a unidirectional and bi-directional event stream to maintain synchronization with the local Go runtime. The core bridge is established over WebSockets and native IPC channels.
+## Runtime to main process
 
-## 2. Event Ingestion Pipeline
+Forge serializes the `RuntimeEvent` envelope over `/ws`. `studio/electron/forge/client.ts` authenticates with `.reticle/control-token`, reconnects with bounded backoff, and requests current state after connection. Forge replays `WaitlistUpdated` plus `WorkflowSnapshot` records. The snapshot is authoritative for current execution/node status; bounded event history supplies logs and historical timing.
 
-The Go Backend emits structured events using an `EventBus`. The frontend subscribes to these events via the `ipc.ts` bridge, which maps backend structs to frontend TypeScript interfaces.
+The main-process `EventStore` in `studio/electron/forge/store.ts`:
 
-### Backend Emission (`dispatcher.go` / `worker.go`)
-When a node starts, logs a chunk, or completes, it publishes to the bus:
-```go
-w.Bus.Publish("WorkerLog", "worker", map[string]any{"task_id": req.ID, "worker_id": w.ID, "log": line})
-```
+1. normalizes execution, node, task, and agent identity;
+2. strips large artifact payloads before IPC;
+3. folds structural events through `studio/src/shared/projection.ts`;
+4. stores bounded event and log rings;
+5. batches projection and log pushes to the renderer;
+6. scopes logs by selected execution and node.
 
-### Frontend Bridge (`ipc.ts`)
-The `ipc.ts` module sets up listeners (e.g. `bridge.logs.onBatch`) that receive these payloads. The frontend batches these events to minimize React re-renders.
+Current structural lifecycle names come from `docs/specifications/event-taxonomy/v1/001-events.md`, including `WorkflowStarted`, `WorkflowSnapshot`, `NodeReady`, `TaskDispatched`, `WorkerStarted`, `WorkerCompleted`, `WorkerFailed`, `WorkflowCompleted`, and `WorkflowFailed`. Provisioning events carry operation and execution identity. Raw worker stdout is reserved for the one final protocol response; progress and model streaming arrive through `WorkerLog` events derived from stderr.
 
-## 3. Core IPC Channels
+## Main process to renderer
 
-1. **`workflow_events`**: Propagates major DAG lifecycle events (e.g., `WorkflowStarted`, `NodeStarted`, `NodeCompleted`, `NodeFailed`).
-2. **`worker_logs`**: Streams `stdout` and `stderr` directly from the Python sub-processes into the Studio `store.ts`.
-3. **`memory_sync`**: Synchronizes the shared memory blackboard (KV store) so the UI can accurately reflect artifact production and state changes.
+The preload bridge exposes narrow typed groups rather than generic channel names:
 
-## 4. State Projection (`store.ts`)
+- connection/process control and current projection;
+- coalesced logs and log queries;
+- models, artifacts, uploads, and approvals;
+- guarded workspace summary/tree/file operations;
+- settings and theme.
 
-Instead of tightly coupling UI components to IPC events, Reticle uses a projection model:
-1. `ipc.ts` receives raw JSON events.
-2. Events are pushed to a ring-buffer/Zustand store in `store.ts`.
-3. Components like `Inspector.tsx` and `RunsSidebar.tsx` reactively select only the slice of state they care about (e.g., filtering logs by `agentId`).
+Channel constants and request/response types live in `studio/src/shared/ipc.ts`. Privileged handlers live under `studio/electron/`. The renderer runs with Node integration disabled, context isolation enabled, and sandboxing enabled.
 
-This architecture ensures the React UI remains highly responsive even when the Go backend is emitting thousands of LLM token streams per second.
+## Consistency and limits
+
+- The projection is a deterministic fold, but historical events are bounded and are not a durable outbox.
+- Workspace reads execute in the main process, remain inside the configured checkout, reject symlinks and sensitive files, and cap recursive scans.
+- Scheduled Explorer refreshes wait for the previous scan to finish. Results carry an in-renderer generation and stale responses are discarded.
+- Environment Activity keys operations by `operation_id`; selected-run log scope uses the event's execution identity.
+- Shared memory is not mirrored as a generic renderer-accessible blackboard. Studio learns about artifacts and lifecycle state through typed events and APIs.
+
+Contract tests live in `studio/tests/`, while the runtime envelope and event behavior are tested under `runtime/`.

@@ -1,3 +1,11 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-19
+---
+
+> Historical design record. Current versioned specifications and schemas take precedence.
+
 # RFC-034: Complex Agentic Workflows via ReAct
 
 ## Status

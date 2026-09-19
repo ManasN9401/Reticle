@@ -1,9 +1,17 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-19
+---
+
+> Historical design record. Current versioned specifications and schemas take precedence.
+
 # RFC-009 — Skills
 
-Status: Stable
+Original status: Stable
 Version: 1.0.0
 Author: Reticle Core
-Last Updated: 2026-08-03
+Original last updated: 2026-08-03
 
 ---
 

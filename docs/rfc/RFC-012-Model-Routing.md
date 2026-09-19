@@ -1,9 +1,17 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-19
+---
+
+> Historical design record. Current versioned specifications and schemas take precedence.
+
 # RFC-012 — Model Routing
 
-Status: Stable
+Original status: Stable
 Version: 2.0.0
 Author: Reticle Core
-Last Updated: 2026-08-23
+Original last updated: 2026-08-23
 
 ---
 

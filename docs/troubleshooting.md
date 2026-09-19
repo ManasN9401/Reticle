@@ -1,31 +1,74 @@
-> Current behavior: use docs/specifications/ and docs/environment.md. Older provider/model examples below are historical. Verify tool support against the configured provider catalog. Retry budgets are bounded in the dispatcher and SDK; no model-name heuristic guarantees capability.
+---
+title: Reticle troubleshooting
+document_type: Guide
+authority: Informative
+status: Accepted
+version: 1.0.0
+scope: Operations
+stability: Stable
+owner: Reticle Project
+created: 2026-09-19
+updated: 2026-09-19
+purpose: Diagnose current Forge, worker, provider and environment failures.
+audience:
+  - End Users
+  - Contributors
+---
 
-# Reticle Troubleshooting Guide
+# Reticle troubleshooting
 
-## The Application Hangs During Execution
-**Symptom:** You run `forge.exe` and the telemetry UI stops updating. The terminal does not show any errors, but no new files are created in the workspace.
-**Cause:** The Python workers have likely hit an API rate limit and are currently in an exponential backoff retry loop. Because we strictly suppress logging to prevent UI lag, this retry loop is silent.
-**Fix:**
-1. Check your `.env` file to ensure your API keys (e.g., `GROQ_API_KEY`, `GEMINI_API_KEY`) are valid and have quota.
-2. If you are on a free tier, reduce your batch size using the `-batch 1` flag to prevent concurrent requests from instantly tripping rate limits.
-3. Wait up to 10 minutes. The agent will either eventually succeed or fail out after 10 attempts.
+## A run stops making progress
 
-## RateLimitExceeded (Tokens Per Minute)
-**Symptom:** Groq or OpenRouter instantly fails with a TPM or Context Window error.
-**Cause:** The orchestrator defaults to requesting `max_tokens=3000`. Some providers calculate quota usage as `Input Tokens + Max Tokens`. If this sum exceeds your TPM limit, the request is instantly rejected.
-**Fix:** Swap to a model with a larger free-tier TPM limit, or edit `coder.py` to omit `max_tokens` entirely.
+Open Studio's Problems, Activity, and Logs views and find the last structural event for the selected run. Current Python workers do not perform hidden Tenacity retries: LiteLLM retries are disabled, and the Go dispatcher owns the bounded attempt policy. A terminal `WorkerFailed`, `WorkflowFailed`, `RuntimeOverloaded`, or `RuntimePersistenceFailed` event should explain the stop.
 
-## Windows Make/Cmake Errors
-**Symptom:** Running local Llama/Kimi integrations results in `cmake` or `make` errors.
-**Cause:** Our C99 local execution engine requires native Linux `O_DIRECT` syscalls for NVMe streaming and cannot be compiled on Windows MSVC.
-**Fix:** Use the API endpoints (`forge.exe` default), or provision a Linux Ubuntu 22.04 VPS as outlined in `RFC-030`.
+- `RuntimePersistenceFailed` interrupts active work and stops new admission. Restart Forge, inspect the durable execution state, and reconcile any external effect before retrying.
+- `RuntimeOverloaded` means the required-event queue reached its hard limit. Restart Forge and reduce event volume or concurrency.
+- An execution recovered as `interrupted` is not assumed successful. Reconcile it explicitly.
+- If the process is alive but no terminal event appears, preserve `runtime.log` and the relevant `.reticle/executions/state.json` before restarting.
 
-## API Key Locking & Free-Tier Quota Limits
-**Symptom:** The Telemetry UI shows API keys (like OpenRouter) as "Locked" at startup, or workflows instantly fail with `HTTP 429: You exceeded your current quota`.
-**Cause:**
-1. **$0 Balance Lock:** If an OpenRouter API key has a $0.00 credit balance, Reticle detects this at startup and "locks" the key. A locked key is restricted to fetching only the completely free models (e.g., `glm-5.2:free`), which have extremely harsh global rate limits.
-2. **Groq Tool Calling:** Groq recently rotated their free tier models. Currently, their free models (e.g. `groq/compound`, `gpt-oss`) **do not support tool calling**. The orchestrator detects this and permanently disables them during workflows.
-3. **Cascading Failure:** Because Groq is disabled, 100% of the workflow load shifts to Gemini and OpenRouter free tiers. When running high-complexity DAGs (e.g. `agent_complexity=5`), dozens of agents launch simultaneously. This instantly triggers 429 Quota Exceeded errors on Gemini's 15 RPM limit and OpenRouter's free limits.
-**Fix:**
-- To unlock OpenRouter keys and access fast, high-rate-limit models, add at least $1 of credits to your OpenRouter account.
-- To avoid 429 errors on free tier API keys, reduce your task's `agent_complexity` setting to limit the number of parallel agents generated.
+## Provider rate limits, authentication, or context errors
+
+Forge classifies retryable provider failures and attempts at most the configured `-retries` value, bounded to 1–15 and defaulting to 3. A retry is allowed only when the worker reports that no effect started. Routing uses enabled models, capability estimates, provider capacity, cooldown, and the per-agent outcome score.
+
+1. Check the selected worker's failure line and model in Studio.
+2. Confirm the named environment variable exists in the repository-root `.env`; never paste a secret into a manifest or prompt.
+3. Check the provider's own quota and model access. Reticle does not infer account balance reliably.
+4. Reduce `-batch` when the provider rate limit is lower than the configured concurrency.
+5. Reduce the Studio context or output-token setting when the provider reports a context-window or tokens-per-minute limit.
+
+Do not edit generated workers to remove token limits as a first response. Settings are configurable and are recorded in execution memory.
+
+## Docker is unavailable
+
+Container execution is the default. Forge now exits with a direct error when `docker info` fails; it does not prompt silently. Start Docker, or enable native execution explicitly for a trusted workspace. Native mode runs generated commands with the current OS user's permissions.
+
+## A dependency installation fails
+
+Studio's Activity view shows base and agent dependency operations with execution, task, attempt, and operation identity. Read the failure under the selected run. Environments are stored under `.reticle/envs`; skill dependency policies determine whether packages are profile-managed, floating, or exact locked pins.
+
+Check that:
+
+- Python or `uv` is available;
+- the package/version exists for the active Python version and OS;
+- a locked skill uses exact `name==version` pins;
+- an ML profile matches the selected OS and device support.
+
+Do not interpret successful environment creation as proof that a CUDA or ROCm tensor operation works. Follow `docs/ml-environments.md` and run the profile smoke checks.
+
+## A generated agent or skill is missing
+
+Agent manifests require `id`, `name`, `version`, `runtime`, and an existing entrypoint. Unknown fields, runtimes, capabilities, or missing entrypoints fail registry loading. Unknown skill IDs are retained as a v1 compatibility case: they are logged and skipped, leaving that worker in a degraded configuration. Fix the ID or install the skill before relying on the result.
+
+## Studio cannot reconnect or shows stale state
+
+Confirm Forge is using the same repository root and port configured in Studio. The loopback server requires `.reticle/control-token`; Studio reads it in the main process. On connection, Forge replays `WaitlistUpdated` and authoritative `WorkflowSnapshot` records. Historical timings still depend on the bounded in-memory event history.
+
+The Explorer rejects paths outside the configured checkout, symlinks, sensitive files, and oversized reads. A workspace error can therefore be an intentional containment decision; the message should identify the rejected operation.
+
+## Human approval does not resume
+
+Approval uses a request Markdown document and a separate hash-bound JSON decision under `.reticle/approvals`. Editing status text in the Markdown preview does not authorize anything. Use Studio's Review action so the decision matches the exact request hash. Old decisions cannot authorize a retry because every request has a fresh identity.
+
+## AWS, cloud, or ML work cannot start
+
+Capabilities describe what a worker may request; they do not create credentials, install provider CLIs, or authorize external changes. See `docs/environment.md` for AWS identity options and `docs/ml-environments.md` for OS/GPU support. Cloud apply and other external effects require an implemented adapter, a durable operation identity, explicit authorization, and reconciliation after interruption.

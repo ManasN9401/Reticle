@@ -1,3 +1,11 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-19
+---
+
+> Historical design record. Current versioned specifications and schemas take precedence.
+
 # Reticle Security & Logic Audit Report
 **Date:** 2026-09-02
 **Scope:** `hitl.py`, `router.go`, `hermes.py`, `architect.py`

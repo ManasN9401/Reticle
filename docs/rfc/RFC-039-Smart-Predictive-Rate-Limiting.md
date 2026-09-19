@@ -1,3 +1,11 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-19
+---
+
+> Historical design record. Current versioned specifications and schemas take precedence.
+
 # RFC-039: Smart Predictive Rate Limiting
 
 ## 1. Overview

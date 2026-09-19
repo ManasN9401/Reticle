@@ -19,10 +19,9 @@ import type {
  *     `../../logs` and `../../.reticle`. Launch it anywhere else and sessions,
  *     logs and artifacts silently resolve to the wrong directory.
  *
- *  2. **`-native` must always be passed.** Without it, `main.go:124-143` runs
- *     `docker info` and, on failure, prompts for y/n on stdin. A spawned child
- *     has no one to answer, so the process hangs forever with no output — which
- *     looks like a Studio bug rather than a blocked prompt.
+ *  2. **Execution mode is explicit.** Container mode is the default and Forge
+ *     exits with an error when Docker is unavailable. `-native` is passed only
+ *     after the user enables trusted host execution in Settings.
  */
 export class ForgeProcess extends EventEmitter {
   private child: ChildProcessWithoutNullStreams | null = null
@@ -178,8 +177,6 @@ export class ForgeProcess extends EventEmitter {
 
 function buildArgs(request: ForgeStartRequest, settings: StudioSettings): string[] {
   const args: string[] = [
-    // Non-negotiable: without this forge may block on an interactive stdin prompt.
-
     `-port=${request.port}`,
     `-batch=${request.batch ?? settings.forge.batch}`,
     `-retries=${request.retries ?? settings.forge.retries}`,
