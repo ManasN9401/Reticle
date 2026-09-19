@@ -13,6 +13,120 @@ import logging
 logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
+def _list_text(values):
+    return ", ".join(values) if values else "none declared"
+
+def build_agent_prompt(agent, data, user_prompt):
+    """Build a bounded worker prompt without another fallible model request."""
+    agent_id = agent["id"]
+    owned_nodes = [n for n in data.get("nodes", []) if n.get("agent_id") == agent_id]
+    node_ids = [n["id"] for n in owned_nodes]
+    inputs = sorted({p for n in owned_nodes for p in n.get("input_files", [])})
+    outputs = sorted({p for n in owned_nodes for p in n.get("output_files", [])})
+    predecessors = sorted({
+        e["from"] for e in data.get("edges", []) if e.get("to") in node_ids
+    })
+    successors = sorted({
+        e["to"] for e in data.get("edges", []) if e.get("from") in node_ids
+    })
+    description = str(agent.get("description", "Complete the assigned work")).strip()
+    return (
+        f"You are {agent_id}. Your responsibility is: {description}.\n"
+        f"The user's goal is: {user_prompt}\n"
+        f"Your workflow nodes are: {_list_text(node_ids)}. Read these workspace files: "
+        f"{_list_text(inputs)}. Create or update exactly these workspace files: "
+        f"{_list_text(outputs)}.\n"
+        f"Upstream nodes are: {_list_text(predecessors)}. Downstream nodes are: "
+        f"{_list_text(successors)}. Preserve upstream work and make every declared output usable "
+        "by downstream nodes. Use the language and framework requested by the user or established "
+        "by upstream artifacts. Verify every changed file with the available read or validation "
+        "tools, then call mark_task_complete with a concise summary."
+    )
+
+def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexity=5):
+    if not isinstance(data, dict):
+        raise ValueError("DAG must be a JSON object")
+    agents = data.get("agents")
+    nodes = data.get("nodes")
+    edges = data.get("edges")
+    if not isinstance(agents, list) or not isinstance(nodes, list) or not isinstance(edges, list):
+        raise ValueError("agents, nodes and edges must be arrays")
+    if not nodes or len(nodes) > 16:
+        raise ValueError("Graph must contain between 1 and 16 nodes")
+    if agent_complexity == 1 and len(nodes) != 1:
+        raise ValueError("Single-agent workflow depth requires exactly one node")
+    if agent_complexity <= 3 and len(nodes) > 5:
+        raise ValueError("Balanced workflow depth permits at most five nodes")
+
+    agent_ids = set(available_agent_ids)
+    declared_agent_ids = set()
+    for agent in agents:
+        if not isinstance(agent, dict) or not agent.get("id"):
+            raise ValueError("Every agent requires an id")
+        agent_id = agent["id"]
+        if agent_id in declared_agent_ids:
+            raise ValueError(f"Duplicate agent id: {agent_id}")
+        declared_agent_ids.add(agent_id)
+        if not isinstance(agent.get("is_new"), bool):
+            raise ValueError(f"Agent {agent_id} requires boolean is_new")
+        if not agent["is_new"] and agent_id not in available_agent_ids:
+            raise ValueError(f"Agent {agent_id} is not registered and must be marked is_new")
+        for skill in agent.get("skills", []):
+            if skill not in available_skill_ids:
+                raise ValueError(f"Agent {agent_id} references unavailable skill: {skill}")
+        agent_ids.add(agent_id)
+
+    node_by_id = {}
+    producers = {}
+    for node in nodes:
+        if not isinstance(node, dict) or not node.get("id"):
+            raise ValueError("Every node requires an id")
+        node_id = node["id"]
+        if node_id in node_by_id:
+            raise ValueError(f"Duplicate node id: {node_id}")
+        if node.get("agent_id") not in agent_ids:
+            raise ValueError(f"Node {node_id} references unknown agent: {node.get('agent_id')}")
+        for field in ("input_files", "output_files"):
+            values = node.get(field, [])
+            if not isinstance(values, list) or not all(isinstance(v, str) and v.strip() for v in values):
+                raise ValueError(f"Node {node_id} {field} must be an array of non-empty paths")
+        for path in node.get("output_files", []):
+            if path in producers:
+                raise ValueError(f"Workspace output {path} has multiple producers")
+            producers[path] = node_id
+        node_by_id[node_id] = node
+
+    predecessors = {node_id: set() for node_id in node_by_id}
+    import graphlib
+    sorter = graphlib.TopologicalSorter()
+    for node_id in node_by_id:
+        sorter.add(node_id)
+    for edge in edges:
+        if not isinstance(edge, dict) or edge.get("from") not in node_by_id or edge.get("to") not in node_by_id:
+            raise ValueError(f"Edge references an unknown node: {edge}")
+        sorter.add(edge["to"], edge["from"])
+        predecessors[edge["to"]].add(edge["from"])
+    try:
+        order = list(sorter.static_order())
+    except graphlib.CycleError as exc:
+        raise ValueError(f"Graph contains a cycle involving: {exc.args[1]}") from exc
+
+    ancestors = {node_id: set() for node_id in node_by_id}
+    for node_id in order:
+        for parent in predecessors[node_id]:
+            ancestors[node_id].add(parent)
+            ancestors[node_id].update(ancestors[parent])
+        for path in node_by_id[node_id].get("input_files", []):
+            producer = producers.get(path)
+            # A path without a producer can be an existing workspace input.
+            # When this workflow does produce it, the producer must be ordered
+            # before the consumer rather than merely existing in another branch.
+            if producer is not None and producer not in ancestors[node_id]:
+                raise ValueError(
+                    f"Node {node_id} requires {path} from {producer}, but {producer} is not an upstream dependency"
+                )
+    return data
+
 def main():
     real_stdout = sys.stdout
     import litellm
@@ -22,9 +136,11 @@ def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
-    log_file = open("architect_debug.log", "w", encoding='utf-8')
-    sys.stderr = log_file
-    sys.stdout = log_file
+    # Keep diagnostics on stderr so the dispatcher can classify provider
+    # failures and route a retry. Stdout remains reserved for the final worker
+    # protocol object by forwarding incidental library output to stderr.
+    log_file = sys.stderr
+    sys.stdout = sys.stderr
 
     with open("pre_read.log", "w") as f:
         f.write("waiting for stdin\n")
@@ -146,10 +262,10 @@ Return the DAG strictly as JSON with the following schema, and NOTHING else (no 
     }}
   ],
   "nodes": [
-    {{ "id": "planning-step", "agent_id": "planner-agent" }},
-    {{ "id": "frontend-dev", "agent_id": "worker-a-agent" }},
-    {{ "id": "backend-dev", "agent_id": "worker-b-agent" }},
-    {{ "id": "final-assembly", "agent_id": "assembler-agent" }}
+    {{ "id": "planning-step", "agent_id": "planner-agent", "input_files": [], "output_files": ["plan.md"] }},
+    {{ "id": "frontend-dev", "agent_id": "worker-a-agent", "input_files": ["plan.md"], "output_files": ["src/index.html"] }},
+    {{ "id": "backend-dev", "agent_id": "worker-b-agent", "input_files": ["plan.md"], "output_files": ["src/server.py"] }},
+    {{ "id": "final-assembly", "agent_id": "assembler-agent", "input_files": ["src/index.html", "src/server.py"], "output_files": ["README.md"] }}
   ],
   "edges": [
     {{ "from": "planning-step", "to": "frontend-dev" }},
@@ -164,6 +280,7 @@ CRITICAL: Do NOT write the `system_prompt` yet. The system prompts will be gener
 CRITICAL: Every node in the `nodes` array MUST have a valid `agent_id` that EXACTLY matches the `id` of an agent defined in the `agents` list or the AVAILABLE AGENTS list. NEVER leave `agent_id` blank or null.
 CRITICAL: Node IDs MUST be highly descriptive, semantic, and human-readable (e.g. 'compile-frontend', 'research-sources', 'draft-outline'). DO NOT use generic IDs like 'node-1' or 'node-2'.
 CRITICAL: Every edge in the `edges` array MUST reference `from` and `to` nodes that EXACTLY match the `id` of a node defined in the `nodes` array. NEVER reference a node that does not exist.
+CRITICAL: Every node MUST declare `input_files` and `output_files`. If an input file is created by this workflow, its producer MUST be an upstream node connected through the edge graph; inputs already present in the workspace are allowed. Each output file may have only one producer. Use workspace-relative paths.
 CRITICAL: Keep your reasoning brief. Do NOT repeat instructions or rules. Output the JSON as soon as possible without getting stuck in a loop.
 
 Output ONLY the raw JSON. Do not output markdown code blocks.
@@ -262,58 +379,13 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 raw_content = raw_content.strip()
                 data = json.loads(raw_content)
 
-                # Gather valid agent IDs
-                valid_agents = set()
+                # Gather the registry IDs separately so an invented agent cannot
+                # claim to be an existing specialist.
+                available_agent_ids = set()
                 if available_agents and available_agents != "None":
                     import re
-                    valid_agents.update(re.findall(r'^- ([^\s]+)', available_agents, re.MULTILINE))
-                for a in data.get("agents", []):
-                    if a.get("id"):
-                        if a["id"] not in valid_agents:
-                            a["is_new"] = True
-                        valid_agents.add(a["id"])
-
-                # Gather valid node IDs and check agent assignments
-                valid_nodes = set()
-                for n in data.get("nodes", []):
-                    if not n.get("id"):
-                        raise ValueError("Node is missing 'id'")
-                    valid_nodes.add(n["id"])
-
-                    if not n.get("agent_id") or n["agent_id"] == "None":
-                        raise ValueError(f"Node {n['id']} is missing 'agent_id'")
-                    if n["agent_id"] not in valid_agents:
-                        raise ValueError(f"Node {n['id']} references unknown agent: {n['agent_id']}")
-
-                # Check edges and build adjacency list
-                adj = {n: [] for n in valid_nodes}
-                in_degree = {n: 0 for n in valid_nodes}
-
-                for e in data.get("edges", []):
-                    from_node = e.get("from")
-                    to_node = e.get("to")
-                    if from_node not in valid_nodes:
-                        raise ValueError(f"Edge references unknown from node: {from_node}")
-                    if to_node not in valid_nodes:
-                        raise ValueError(f"Edge references unknown to node: {to_node}")
-                    adj[from_node].append(to_node)
-                    in_degree[to_node] += 1
-                import graphlib
-                ts = graphlib.TopologicalSorter()
-                for n in valid_nodes:
-                    ts.add(n)
-                for e in data.get("edges", []):
-                    # ts.add(node, *predecessors)
-                    ts.add(e.get("to"), e.get("from"))
-
-                try:
-                    ts.prepare()
-                except graphlib.CycleError as ce:
-                    cyclic_nodes = ce.args[1]
-                    raise ValueError(f"Graph contains a cycle! Directed Acyclic Graph (DAG) requirement violated. The cycle involves these nodes: {cyclic_nodes}. You MUST remove the bi-directional edges or circular dependencies between them.")
-
-                if len(valid_nodes) == 0:
-                    raise ValueError(f"Graph has 0 nodes. You MUST create at least 1 node.")
+                    available_agent_ids.update(re.findall(r'^- ([^\s]+)', available_agents, re.MULTILINE))
+                validate_dag(data, available_agent_ids, set(available_skills), agent_complexity)
 
             except Exception as e:
                 err_msg = f"Validation failed: {str(e)}"
@@ -329,39 +401,25 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 
             return data
 
-        data = get_architect_response()
+        last_validation_error = None
+        for validation_attempt in range(3):
+            try:
+                data = get_architect_response()
+                break
+            except (ValueError, json.JSONDecodeError) as exc:
+                last_validation_error = exc
+                if validation_attempt == 2:
+                    raise
+                print(f"[ARCHITECT] Requesting corrected graph ({validation_attempt + 2}/3)", file=sys.stderr)
+                log_file.flush()
+        else:
+            raise last_validation_error
 
-        # Spawn parallel prompt engineers for all new agents
+        # Build prompts from the validated graph. Calling the provider once per
+        # agent made compilation slow and allowed partial, placeholder workers.
         new_agents = [a for a in data.get("agents", []) if a.get("is_new")]
-        if new_agents:
-            print(f"[{req_id}] Parallelizing prompt engineering for {len(new_agents)} new agents...", file=sys.stderr)
-            import concurrent.futures
-
-            def generate_prompt(agent):
-                sys_msg = f"You are an expert Prompt Engineer for Reticle. The Architect designed this graph:\\n{json.dumps(data.get('nodes', []))}\\n{json.dumps(data.get('edges', []))}\\nYour task is to write the system prompt for the agent '{agent['id']}'. It must be highly detailed and include all 5 requirements: 1. Exact goal 2. Exact files 3. Language/Framework 4. Integration with other agents 5. Technical specs."
-                user_msg = f"Agent Name: {agent.get('name')}\\nAgent Description: {agent.get('description', '')}\\nUser Goal: {user_prompt}\\nWrite the 'system_prompt' for this agent. Output ONLY the prompt text, no markdown blocks."
-                try:
-                    resp = completion(
-                        model=model,
-                        max_tokens=8192,
-                        temperature=0.2,
-                        messages=[{"role": "system", "content": sys_msg}, {"role": "user", "content": user_msg}],
-                        timeout=7200,
-                        **kwargs
-                    )
-                    return resp.choices[0].message.content.strip()
-                except Exception as e:
-                    print(f"[{agent['id']}] Error generating prompt: {e}", file=sys.stderr)
-                    return "Error generating prompt. You must figure out what to do based on your description: " + agent.get("description", "")
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future_to_agent = {executor.submit(generate_prompt, a): a for a in new_agents}
-                for future in concurrent.futures.as_completed(future_to_agent):
-                    a = future_to_agent[future]
-                    try:
-                        a["system_prompt"] = future.result()
-                    except Exception as e:
-                        a["system_prompt"] = "Error"
+        for agent in new_agents:
+            agent["system_prompt"] = build_agent_prompt(agent, data, user_prompt)
 
         result = json.dumps(data, indent=2)
 

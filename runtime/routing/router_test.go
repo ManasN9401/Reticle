@@ -34,6 +34,29 @@ func TestCapacityAndCooldownWithoutLearning(t *testing.T) {
 	}
 }
 
+func TestProviderFamilyCooldownCoversCredentialSlots(t *testing.T) {
+	ModelsMutex.Lock()
+	old := AvailableModels
+	AvailableModels = []Model{
+		{ID: "openrouter/a", Provider: "openrouter", APIKeyEnv: "KEY_1", Enabled: true},
+		{ID: "openrouter/b", Provider: "openrouter", APIKeyEnv: "KEY_2", Enabled: true},
+		{ID: "groq/c", Provider: "groq", APIKeyEnv: "GROQ_KEY", Enabled: true},
+	}
+	ModelsMutex.Unlock()
+	defer func() { ModelsMutex.Lock(); AvailableModels = old; ModelsMutex.Unlock() }()
+
+	r := &ModelRouter{}
+	r.PenalizeProviderFamily("openrouter")
+	ModelsMutex.RLock()
+	defer ModelsMutex.RUnlock()
+	if AvailableModels[0].CooldownUntil.IsZero() || AvailableModels[1].CooldownUntil.IsZero() {
+		t.Fatal("provider credential slot escaped account-wide cooldown")
+	}
+	if !AvailableModels[2].CooldownUntil.IsZero() {
+		t.Fatal("unrelated provider was cooled down")
+	}
+}
+
 func TestRoutingMatrixIsAtomicallyPersistedAndReportsFailure(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("RETICLE_ROOT", root)

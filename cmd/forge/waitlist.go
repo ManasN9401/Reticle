@@ -247,6 +247,12 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 				if c, ok := payload["agent_complexity"].(float64); ok {
 					agentComplexity = int(c)
 				}
+				if agentComplexity < 1 {
+					agentComplexity = 1
+				}
+				if agentComplexity > 5 {
+					agentComplexity = 5
+				}
 
 				wm.Enqueue(prompt, group, mode, ideContext, effort, agentComplexity, attachments)
 			case "remove":
@@ -677,6 +683,7 @@ queueLoop:
 			}
 
 			addMemory("workspace_dir", isolatedWorkspacePath)
+			addMemory("agent_complexity", item.AgentComplexity)
 
 			if item.Effort != "" && item.Effort != "auto" {
 				addMemory("global_effort", item.Effort)

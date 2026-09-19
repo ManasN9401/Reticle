@@ -16,7 +16,10 @@ def main():
     root = Path(req["memory"]["workspace_dir"]).resolve()
     generated = {}
     for agent in dag.get("agents", []):
-        if not agent.get("is_new") and not agent.get("system_prompt"):
+        # Existing registry agents must retain their maintained definitions.
+        # In particular, never turn a schema placeholder such as "TBD" into a
+        # session-local generic replacement for hitl/rag/frontend specialists.
+        if not agent.get("is_new"):
             continue
         agent_id = identifier(agent["id"])
         definition = {"id":agent_id,"name":agent.get("name",agent_id),"description":agent.get("description",""),"version":"1.0.0","runtime":"python","entrypoint":f"workers/{agent_id}.py"}

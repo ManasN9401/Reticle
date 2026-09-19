@@ -373,6 +373,13 @@ func (d *Dispatcher) Start() {
 						if apiKeyEnv, ok := t.Parameters["api_key"].(string); ok && apiKeyEnv != "" {
 							d.Router.PenalizeProvider(string(w.ID), apiKeyEnv)
 						}
+						if disposition.penalizeFamily {
+							if modelID, ok := t.Parameters["llm_model"].(string); ok {
+								if separator := strings.IndexByte(modelID, '/'); separator > 0 {
+									d.Router.PenalizeProviderFamily(modelID[:separator])
+								}
+							}
+						}
 					} else if disposition.disableModel {
 						if modelID, ok := t.Parameters["llm_model"].(string); ok && modelID != "" {
 							d.Logger.Info("Model does not support tool calling, disabling globally", "model", modelID)
@@ -435,6 +442,7 @@ func deterministicWorker(id WorkerID) bool {
 type providerFailureDisposition struct {
 	retryable        bool
 	penalizeProvider bool
+	penalizeFamily   bool
 	disableModel     bool
 	category         string
 }
@@ -454,14 +462,21 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 		return false
 	}
 
-	if strings.Contains(message, "tool calling") && strings.Contains(message, "not supported") {
+	if (strings.Contains(message, "tool calling") && strings.Contains(message, "not supported")) ||
+		strings.Contains(message, "only available on agentic harnesses") {
 		return providerFailureDisposition{retryable: true, disableModel: true, category: "model_incompatible"}
+	}
+	if containsAny("free-models-per-day", "openrouter_free_tier_daily") {
+		return providerFailureDisposition{retryable: true, penalizeProvider: true, penalizeFamily: true, category: "provider_account_quota"}
+	}
+	// Check access failures before generic request wrappers. Some providers and
+	// LiteLLM surface a 401/403 as BadRequestError even though every model using
+	// the same credential will fail.
+	if containsAny("insufficient credits", "invalid api key", "authenticationerror", "401 unauthorized", "status code: 401", "401 client error", "exceeded your current quota", "permissiondeniederror", "403 forbidden", "status code: 403", "403 client error", "permission denied") {
+		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_access"}
 	}
 	if containsAny("requires terms acceptance", "max_tokens must be less than", "request too large", "maximum context length", "badrequesterror", "bad request", "status code: 400", "400 client error", "notfounderror", "404 not found", "status code: 404", "unprocessableentityerror", "422 unprocessable") {
 		return providerFailureDisposition{retryable: true, category: "model_request"}
-	}
-	if containsAny("insufficient credits", "invalid api key", "authenticationerror", "401 unauthorized", "status code: 401", "401 client error", "exceeded your current quota", "permissiondeniederror", "403 forbidden", "status code: 403", "403 client error", "permission denied") {
-		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_access"}
 	}
 	if containsAny("ratelimiterror", "code\":429", "code\": 429", "429 too many requests", "status code: 429", "apiconnectionerror", "serviceunavailableerror", "internalservererror", "500 internal server error", "502 bad gateway", "503 service unavailable", "504 gateway timeout") {
 		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_transient"}

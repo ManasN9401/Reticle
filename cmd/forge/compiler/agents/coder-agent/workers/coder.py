@@ -12,7 +12,11 @@ def main():
     workspace = Path(req["memory"]["workspace_dir"]).resolve()
     root = Path(__file__).resolve().parents[6]
     for agent in dag.get("agents", []):
-        if not agent.get("is_new") and not agent.get("system_prompt"):
+        # Registered agents already have a maintained manifest and entrypoint.
+        # A model commonly emits the schema placeholder "TBD" for these; that
+        # must never cause the compiler to replace a specialist with a generic
+        # generated worker.
+        if not agent.get("is_new"):
             continue
         agent_id = agent.get("id", "")
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}", agent_id):

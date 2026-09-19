@@ -417,6 +417,23 @@ func (r *ModelRouter) PenalizeProvider(agentID, apiKeyEnv string) {
 	r.ProviderCapacity[apiKeyEnv] = capacity / 2
 }
 
+// PenalizeProviderFamily cools every credential slot for a provider when the
+// provider reports an account-wide limit. Rotating variable names cannot evade
+// limits such as OpenRouter's free-model daily allowance.
+func (r *ModelRouter) PenalizeProviderFamily(provider string) {
+	if provider == "" {
+		return
+	}
+	ModelsMutex.Lock()
+	defer ModelsMutex.Unlock()
+	until := time.Now().Add(60 * time.Second)
+	for i := range AvailableModels {
+		if strings.EqualFold(AvailableModels[i].Provider, provider) {
+			AvailableModels[i].CooldownUntil = until
+		}
+	}
+}
+
 // PenalizeModel globally disables a specific model across the entire application.
 func (r *ModelRouter) PenalizeModel(modelID string) {
 	ModelsMutex.Lock()

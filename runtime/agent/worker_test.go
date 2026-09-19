@@ -121,22 +121,26 @@ func TestProviderFailureDisposition(t *testing.T) {
 		stderr          string
 		providerPenalty bool
 		disableModel    bool
+		penalizeFamily  bool
 		category        string
 	}{
-		{"forbidden key", "403 Forbidden", true, false, "provider_access"},
-		{"authentication", "AuthenticationError: 401 Unauthorized", true, false, "provider_access"},
-		{"rate limit", "RateLimitError", true, false, "provider_transient"},
-		{"server error", "InternalServerError: 500 Internal Server Error", true, false, "provider_transient"},
-		{"timeout", "MidStreamFallbackError: A Timeout Occurred", false, false, "timeout"},
-		{"bad request", "BadRequestError: unsupported parameter", false, false, "model_request"},
-		{"missing model", "NotFoundError: 404 Not Found", false, false, "model_request"},
-		{"tool support", "tool calling is not supported", false, true, "model_incompatible"},
+		{"forbidden key", "403 Forbidden", true, false, false, "provider_access"},
+		{"wrapped forbidden key", "BadRequestError: request failed with 403 Forbidden", true, false, false, "provider_access"},
+		{"authentication", "AuthenticationError: 401 Unauthorized", true, false, false, "provider_access"},
+		{"rate limit", "RateLimitError", true, false, false, "provider_transient"},
+		{"account quota", "RateLimitError: openrouter_free_tier_daily", true, false, true, "provider_account_quota"},
+		{"server error", "InternalServerError: 500 Internal Server Error", true, false, false, "provider_transient"},
+		{"timeout", "MidStreamFallbackError: A Timeout Occurred", false, false, false, "timeout"},
+		{"bad request", "BadRequestError: unsupported parameter", false, false, false, "model_request"},
+		{"missing model", "NotFoundError: 404 Not Found", false, false, false, "model_request"},
+		{"tool support", "tool calling is not supported", false, true, false, "model_incompatible"},
+		{"harness gate", "403: model is only available on agentic harnesses", false, true, false, "model_incompatible"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			failure := &WorkerFailure{Reason: WorkerExitedNonZero, Stderr: "[RETICLE_RETRY_SAFE: NO_EFFECTS] " + test.stderr}
 			got := classifyProviderFailure(failure)
-			if !got.retryable || got.penalizeProvider != test.providerPenalty || got.disableModel != test.disableModel || got.category != test.category {
+			if !got.retryable || got.penalizeProvider != test.providerPenalty || got.disableModel != test.disableModel || got.penalizeFamily != test.penalizeFamily || got.category != test.category {
 				t.Fatalf("unexpected disposition: %#v", got)
 			}
 		})
