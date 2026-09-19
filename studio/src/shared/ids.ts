@@ -124,8 +124,8 @@ export function parseCheckpointPath(log: string | undefined): string | null {
 }
 
 /**
- * Workers fall back to mock output when a model is unavailable. RFC-026 §8
- * requires the UI to make that obvious rather than presenting mocks as real work.
+ * Compatibility diagnostic for external or historical workers that explicitly
+ * announce mock output. Current built-in workers fail instead of mocking success.
  */
 const MOCK_PATTERN = /\b(mock fallback|falling back to mock|\[MOCK\])/i
 

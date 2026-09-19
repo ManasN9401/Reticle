@@ -180,7 +180,7 @@ function AgentNodeInner({ data, selected }: NodeProps<AgentFlowNode>) {
               </span>
             ) : null}
 
-            {/* RFC-026 §8: a mock fallback must never look like real work. */}
+      {/* Compatibility marker for external/historical workers that explicitly report mock output. */}
             {node.mocked ? (
               <span
                 className="flex items-center text-st-waiting"
@@ -357,7 +357,7 @@ function HexNode({
           />
         )}
 
-        {/* RFC-026 §8: mock output must never be mistaken for real work. Sits on
+    {/* Compatibility mock output must never be mistaken for real work. Sits on
             the upper-right vertex so the interior stays empty. */}
         {node.mocked ? (
           <circle

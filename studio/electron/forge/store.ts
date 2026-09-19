@@ -55,6 +55,7 @@ const STRUCTURAL_LOG_EVENTS = new Set([
   'TaskDispatched',
   'WorkerStarted',
   'WorkerCompleted',
+  'WorkerVerificationRecorded',
   'WorkerFailed',
   'TaskFailed',
   'ArtifactsProduced',
@@ -306,12 +307,8 @@ export class EventStore extends EventEmitter {
     const batch = this.pendingLogs
     this.pendingLogs = []
     const scoped = batch.filter((record) => {
-      // Environment provisioning can be shared by several runs and has no
-      // single execution identity. Keep those lifecycle records visible when
-      // the ordinary worker stream is scoped to the selected run.
-      const sharedEnvironment = record.eventType?.startsWith('EnvironmentProvisioning') ?? false
-      if (this.scope.execId && record.execId !== this.scope.execId && !sharedEnvironment) return false
-      if (this.scope.nodeId && record.nodeId !== this.scope.nodeId && !sharedEnvironment) return false
+      if (this.scope.execId && record.execId !== this.scope.execId) return false
+      if (this.scope.nodeId && record.nodeId !== this.scope.nodeId) return false
       return true
     })
     if (scoped.length === 0) return
@@ -346,6 +343,8 @@ function describe(event: RuntimeEvent): string {
       return 'worker started'
     case 'WorkerCompleted':
       return 'worker completed'
+    case 'WorkerVerificationRecorded':
+      return `verification recorded: ${Array.isArray(p.evidence) ? p.evidence.length : 0} check(s)`
     case 'TaskFailed':
       return `task failed: ${String(p.node_id ?? '')}`
     case 'ArtifactsProduced':
@@ -376,6 +375,7 @@ function describeEnvironment(payload: Record<string, unknown>, status: 'installi
     ? payload.dependencies.map(String).join(' ')
     : ''
   const fields = [
+    payload.operation_id ? `operation_id: ${String(payload.operation_id)}` : '',
     payload.agent_id ? `agent_id: ${String(payload.agent_id)}` : '',
     `deps: [${dependencies}]`,
     `using_uv: ${String(Boolean(payload.using_uv))}`,

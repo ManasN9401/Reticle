@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
@@ -27,38 +27,68 @@ export function ExplorerSidebar() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [revision, setRevision] = useState(0)
+  const requestGeneration = useRef(0)
+  const inFlight = useRef<{ execId?: string; promise: Promise<void> } | null>(null)
 
-  const load = useCallback(async () => {
-    if (!bridge) return
-    setLoading(true)
-    const summaryResult = await bridge.workspace.summary(run?.execId)
-    if (!summaryResult.ok || !summaryResult.data) {
-      setLoading(false)
-      setRoot([])
-      setSummary(null)
-      setError(summaryResult.error ?? 'Could not inspect the workspace.')
-      return
-    }
-    const nextSummary = summaryResult.data
-    const treeResult = await bridge.workspace.tree(nextSummary.rootPath)
-    setLoading(false)
-    if (treeResult.ok && treeResult.data) {
-      setSummary(nextSummary)
-      setRoot(treeResult.data)
-      setError(null)
-      setRevision((value) => value + 1)
-    } else {
-      setError(treeResult.error ?? 'Could not read the workspace.')
-    }
+  const load = useCallback((): Promise<void> => {
+    if (!bridge) return Promise.resolve()
+    const execId = run?.execId
+    const activeRequest = inFlight.current
+    if (activeRequest && activeRequest.execId === execId) return activeRequest.promise
+    const generation = ++requestGeneration.current
+    const promise = (async () => {
+      setLoading(true)
+      try {
+        const summaryResult = await bridge.workspace.summary(execId)
+        if (generation !== requestGeneration.current) return
+        if (!summaryResult.ok || !summaryResult.data) {
+          setRoot([])
+          setSummary(null)
+          setError(summaryResult.error ?? 'Could not inspect the workspace.')
+          return
+        }
+        const nextSummary = summaryResult.data
+        const treeResult = await bridge.workspace.tree(nextSummary.rootPath)
+        if (generation !== requestGeneration.current) return
+        if (treeResult.ok && treeResult.data) {
+          setSummary(nextSummary)
+          setRoot(treeResult.data)
+          setError(null)
+          setRevision((value) => value + 1)
+        } else {
+          setError(treeResult.error ?? 'Could not read the workspace.')
+        }
+      } catch (cause) {
+        if (generation === requestGeneration.current) {
+          setError(cause instanceof Error ? cause.message : 'Could not inspect the workspace.')
+        }
+      } finally {
+        if (generation === requestGeneration.current) setLoading(false)
+      }
+    })()
+    inFlight.current = { execId, promise }
+    void promise.finally(() => {
+      if (inFlight.current?.promise === promise) inFlight.current = null
+    })
+    return promise
   }, [run?.execId])
 
   useEffect(() => {
     // The filesystem is an external system; refresh when the selected run changes.
+    let disposed = false
+    let timer: number | undefined
+    const refresh = async () => {
+      await load()
+      if (!disposed && run?.status === 'running') timer = window.setTimeout(() => void refresh(), 3_000)
+    }
     // oxlint-disable-next-line react/set-state-in-effect
-    void load()
-    if (run?.status !== 'running') return
-    const timer = window.setInterval(() => void load(), 3_000)
-    return () => window.clearInterval(timer)
+    void refresh()
+    return () => {
+      disposed = true
+      requestGeneration.current += 1
+      inFlight.current = null
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
   }, [load, run?.status])
 
   if (error && root === null) {

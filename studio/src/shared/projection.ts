@@ -77,7 +77,7 @@ export interface RunNode {
   artifacts: ArtifactRef[]
   failure?: NodeFailure
   waiting?: WaitingState
-  /** RFC-026 §8: mock fallbacks must be visibly distinguishable from real work. */
+  /** Compatibility flag for explicit mock output from external/historical workers. */
   mocked: boolean
   logCount: number
 }

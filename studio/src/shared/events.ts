@@ -43,6 +43,7 @@ export type EventType =
   | 'WaitlistStateRequested'
   | 'WaitlistUpdated'
   | 'WorkerCompleted'
+  | 'WorkerVerificationRecorded'
   | 'WorkerFailed'
   | 'WorkerLog'
   | 'WorkerStarted'
@@ -83,6 +84,7 @@ export const EVENT_TYPES: readonly EventType[] = [
   'WaitlistStateRequested',
   'WaitlistUpdated',
   'WorkerCompleted',
+  'WorkerVerificationRecorded',
   'WorkerFailed',
   'WorkerLog',
   'WorkerStarted',

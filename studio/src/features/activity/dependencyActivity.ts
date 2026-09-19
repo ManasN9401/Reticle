@@ -4,6 +4,7 @@ type DependencyStatus = 'installing' | 'ready' | 'failed'
 
 export interface DependencyOperation {
   key: string
+  operationId?: string
   agent?: string
   dependencies: string[]
   manager: 'uv' | 'pip'
@@ -26,7 +27,8 @@ export function buildDependencyOperations(logs: readonly LogRecord[]): Dependenc
     if (!DEPENDENCY_MESSAGE.test(record.message)) continue
     const lower = record.message.toLowerCase()
     const agent = field(record.message, 'agent_id')
-    const key = agent ? `agent:${agent}` : 'base'
+    const operationId = field(record.message, 'operation_id')
+    const key = operationId ?? (agent ? `agent:${agent}` : 'base')
     const existing = operations.get(key)
     const dependencies = listField(record.message, 'deps')
     const duration = numberField(record.message, 'duration_ms')
@@ -38,6 +40,7 @@ export function buildDependencyOperations(logs: readonly LogRecord[]): Dependenc
         : 'installing'
     operations.set(key, {
       key,
+      operationId,
       agent,
       dependencies: dependencies.length > 0 ? dependencies : existing?.dependencies ?? [],
       manager: field(record.message, 'using_uv') === 'true' ? 'uv' : existing?.manager ?? 'pip',

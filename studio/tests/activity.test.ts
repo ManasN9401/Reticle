@@ -27,3 +27,14 @@ test('dependency activity distinguishes cached base environments', () => {
   assert.equal(operations[0].cached,true)
   assert.equal(operations[0].manager,'pip')
 })
+
+test('dependency activity keeps concurrent operations for the same agent separate', () => {
+  const operations=buildDependencyOperations([
+    record(1,'Installing agent dependencies (operation_id: run-a/attempt:environment:agent:coder, agent_id: coder, deps: [requests==2.34.2], using_uv: true)'),
+    record(2,'Installing agent dependencies (operation_id: run-b/attempt:environment:agent:coder, agent_id: coder, deps: [requests==2.34.2], using_uv: true)'),
+    record(3,'Agent dependencies ready (operation_id: run-a/attempt:environment:agent:coder, agent_id: coder, deps: [requests==2.34.2], using_uv: true, cached: false)'),
+  ])
+  assert.equal(operations.length,2)
+  assert.equal(operations.find((operation)=>operation.operationId?.startsWith('run-a'))?.status,'ready')
+  assert.equal(operations.find((operation)=>operation.operationId?.startsWith('run-b'))?.status,'installing')
+})
