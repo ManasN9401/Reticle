@@ -215,12 +215,13 @@ export function ModelsSection() {
         <h3 className="text-sm font-semibold text-fg-1">LLM Tuning</h3>
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-medium text-fg-1">Context Window</label>
+            <label className="text-xs font-medium text-fg-1">Ollama Context Window</label>
             <Input
               type="number"
               className="w-24"
               value={numCtx}
               onChange={(e) => setNumCtx(Number(e.target.value))}
+              title="Applied only to local Ollama requests; cloud providers use their model-defined context window."
             />
           </div>
           <div className="flex flex-col gap-1.5">

@@ -3,7 +3,7 @@ title: Reticle troubleshooting
 document_type: Guide
 authority: Informative
 status: Accepted
-version: 1.0.0
+version: 1.0.1
 scope: Operations
 stability: Stable
 owner: Reticle Project
@@ -78,3 +78,7 @@ Approval uses a request Markdown document and a separate hash-bound JSON decisio
 ## AWS, cloud, or ML work cannot start
 
 Capabilities describe what a worker may request; they do not create credentials, install provider CLIs, or authorize external changes. See `docs/environment.md` for AWS identity options and `docs/ml-environments.md` for OS/GPU support. Cloud apply and other external effects require an implemented adapter, a durable operation identity, explicit authorization, and reconciliation after interruption.
+
+# Model request settings
+
+The Studio **Ollama Context Window** setting controls Ollama's per-request `num_ctx` value. Reticle does not send this provider-specific option to Groq, Gemini, OpenRouter, or OpenAI-compatible llama.cpp servers. Those services determine context capacity from the selected model or server configuration. **Max Output** and **Temperature** remain completion settings for every provider that accepts them.
