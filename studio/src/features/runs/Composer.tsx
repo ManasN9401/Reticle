@@ -10,10 +10,6 @@ import type { Attachment } from '@shared/events'
 /**
  * Effort tiers, matching the runtime's own vocabulary
  * (runtime/telemetry/ui/index.html:2494).
- *
- * `agent_complexity` is deliberately not offered: the backend parses and stores
- * it but nothing ever reads it (cmd/forge/waitlist.go:233), so a control for it
- * would be theatre.
  */
 const EFFORT = ['auto', 'minimal', 'low', 'standard', 'elevated', 'high', 'absolute']
 
@@ -24,6 +20,7 @@ export function Composer() {
   const [prompt, setPrompt] = useState('')
   const [mode, setMode] = useState<'parallel' | 'sequential'>('parallel')
   const [effort, setEffort] = useState('auto')
+  const [agentComplexity, setAgentComplexity] = useState(3)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
@@ -48,7 +45,7 @@ export function Composer() {
     const ideContext =
       openFiles.length > 0 ? `Open Files: ${openFiles.join(', ')}` : undefined
 
-    const sent = await enqueue({ prompt, mode, effort, ideContext, attachments })
+    const sent = await enqueue({ prompt, mode, effort, agentComplexity, ideContext, attachments })
     if (sent) {
       setPrompt('')
       setAttachments([])
@@ -147,6 +144,18 @@ export function Composer() {
                 {tier}
               </option>
             ))}
+          </Select>
+
+          <Select
+            aria-label="Workflow depth"
+            value={agentComplexity}
+            disabled={!connected}
+            onChange={(event) => setAgentComplexity(Number(event.target.value))}
+            className="h-6 w-auto border-none bg-transparent px-1 text-2xs"
+          >
+            <option value={1}>single agent</option>
+            <option value={3}>balanced</option>
+            <option value={5}>deep</option>
           </Select>
 
           <Tooltip content="Attach files to the prompt">

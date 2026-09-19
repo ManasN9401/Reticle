@@ -18,6 +18,7 @@ export interface EnqueueOptions {
   mode?: 'parallel' | 'sequential'
   group?: string
   effort?: string
+  agentComplexity?: number
   ideContext?: string
   attachments?: Attachment[]
 }
@@ -68,6 +69,7 @@ export async function enqueue(options: EnqueueOptions): Promise<boolean> {
     group: options.group ?? '',
     mode: options.mode ?? 'parallel',
     effort: options.effort ?? 'auto',
+    agent_complexity: options.agentComplexity ?? 3,
     ide_context: options.ideContext,
     attachments: options.attachments,
   }

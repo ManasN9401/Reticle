@@ -26,11 +26,15 @@ Open Studio's Problems, Activity, and Logs views and find the last structural ev
 - An execution recovered as `interrupted` is not assumed successful. Reconcile it explicitly.
 - If the process is alive but no terminal event appears, preserve `runtime.log` and the relevant `.reticle/executions/state.json` before restarting.
 
+For a first end-to-end check, choose **single agent** under Workflow depth in Studio and submit a small file task. This still exercises dynamic compilation, model routing, generated-worker startup, workspace tools, verification and durable completion while avoiding unrelated image, RAG, deployment or human-approval dependencies. Use **balanced** for ordinary work and **deep** only when the task benefits from several independently owned outputs.
+
+Restart Forge after rebuilding it. Running processes keep their loaded runtime code, and already compiled sessions keep a snapshot of the worker SDK and generated agents that existed when the session was created. A retry of an old session therefore cannot prove that a newly built router or compiler fix is active.
+
 ## Provider rate limits, authentication, or context errors
 
-Forge classifies retryable provider failures and attempts at most the configured `-retries` value, bounded to 1–15 and defaulting to 3. A retry is allowed only when the worker reports that no effect started. Routing uses enabled models, capability estimates, provider capacity, cooldown, and the per-agent outcome score.
+Forge classifies retryable provider failures and attempts at most the configured `-retries` value, bounded to 1–15 and defaulting to 3. A retry is allowed only when the worker reports that no effect started. Routing uses enabled models, capability estimates, provider capacity, cooldown, and the per-agent outcome score. Compiler diagnostics must remain on stderr; otherwise the dispatcher cannot see the retry marker or provider error.
 
-Provider SDK deprecation warnings are diagnostic and do not fail a task. For example, Gemini's warning about moving sampling guidance into system instructions is separate from a later HTTP failure. A safe `400 Bad Request` lowers the rejected model's routing score, a safe `403 Forbidden` cools down the affected key, and a safe upstream streaming timeout retries through the router. A forced model is recorded and penalized but is not replaced automatically.
+Provider SDK deprecation warnings are diagnostic and do not fail a task. For example, Gemini's warning about moving sampling guidance into system instructions is separate from a later HTTP failure. A safe `400 Bad Request` lowers the rejected model's routing score, a safe `403 Forbidden` cools down the affected key even when an SDK wraps it as `BadRequestError`, and a safe upstream streaming timeout retries through the router. An account-wide OpenRouter free-tier limit cools all OpenRouter credential slots so retries can move to another provider. A forced model is recorded and penalized but is not replaced automatically. A model shown as temporarily locked is in cooldown after a provider failure; it is different from a model the user disabled.
 
 1. Check the selected worker's failure line and model in Studio.
 2. Confirm the named environment variable exists in the repository-root `.env`; never paste a secret into a manifest or prompt.
