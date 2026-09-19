@@ -7,6 +7,37 @@ import sys
 import time
 import forge_utils as toolset
 
+def _llm_field(value, name, default=None):
+    """Read a LiteLLM response field from either its object or dict form."""
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+def _llm_reasoning(value):
+    """Return reasoning text only when the provider included it in its response."""
+    direct = (_llm_field(value, "reasoning_content") or _llm_field(value, "reasoning")
+              or _llm_field(value, "thinking"))
+    if direct:
+        return direct
+    provider_fields = _llm_field(value, "provider_specific_fields", {}) or {}
+    if isinstance(provider_fields, dict) and (provider_fields.get("reasoning_content") or provider_fields.get("reasoning")):
+        return provider_fields.get("reasoning_content") or provider_fields.get("reasoning")
+    blocks = _llm_field(value, "thinking_blocks")
+    if not blocks and isinstance(provider_fields, dict):
+        blocks = provider_fields.get("thinking_blocks")
+    if isinstance(blocks, list):
+        return "".join(str(_llm_field(block, "thinking") or _llm_field(block, "text") or "") for block in blocks)
+    return ""
+
+def _emit_llm(kind, text, **metadata):
+    """Emit a structured, single-line diagnostic without touching worker stdout."""
+    if text is None or text == "":
+        return
+    event = {"kind": kind, "text": str(text)}
+    event.update({key: value for key, value in metadata.items() if value})
+    sys.stderr.write(f"\n[LLM_STREAM] {json.dumps(event, ensure_ascii=False)}\n")
+    sys.stderr.flush()
+
 def _meaningful_terminal_verification(kind, parts):
     """Recognize commands that inspect or validate the produced work."""
     if not parts:
@@ -177,8 +208,12 @@ def run(instructions, kind="coding"):
             tool_calls_buffer = {}
             if hasattr(response, "choices") and hasattr(response.choices[0], "message"):
                 complete_message = response.choices[0].message
+                complete_reasoning = _llm_reasoning(complete_message)
+                if complete_reasoning:
+                    _emit_llm("reasoning", complete_reasoning)
                 if getattr(complete_message, "content", None):
                     content_buffer.append(complete_message.content)
+                    _emit_llm("content", complete_message.content)
                 for idx, tc in enumerate(getattr(complete_message, "tool_calls", None) or []):
                     tool_calls_buffer[idx] = {
                         "id": getattr(tc, "id", "") or "",
@@ -187,15 +222,17 @@ def run(instructions, kind="coding"):
                             "arguments": getattr(tc.function, "arguments", "") or "",
                         },
                     }
+                    _emit_llm("tool", f"Requested {getattr(tc.function, 'name', '') or 'tool'}", name=getattr(tc.function, "name", "") or "")
                 response_chunks = []
             else:
                 response_chunks = response
             for chunk in response_chunks:
                 delta = chunk.choices[0].delta
+                reasoning_delta = _llm_reasoning(delta)
+                if reasoning_delta:
+                    _emit_llm("reasoning", reasoning_delta)
                 if hasattr(delta, "content") and delta.content:
-                    # Stream JSON chunk to stderr
-                    sys.stderr.write(f"\n[LLM_STREAM] {json.dumps(delta.content)}\n")
-                    sys.stderr.flush()
+                    _emit_llm("content", delta.content)
                     content_buffer.append(delta.content)
                 if hasattr(delta, "tool_calls") and delta.tool_calls:
                     for tc in delta.tool_calls:
@@ -206,15 +243,18 @@ def run(instructions, kind="coding"):
                             if hasattr(tc, "function") and hasattr(tc.function, "name") and tc.function.name:
                                 tc_name = tc.function.name
                             tool_calls_buffer[idx] = {"id": tc_id, "function": {"name": tc_name, "arguments": ""}}
+                            if tc_name:
+                                _emit_llm("tool", f"Requested {tc_name}", name=tc_name)
                         else:
                             if hasattr(tc, "id") and tc.id:
                                 tool_calls_buffer[idx]["id"] = tc.id
                             if hasattr(tc, "function") and hasattr(tc.function, "name") and tc.function.name:
+                                had_name = bool(tool_calls_buffer[idx]["function"]["name"])
                                 tool_calls_buffer[idx]["function"]["name"] = tc.function.name
+                                if not had_name:
+                                    _emit_llm("tool", f"Requested {tc.function.name}", name=tc.function.name)
                         if hasattr(tc, "function") and hasattr(tc.function, "arguments") and tc.function.arguments:
                             tool_calls_buffer[idx]["function"]["arguments"] += tc.function.arguments
-                            sys.stderr.write(f"\n[LLM_STREAM] {json.dumps(tc.function.arguments)}\n")
-                            sys.stderr.flush()
 
             # Reconstruct the message
             message_dict = {"role": "assistant"}

@@ -12,6 +12,7 @@ import {
 import { useActiveRun, useActiveNode, useStudio } from '@/state/store'
 import { useUi } from '@/state/ui'
 import { compactToolLog } from './toolLog'
+import { buildLlmDiagnostics, type LlmDiagnosticKind } from './llmLog'
 
 type Tab = 'overview' | 'log' | 'llm'
 
@@ -238,25 +239,48 @@ function NodeLog({
   if (filtered.length === 0) {
     return (
       <div className="px-3 py-6 text-center text-2xs text-fg-4">
-        {llm ? 'No LLM diagnostics for this node.' : 'No log output for this node.'}
+        {llm
+          ? 'Waiting for model output. Reasoning appears when the provider exposes it.'
+          : 'No log output for this node.'}
       </div>
     )
   }
   if (llm) {
-    const combined = filtered.map(r => {
-      if (r.message.startsWith('[LLM_STREAM] ')) {
-        try {
-          const jsonStr = r.message.substring('[LLM_STREAM] '.length)
-          return JSON.parse(jsonStr)
-        } catch { return '' }
-      }
-      // Legacy compatibility for old logs
-      return r.message.replace(/^\[LLM\]\s*/, '') + '\n'
-    }).join('')
+    const diagnostics = buildLlmDiagnostics(filtered)
+
+    if (diagnostics.length === 0) {
+      return (
+        <div className="px-3 py-6 text-center text-2xs text-fg-4">
+          No readable LLM diagnostics were recorded for this node.
+        </div>
+      )
+    }
 
     return (
-      <div className="px-4 py-4 text-xs text-fg-2 whitespace-pre-wrap font-sans leading-relaxed select-text">
-        {combined}
+      <div className="flex flex-col gap-3 px-3 py-3 select-text">
+        <p className="text-[10px] leading-relaxed text-fg-4">
+          Reasoning is shown only when the selected model and provider return it.
+        </p>
+        {diagnostics.map((entry) => (
+          <section
+            key={`${entry.firstSeq}-${entry.lastSeq}-${entry.kind}`}
+            className="overflow-hidden rounded-[var(--radius-control)] border border-line-1 bg-bg-2"
+          >
+            <div className="border-b border-line-1 px-2.5 py-1 text-[10px] font-semibold tracking-wide uppercase text-fg-4">
+              {llmDiagnosticLabel(entry.kind, entry.name)}
+            </div>
+            <div
+              className={cn(
+                'px-2.5 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words',
+                entry.kind === 'reasoning' ? 'text-fg-3 italic' : 'text-fg-2',
+                entry.kind === 'tool' && 'mono text-accent',
+                entry.kind === 'status' && 'mono text-st-failed',
+              )}
+            >
+              {entry.text}
+            </div>
+          </section>
+        ))}
       </div>
     )
   }
@@ -276,4 +300,11 @@ function NodeLog({
       ))}
     </div>
   )
+}
+
+function llmDiagnosticLabel(kind: LlmDiagnosticKind, name?: string): string {
+  if (kind === 'reasoning') return 'Provider reasoning'
+  if (kind === 'content') return 'Response'
+  if (kind === 'tool') return name ? `Tool request · ${name}` : 'Tool request'
+  return 'Model status'
 }

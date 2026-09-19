@@ -13,6 +13,33 @@ import logging
 logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
+def _llm_field(value, name, default=None):
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
+def _llm_reasoning(value):
+    """Read reasoning that a provider explicitly returned; never synthesize it."""
+    direct = (_llm_field(value, "reasoning_content") or _llm_field(value, "reasoning")
+              or _llm_field(value, "thinking"))
+    if direct:
+        return direct
+    provider_fields = _llm_field(value, "provider_specific_fields", {}) or {}
+    if isinstance(provider_fields, dict) and (provider_fields.get("reasoning_content") or provider_fields.get("reasoning")):
+        return provider_fields.get("reasoning_content") or provider_fields.get("reasoning")
+    blocks = _llm_field(value, "thinking_blocks")
+    if not blocks and isinstance(provider_fields, dict):
+        blocks = provider_fields.get("thinking_blocks")
+    if isinstance(blocks, list):
+        return "".join(str(_llm_field(block, "thinking") or _llm_field(block, "text") or "") for block in blocks)
+    return ""
+
+def _emit_llm(kind, text):
+    if text is None or text == "":
+        return
+    event = {"kind": kind, "text": str(text)}
+    print(f"[LLM_STREAM] {json.dumps(event, ensure_ascii=False)}", file=sys.stderr, flush=True)
+
 def _list_text(values):
     return ", ".join(values) if values else "none declared"
 
@@ -330,7 +357,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 }
                 print(f"Calling litellm.completion for model {model}", file=sys.stderr)
                 log_file.flush()
-                resp = completion(
+                response = completion(
                     model=model,
                     max_tokens=target_max_tokens,
                     messages=conversation,
@@ -338,13 +365,36 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                     timeout=7200,
                     extra_headers=extra_headers,
                     stop=["```\n", "``` "],
+                    stream=True,
                     **kwargs
                 )
                 print("litellm.completion returned!", file=sys.stderr)
-                raw_text = getattr(resp.choices[0].message, "content", "") or ""
-                reasoning = getattr(resp.choices[0].message, "reasoning_content", "") or ""
-                print(f"RAW LLM REASONING:\n{reasoning}\n", file=sys.stderr)
-                print(f"RAW LLM OUTPUT:\n{raw_text}\n", file=sys.stderr)
+                content_parts = []
+                if hasattr(response, "choices") and response.choices and hasattr(response.choices[0], "message"):
+                    message = response.choices[0].message
+                    content = _llm_field(message, "content", "") or ""
+                    reasoning = _llm_reasoning(message)
+                    if reasoning:
+                        _emit_llm("reasoning", reasoning)
+                    if content:
+                        content_parts.append(str(content))
+                        _emit_llm("content", content)
+                else:
+                    for chunk in response:
+                        choices = _llm_field(chunk, "choices", []) or []
+                        if not choices:
+                            continue
+                        delta = _llm_field(choices[0], "delta")
+                        if delta is None:
+                            continue
+                        reasoning = _llm_reasoning(delta)
+                        content = _llm_field(delta, "content", "") or ""
+                        if reasoning:
+                            _emit_llm("reasoning", reasoning)
+                        if content:
+                            content_parts.append(str(content))
+                            _emit_llm("content", content)
+                raw_text = "".join(content_parts)
                 log_file.flush()
             except Exception as e:
                 err_str = str(e)
@@ -358,11 +408,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 raise e
 
             try:
-                content = resp.choices[0].message.content
-                if content:
-                    for line in content.split("\n"):
-                        print(f"[LLM] {line}", file=sys.stderr, flush=True)
-                raw_content = content.strip() if content else ""
+                raw_content = raw_text.strip()
 
                 # Robust JSON extraction
                 import re
@@ -389,8 +435,8 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 
             except Exception as e:
                 err_msg = f"Validation failed: {str(e)}"
-                if resp and resp.choices and len(resp.choices) > 0:
-                    assistant_content = resp.choices[0].message.content or ""
+                if raw_text:
+                    assistant_content = raw_text
                     if len(assistant_content) > 1500:
                         assistant_content = assistant_content[:1500] + "\n...[TRUNCATED]"
                     conversation.append({"role": "assistant", "content": assistant_content})

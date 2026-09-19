@@ -16,15 +16,23 @@ The Studio UI isolates logs into specific diagnostic tabs on a per-node basis us
 When a node executes, its stdout/stderr streams and IPC structured events (`WorkerLog`) are intercepted by the Go runtime and shipped to the Electron main process via websockets. The main process pushes these to the React frontend through a bridge (e.g. `bridge.logs.onBatch`). 
 
 Inside `store.ts`:
-- Each log chunk is stored with metadata: `timestamp`, `level` (warn for stderr, info for stdout), `message`, and crucially, an `agentId` (e.g. `exec-123__frontend-agent`).
-- **LLM Log Detection**: A helper function (`isLlmLog`) evaluates the text of incoming chunks. If the line contains `[LLM]` or `[LLM_STREAM]`, the chunk is strictly flagged with the boolean `isLlm: true`.
+- Each log record is stored with its sequence, timestamp, level, message and normalized execution, node and agent identifiers when present. The execution and node identifiers are the stable join keys used by the inspector.
+- **LLM Log Detection**: A helper function (`isLlmLog`) evaluates the text of incoming chunks. If the line contains `[LLM]` or `[LLM_STREAM]`, the chunk is flagged with the boolean `isLlm: true`.
 
 ### 2. Log Rendering (`Inspector.tsx`)
-When a user clicks on a node in the graph, the `Inspector.tsx` component pulls logs filtered specifically for that node's `agentId`. It distributes the output into three primary tabs:
+When a user clicks on a node in the graph, the `Inspector.tsx` component selects records with that node's normalized `nodeId`. It distributes the output into three primary tabs:
 
 - **Overview Tab**: Displays high-level status, inputs/outputs, and critical failures. If the node crashes (exit code > 0), the Go backend attaches the entire raw stderr buffer to `node.failure.stderr`. To prevent the UI from being cluttered with raw JSON LLM token streams, `Inspector.tsx` actively filters out lines starting with `[LLM_STREAM]` before rendering the red failure box.
 - **Log Tab**: Displays standard application logs, filtering `records.filter(r => !r.isLlm)`.
-- **LLM Tab**: Displays the raw conversational output and tool-calling JSON of the agent, filtering `records.filter(r => r.isLlm)`.
+- **LLM Tab**: Parses `records.filter(r => r.isLlm)` and separates provider-supplied reasoning, response text, tool requests and model status. Adjacent token events of the same kind are joined for readability. Historical string-only `[LLM_STREAM]` records and `[LLM]` records remain supported.
+
+### 3. Worker LLM Diagnostic Protocol
+
+Workers write one JSON object per diagnostic event to stderr, prefixed with `[LLM_STREAM]`. The object has a `kind` of `reasoning`, `content`, `tool` or `status` and a `text` value. Tool events may also include a tool `name`. The runtime publishes these lines as ordinary `WorkerLog` events, so they appear live and are available from the Studio log buffer after a renderer reconnect.
+
+The architect and generated workers request streaming responses. They publish response tokens as they arrive and publish reasoning only when LiteLLM receives an explicit reasoning field from the provider. Reticle does not infer or manufacture hidden model reasoning. Providers and models that do not expose reasoning therefore show response and tool activity without a reasoning section.
+
+Tool argument bodies are not copied into LLM diagnostics. They can contain large file contents or sensitive values; the LLM tab reports the requested tool name while the normal Log tab retains the worker's compact tool execution record.
 
 ---
 

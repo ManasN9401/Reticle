@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -6,6 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
+from contextlib import redirect_stderr
 
 
 COMPILER = Path(__file__).resolve().parents[1]
@@ -139,6 +141,30 @@ class CompilerContractsTest(unittest.TestCase):
             "llm_temperature": 0.1,
         })
         self.assertEqual(context, {"project_fact": "keep me"})
+
+    def test_reasoning_diagnostics_accept_standard_litellm_shapes(self):
+        direct = types.SimpleNamespace(reasoning_content="inspect inputs")
+        blocks = {
+            "thinking_blocks": [
+                {"type": "thinking", "thinking": "compare "},
+                {"type": "thinking", "thinking": "outputs", "signature": "not-displayable"},
+            ]
+        }
+        for module in (self.architect, self.worker_sdk):
+            with self.subTest(module=module.__name__):
+                self.assertEqual(module._llm_reasoning(direct), "inspect inputs")
+                self.assertEqual(module._llm_reasoning(blocks), "compare outputs")
+
+    def test_worker_llm_diagnostic_is_single_line_structured_json(self):
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            self.worker_sdk._emit_llm("reasoning", "first\nsecond")
+        line = captured.getvalue().strip()
+        self.assertTrue(line.startswith("[LLM_STREAM] "))
+        self.assertEqual(
+            json.loads(line.removeprefix("[LLM_STREAM] ")),
+            {"kind": "reasoning", "text": "first\nsecond"},
+        )
 
 
 if __name__ == "__main__":
