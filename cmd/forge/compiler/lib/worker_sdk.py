@@ -41,7 +41,8 @@ def shared_memory_context(memory):
     """Expose dispatched facts, excluding runtime controls, with an explicit size limit."""
     controls = {"user_prompt", "workspace_dir", "max_retries", "allow_native_execution",
                 "ide_context", "prompt_attachments", "prompt_history", "global_effort",
-                "agent_complexity", "task_timeout_seconds"}
+                "agent_complexity", "task_timeout_seconds", "llm_num_ctx",
+                "llm_max_tokens", "llm_temperature"}
     facts = {key: value for key, value in memory.items() if key not in controls}
     if len(json.dumps(facts, ensure_ascii=False).encode("utf-8")) > 65536:
         raise ValueError("Shared memory exceeds 64 KiB: select fewer required_memory keys or use summaries/artifact references")
@@ -52,6 +53,20 @@ def build_user_context(req, memory):
             "inputs":req.get("inputs",[]), "context":memory.get("ide_context"),
             "attachments":memory.get("prompt_attachments"), "history":memory.get("prompt_history"),
             "shared_memory":shared_memory_context(memory), "memory_metadata":req.get("memory_metadata",{})}
+
+def generation_options(model, memory):
+    """Return only the request options supported across the selected provider."""
+    options = {}
+    # num_ctx is an Ollama request option. OpenAI-compatible cloud APIs such
+    # as Groq reject this field, while llama.cpp configures context capacity
+    # on the server rather than per completion request.
+    if model.startswith(("ollama/", "ollama_chat/")) and "llm_num_ctx" in memory:
+        options["num_ctx"] = int(memory["llm_num_ctx"])
+    if "llm_max_tokens" in memory:
+        options["max_tokens"] = int(memory["llm_max_tokens"])
+    if "llm_temperature" in memory:
+        options["temperature"] = float(memory["llm_temperature"])
+    return options
 
 def run(instructions, kind="coding"):
     req = json.load(sys.stdin)
@@ -131,7 +146,7 @@ def run(instructions, kind="coding"):
         verified = bool(verification) and not pending_modified_paths
     messages = [{"role":"system", "content": instructions + "\n" + req.get("parameters",{}).get("system_prompt","") + "\nUse workspace-relative paths. Terminal cwd is src. Finish only after checking your work. An exhausted loop is a failure."},
                 {"role":"user", "content":json.dumps(build_user_context(req, mem))}]
-    kwargs = {}
+    kwargs = generation_options(model, mem)
     key_name = req.get("parameters", {}).get("api_key")
     if model.startswith(("ollama/", "ollama_chat/")):
         kwargs["api_base"] = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -148,13 +163,6 @@ def run(instructions, kind="coding"):
     elif key_name:
         kwargs["api_key"] = os.environ[key_name]
     
-    if "llm_num_ctx" in mem:
-        kwargs["num_ctx"] = int(mem["llm_num_ctx"])
-    if "llm_max_tokens" in mem:
-        kwargs["max_tokens"] = int(mem["llm_max_tokens"])
-    if "llm_temperature" in mem:
-        kwargs["temperature"] = float(mem["llm_temperature"])
-
     started = time.monotonic()
     for iteration in range(30):
         if time.monotonic() - started > 3600:

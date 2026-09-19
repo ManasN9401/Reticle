@@ -27,10 +27,29 @@ def load_architect():
     return module
 
 
+def load_worker_sdk():
+    toolset = types.ModuleType("forge_utils")
+    toolset._definitions = {}
+    previous = sys.modules.get("forge_utils")
+    sys.modules["forge_utils"] = toolset
+    try:
+        path = COMPILER / "lib" / "worker_sdk.py"
+        spec = importlib.util.spec_from_file_location("reticle_worker_sdk", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        if previous is None:
+            sys.modules.pop("forge_utils", None)
+        else:
+            sys.modules["forge_utils"] = previous
+
+
 class CompilerContractsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.architect = load_architect()
+        cls.worker_sdk = load_worker_sdk()
 
     def fixture(self):
         return {
@@ -88,6 +107,38 @@ class CompilerContractsTest(unittest.TestCase):
             self.assertFalse((root / "agents" / "existing").exists())
             self.assertTrue((root / "agents" / "generated" / "workers" / "generated.py").is_file())
             self.assertTrue((root / "agents" / "generated" / "generated.yaml").is_file())
+
+    def test_context_window_option_is_only_sent_to_ollama(self):
+        memory = {
+            "llm_num_ctx": 8192,
+            "llm_max_tokens": 4096,
+            "llm_temperature": 0.1,
+        }
+        for model in (
+            "groq/openai/gpt-oss-20b",
+            "gemini/gemini-3.1-flash-lite",
+            "openrouter/nvidia/nemotron-3.5-lightning:free",
+            "llama/local-model",
+        ):
+            with self.subTest(model=model):
+                options = self.worker_sdk.generation_options(model, memory)
+                self.assertNotIn("num_ctx", options)
+                self.assertEqual(options["max_tokens"], 4096)
+                self.assertEqual(options["temperature"], 0.1)
+
+        self.assertEqual(
+            self.worker_sdk.generation_options("ollama/qwen3:8b", memory),
+            {"num_ctx": 8192, "max_tokens": 4096, "temperature": 0.1},
+        )
+
+    def test_llm_controls_are_not_exposed_as_shared_memory_facts(self):
+        context = self.worker_sdk.shared_memory_context({
+            "project_fact": "keep me",
+            "llm_num_ctx": 8192,
+            "llm_max_tokens": 4096,
+            "llm_temperature": 0.1,
+        })
+        self.assertEqual(context, {"project_fact": "keep me"})
 
 
 if __name__ == "__main__":
