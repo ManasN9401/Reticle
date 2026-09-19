@@ -1,7 +1,10 @@
 package routing
 
 import (
+	"encoding/json"
 	"github.com/reticle/runtime/logger"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -28,5 +31,31 @@ func TestCapacityAndCooldownWithoutLearning(t *testing.T) {
 	ModelsMutex.Unlock()
 	if r.SelectModel("three", "agent", 1, 0.9, "text") != nil {
 		t.Fatal("cooldown bypassed")
+	}
+}
+
+func TestRoutingMatrixIsAtomicallyPersistedAndReportsFailure(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("RETICLE_ROOT", root)
+	router := &ModelRouter{Logger: &logger.Logger{}, Matrix: map[string]map[string]float64{"agent": {"model": 0.75}}}
+	if err := router.saveMatrix(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".reticle", "routing_matrix.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored map[string]map[string]float64
+	if err := json.Unmarshal(data, &stored); err != nil || stored["agent"]["model"] != 0.75 {
+		t.Fatalf("invalid persisted matrix: %v %#v", err, stored)
+	}
+
+	blockedRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(blockedRoot, ".reticle"), []byte("block"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RETICLE_ROOT", blockedRoot)
+	if err := router.saveMatrix(); err == nil {
+		t.Fatal("routing persistence failure was ignored")
 	}
 }

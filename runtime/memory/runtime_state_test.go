@@ -158,6 +158,23 @@ func TestPersistenceFailureRollsBackAcknowledgedWrite(t *testing.T) {
 	}
 }
 
+func TestWriteBatchIsAtomic(t *testing.T) {
+	bus := events.NewBus("batch")
+	defer bus.Close()
+	state := NewRuntimeState()
+	manager := NewManager(NewArtifactStore(), state, NewSessionState("batch"), bus)
+	err := manager.WriteBatch([]MemoryEntry{
+		{Scope: ScopeExecution, ScopeID: "run", Key: "first", Value: true},
+		{Scope: MemoryScope("invalid"), ScopeID: "run", Key: "second", Value: true},
+	})
+	if err == nil {
+		t.Fatal("invalid batch was accepted")
+	}
+	if _, exists := state.Get(ScopeExecution, "run", "first"); exists {
+		t.Fatal("partially applied batch was not rolled back")
+	}
+}
+
 func TestWorkerResultCommitIsAtomic(t *testing.T) {
 	b := events.NewBus("atomic")
 	defer b.Close()

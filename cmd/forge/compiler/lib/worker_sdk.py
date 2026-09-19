@@ -7,6 +7,36 @@ import sys
 import time
 import forge_utils as toolset
 
+def _meaningful_terminal_verification(kind, parts):
+    """Recognize commands that inspect or validate the produced work."""
+    if not parts:
+        return False
+    command = Path(parts[0]).stem.lower()
+    subcommand = parts[1].lower() if len(parts) > 1 else ""
+    if kind == "devops":
+        return (command, subcommand) in {
+            ("terraform", "fmt"), ("terraform", "validate"), ("terraform", "plan"),
+            ("docker", "inspect"), ("kubectl", "get"), ("kubectl", "describe"),
+        }
+    if kind == "pentest":
+        return command == "bandit" and subcommand == "-r"
+    if command in {"pytest", "jest", "vitest", "tsc", "eslint", "oxlint", "ruff", "mypy", "pyright"}:
+        return True
+    if command in {"go", "cargo", "dotnet", "mvn", "gradle", "gradlew"}:
+        return subcommand in {"test", "vet", "build", "check", "clippy", "verify"}
+    if command in {"python", "python3", "py"} and subcommand == "-m" and len(parts) > 2:
+        return parts[2].lower() in {"pytest", "unittest", "compileall"}
+    if command in {"npm", "pnpm", "yarn", "bun"}:
+        if subcommand == "test":
+            return True
+        return subcommand == "run" and len(parts) > 2 and parts[2].lower() in {
+            "test", "check", "lint", "build", "typecheck",
+        }
+    return False
+
+def _normalized_workspace_path(path):
+    return Path(os.path.normpath(path)).as_posix()
+
 def shared_memory_context(memory):
     """Expose dispatched facts, excluding runtime controls, with an explicit size limit."""
     controls = {"user_prompt", "workspace_dir", "max_retries", "allow_native_execution",
@@ -88,7 +118,17 @@ def run(instructions, kind="coding"):
         implementations["generate_local_asset"] = comfy_tools.generate_local_asset
     tools=[{"type":"function","function":{"name":name,"description":desc,"parameters":{"type":"object","properties":{k:{"type":v} for k,v in props.items()},"required":list(props),"additionalProperties":False}}} for name,(desc,props) in definitions.items()]
     verified = False
+    verification = []
+    pending_modified_paths = set()
     effects_started = False
+    def record_verification(tool, target, checked_path=None, covers_changes=False):
+        nonlocal verified
+        verification.append({"tool": tool, "target": target, "outcome": "succeeded"})
+        if covers_changes:
+            pending_modified_paths.clear()
+        elif checked_path is not None:
+            pending_modified_paths.discard(checked_path)
+        verified = bool(verification) and not pending_modified_paths
     messages = [{"role":"system", "content": instructions + "\n" + req.get("parameters",{}).get("system_prompt","") + "\nUse workspace-relative paths. Terminal cwd is src. Finish only after checking your work. An exhausted loop is a failure."},
                 {"role":"user", "content":json.dumps(build_user_context(req, mem))}]
     kwargs = {}
@@ -253,7 +293,7 @@ def run(instructions, kind="coding"):
                 if name == "mark_task_complete":
                     if not verified:
                         raise ValueError("No successful verification has been recorded")
-                    sys.stdout.write(json.dumps({"id":req["id"],"memory":memory_updates,"graph_mutation":graph_mutation,"artifact":{"id":req["id"]+"_output","name":kind+" output","type":"document/markdown","data":args["summary"]}})+"\n")
+                    sys.stdout.write(json.dumps({"id":req["id"],"memory":memory_updates,"graph_mutation":graph_mutation,"verification":verification,"artifact":{"id":req["id"]+"_output","name":kind+" output","type":"document/markdown","data":args["summary"]}})+"\n")
                     return
                 if name in ("remember", "remember_if_version"):
                     if not args["key"] or len(args["key"]) > 120 or len(args["value_json"]) > 65536:
@@ -273,24 +313,37 @@ def run(instructions, kind="coding"):
                     result = "Delegation will be committed with the final response"
                 elif name in implementations:
                     result=implementations[name](workspace_dir=workspace,**args)
+                    if not str(result).startswith("Error"):
+                        if kind == "rag" and name == "query_knowledge":
+                            record_verification(name, args["query"])
+                        elif name == "generate_local_asset":
+                            record_verification(name, args["output_path"])
                 elif name == "execute_terminal_command":
+                    parts = shlex.split(args["command"])
                     if kind in ("devops", "pentest"):
-                        parts = shlex.split(args["command"])
                         allowed = {"terraform":{"version","fmt","validate","plan"},"docker":{"version","images","inspect"},"kubectl":{"version","get","describe"},"bandit":{"--version","-r"}}
                         if len(parts)<2 or parts[0] not in allowed or parts[1] not in allowed[parts[0]] or any(c in args["command"] for c in ";&|`$<>\n"):
                             raise PermissionError("This specialist supports validation/read-only operations. Protected deployment or active scanning requires a separately authorized execution adapter.")
                     result = toolset.execute_terminal_command(args["command"],workspace,native)
-                    verified = verified or result.startswith("Exit code: 0\n")
+                    if result.startswith("Exit code: 0\n") and _meaningful_terminal_verification(kind, parts):
+                        record_verification(name, args["command"], covers_changes=True)
                 elif name == "write_file":
                     result = toolset.write_file(workspace_dir=workspace, files_modified=files, **args)
                     verified = False
+                    if result.startswith("Successfully"):
+                        pending_modified_paths.add(_normalized_workspace_path(args["path"]))
                 elif name == "replace_file_content":
                     result = toolset.replace_file_content(workspace_dir=workspace, **args)
                     verified = False
+                    if result.startswith("Successfully"):
+                        pending_modified_paths.add(_normalized_workspace_path(args["path"]))
                 else:
                     result = getattr(toolset,name)(workspace_dir=workspace, **args)
-                    if kind in ("writing","rag","frontend") and name in ("read_file","list_dir") and not result.startswith("Error"):
-                        verified = True
+                    if not result.startswith("Error"):
+                        if name == "read_file":
+                            path = _normalized_workspace_path(args["path"])
+                            if not pending_modified_paths or path in pending_modified_paths:
+                                record_verification(name, path, checked_path=path)
             except Exception as exc:
                 result = f"Error: {exc}"
             messages.append({"role":"tool","tool_call_id":call.id,"content":str(result)[:20000]})

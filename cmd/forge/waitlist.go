@@ -78,6 +78,7 @@ type WaitlistManager struct {
 	envManager     *agent.EnvironmentManager
 	compilerDef    *agent.WorkflowDefinition
 	globalWorkflow *agent.WorkflowDefinition
+	runtimeFailed  bool
 }
 
 func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngine, orch *orchestrator.Orchestrator, reg *agent.Registry, disp *agent.Dispatcher, env *agent.EnvironmentManager) *WaitlistManager {
@@ -96,12 +97,38 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 	orch.Bus.Subscribe("RuntimeOverloaded", func(events.RuntimeEvent) {
 		wm.mu.Lock()
 		defer wm.mu.Unlock()
+		wm.runtimeFailed = true
 		for _, item := range wm.items {
 			if item.Status == StatusRunning || item.Status == StatusPending || item.Status == StatusPaused {
 				item.Status = StatusFailed
 			}
 		}
 		wm.save()
+	})
+	orch.Bus.Subscribe("RuntimePersistenceFailed", func(event events.RuntimeEvent) {
+		wm.mu.Lock()
+		defer wm.mu.Unlock()
+		wm.runtimeFailed = true
+		affected := make(map[string]bool)
+		if payload, ok := event.Payload.(map[string]any); ok {
+			if ids, ok := payload["execution_ids"].([]string); ok {
+				for _, id := range ids {
+					affected[strings.TrimPrefix(id, "compile-")] = true
+				}
+			}
+			if id, ok := payload["execution"].(string); ok && id != "" {
+				affected[strings.TrimPrefix(id, "compile-")] = true
+			}
+		}
+		for _, item := range wm.items {
+			if item.Status != StatusRunning && item.Status != StatusPaused {
+				continue
+			}
+			if len(affected) == 0 || affected[item.ID] {
+				item.Status = StatusFailed
+			}
+		}
+		_ = wm.save()
 	})
 
 	// Subscribe to events
@@ -480,6 +507,10 @@ func (wm *WaitlistManager) save() (err error) {
 
 func (wm *WaitlistManager) Pump() {
 	wm.mu.Lock()
+	if wm.runtimeFailed {
+		wm.mu.Unlock()
+		return
+	}
 
 	// Count running total and running per group
 	runningTotal := 0
@@ -556,59 +587,48 @@ queueLoop:
 				}
 			}
 
-			// Inject memory for this execution
-			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-				Scope:   memory.ScopeExecution,
-				ScopeID: item.ID,
-				Key:     "user_prompt",
-				Value:   item.Prompt,
-				Owner:   "waitlist",
-			})
-			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-				Scope:   memory.ScopeExecution,
-				ScopeID: "compile-" + item.ID,
-				Key:     "user_prompt",
-				Value:   item.Prompt,
-				Owner:   "waitlist",
-			})
+			// Required launch context is committed as one acknowledged batch before
+			// workflow submission. A compiler never starts with partial controls.
+			memoryEntries := make([]memory.MemoryEntry, 0, 12)
+			addMemory := func(key string, value any) {
+				for _, scopeID := range []string{item.ID, "compile-" + item.ID} {
+					memoryEntries = append(memoryEntries, memory.MemoryEntry{
+						Scope: memory.ScopeExecution, ScopeID: scopeID, Key: key, Value: value, Owner: "waitlist",
+					})
+				}
+			}
+			addMemory("user_prompt", item.Prompt)
 
 			if item.IDEContext != "" {
-				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-					Scope:   memory.ScopeExecution,
-					ScopeID: item.ID,
-					Key:     "ide_context",
-					Value:   item.IDEContext,
-					Owner:   "waitlist",
-				})
-				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-					Scope:   memory.ScopeExecution,
-					ScopeID: "compile-" + item.ID,
-					Key:     "ide_context",
-					Value:   item.IDEContext,
-					Owner:   "waitlist",
-				})
+				addMemory("ide_context", item.IDEContext)
 			}
 
 			if promptHistory != "" {
-				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-					Scope:   memory.ScopeExecution,
-					ScopeID: item.ID,
-					Key:     "prompt_history",
-					Value:   promptHistory,
-					Owner:   "waitlist",
-				})
-				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-					Scope:   memory.ScopeExecution,
-					ScopeID: "compile-" + item.ID,
-					Key:     "prompt_history",
-					Value:   promptHistory,
-					Owner:   "waitlist",
-				})
+				addMemory("prompt_history", promptHistory)
 			}
 
 			// Inject workspace_dir for this execution (and its compiler phase)
-			isolatedWorkspacePath, _ := filepath.Abs(filepath.Join(os.Getenv("RETICLE_ROOT"), ".reticle", "sessions", item.ID))
-			os.MkdirAll(isolatedWorkspacePath, 0755)
+			isolatedWorkspacePath, err := filepath.Abs(filepath.Join(os.Getenv("RETICLE_ROOT"), ".reticle", "sessions", item.ID))
+			if err != nil {
+				wm.orchestrator.Logger.Error("Workspace path resolution failed", "execution", item.ID, "error", err)
+				item.Status = StatusFailed
+				runningTotal--
+				if item.Group != "" {
+					runningGroups[item.Group]--
+				}
+				_ = wm.save()
+				continue queueLoop
+			}
+			if err := os.MkdirAll(isolatedWorkspacePath, 0755); err != nil {
+				wm.orchestrator.Logger.Error("Workspace creation failed", "execution", item.ID, "path", isolatedWorkspacePath, "error", err)
+				item.Status = StatusFailed
+				runningTotal--
+				if item.Group != "" {
+					runningGroups[item.Group]--
+				}
+				_ = wm.save()
+				continue queueLoop
+			}
 
 			// Process Attachments
 			if len(item.Attachments) > 0 {
@@ -652,56 +672,38 @@ queueLoop:
 
 				if len(promptAttachments) > 0 {
 					attJSON, _ := json.Marshal(promptAttachments)
-					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-						Scope:   memory.ScopeExecution,
-						ScopeID: item.ID,
-						Key:     "prompt_attachments",
-						Value:   string(attJSON),
-						Owner:   "waitlist",
-					})
-					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-						Scope:   memory.ScopeExecution,
-						ScopeID: "compile-" + item.ID,
-						Key:     "prompt_attachments",
-						Value:   string(attJSON),
-						Owner:   "waitlist",
-					})
+					addMemory("prompt_attachments", string(attJSON))
 				}
 			}
 
-			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-				Scope:   memory.ScopeExecution,
-				ScopeID: item.ID,
-				Key:     "workspace_dir",
-				Value:   isolatedWorkspacePath,
-				Owner:   "waitlist",
-			})
-			wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-				Scope:   memory.ScopeExecution,
-				ScopeID: "compile-" + item.ID,
-				Key:     "workspace_dir",
-				Value:   isolatedWorkspacePath,
-				Owner:   "waitlist",
-			})
+			addMemory("workspace_dir", isolatedWorkspacePath)
 
 			if item.Effort != "" && item.Effort != "auto" {
-				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-					Scope:   memory.ScopeExecution,
-					ScopeID: item.ID,
-					Key:     "global_effort",
-					Value:   item.Effort,
-					Owner:   "waitlist",
-				})
-				wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
-					Scope:   memory.ScopeExecution,
-					ScopeID: "compile-" + item.ID,
-					Key:     "global_effort",
-					Value:   item.Effort,
-					Owner:   "waitlist",
-				})
+				addMemory("global_effort", item.Effort)
 			}
 
-			// Capture immutable launch data. FIFO publication commits memory first.
+			if wm.orchestrator.Memory == nil {
+				wm.orchestrator.Logger.Error("Execution memory manager is unavailable", "execution", item.ID)
+				item.Status = StatusFailed
+				runningTotal--
+				if item.Group != "" {
+					runningGroups[item.Group]--
+				}
+				_ = wm.save()
+				continue queueLoop
+			}
+			if err := wm.orchestrator.Memory.WriteBatch(memoryEntries); err != nil {
+				wm.orchestrator.Logger.Error("Execution context persistence failed", "execution", item.ID, "error", err)
+				item.Status = StatusFailed
+				runningTotal--
+				if item.Group != "" {
+					runningGroups[item.Group]--
+				}
+				_ = wm.save()
+				continue queueLoop
+			}
+
+			// Capture immutable launch data after the required memory batch commits.
 			definition, executionID := wm.globalWorkflow, item.ID
 			if definition == nil {
 				definition = wm.compilerDef
@@ -821,6 +823,7 @@ func moveAttachment(staging, workspace string, att Attachment) (string, error) {
 	}
 	in.Close()
 	if err = os.Remove(src); err != nil {
+		_ = os.Remove(dst)
 		return "", err
 	}
 	return dst, nil

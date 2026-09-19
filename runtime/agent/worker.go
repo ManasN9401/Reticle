@@ -80,15 +80,22 @@ type MemoryMutation struct {
 }
 
 type TaskResponse struct {
-	ID            TaskID           `json:"id"`
-	Result        string           `json:"result,omitempty"`   // Legacy scalar result
-	Artifact      *memory.Artifact `json:"artifact,omitempty"` // Structured artifact result
-	GraphMutation *GraphMutation   `json:"graph_mutation,omitempty"`
-	Memory        []MemoryMutation `json:"memory,omitempty"`
+	ID            TaskID                 `json:"id"`
+	Result        string                 `json:"result,omitempty"`   // Legacy scalar result
+	Artifact      *memory.Artifact       `json:"artifact,omitempty"` // Structured artifact result
+	GraphMutation *GraphMutation         `json:"graph_mutation,omitempty"`
+	Memory        []MemoryMutation       `json:"memory,omitempty"`
+	Verification  []VerificationEvidence `json:"verification,omitempty"`
+}
+
+type VerificationEvidence struct {
+	Tool    string `json:"tool"`
+	Target  string `json:"target"`
+	Outcome string `json:"outcome"`
 }
 
 type Worker struct {
-	Prepare        func(context.Context) (string, []string, error)
+	Prepare        func(context.Context, Task) (string, []string, error)
 	ID             WorkerID
 	Executable     string
 	Args           []string
@@ -131,7 +138,7 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 	}
 	executable, explicit := w.Executable, append([]string(nil), w.EnvVars...)
 	if w.Prepare != nil {
-		path, injected, prepareErr := w.Prepare(ctx)
+		path, injected, prepareErr := w.Prepare(ctx, req)
 		if prepareErr != nil {
 			return fail(WorkerStartFailed, prepareErr)
 		}
@@ -152,7 +159,7 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 			if line != "" {
 				w.Bus.Publish("WorkerLog", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "log": logger.Redact(line)})
 			}
-			return !strings.Contains(line, "[LLM_STREAM]")
+			return !isLLMStreamLine(line)
 		},
 	}
 	cmd.Stdout = out
@@ -220,6 +227,11 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 	if resp.GraphMutation != nil && (resp.GraphMutation.Action != "delegate" || resp.GraphMutation.TargetAgent == "") {
 		return fail(WorkerProtocolError, fmt.Errorf("invalid graph mutation"))
 	}
+	for _, evidence := range resp.Verification {
+		if evidence.Tool == "" || evidence.Target == "" || evidence.Outcome != "succeeded" {
+			return fail(WorkerProtocolError, fmt.Errorf("invalid verification evidence"))
+		}
+	}
 	// Commit memory and artifact as one acknowledged durable result.
 	entries := make([]memory.MemoryEntry, 0, len(resp.Memory))
 	for _, mut := range resp.Memory {
@@ -250,7 +262,14 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 	if resp.GraphMutation != nil {
 		w.Bus.Publish("GraphMutationRequested", "worker", map[string]any{"task_id": req.ID, "worker_id": w.ID, "execution": req.ExecutionID, "attempt_id": req.AttemptID, "mutation": resp.GraphMutation})
 	}
+	if len(resp.Verification) > 0 {
+		w.Bus.Publish("WorkerVerificationRecorded", "worker", map[string]any{"task_id": req.ID, "worker_id": w.ID, "execution": req.ExecutionID, "attempt_id": req.AttemptID, "evidence": resp.Verification})
+	}
 	return &resp, nil
+}
+
+func isLLMStreamLine(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), "[LLM_STREAM]")
 }
 
 // Always drain child pipes, retaining only a bounded prefix.

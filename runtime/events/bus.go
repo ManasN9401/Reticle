@@ -125,10 +125,26 @@ func (b *Bus) dispatch() {
 		b.mu.Unlock()
 		for _, s := range handlers {
 			if s.active.Load() {
-				s.handler(e)
+				b.invoke(s, e)
 			}
 		}
 	}
+}
+
+func (b *Bus) invoke(s *subscription, event RuntimeEvent) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			// A subscriber is an isolation boundary. Quarantine the broken
+			// callback and report it through the surviving observers instead of
+			// silently losing the sole dispatch goroutine.
+			s.active.Store(false)
+			b.Publish("SubscriberPanicked", "event_bus", map[string]any{
+				"event_type": string(event.Type),
+				"error":      "subscriber panicked",
+			})
+		}
+	}()
+	s.handler(event)
 }
 
 // Close rejects new work and drains queued events. Call outside a handler.

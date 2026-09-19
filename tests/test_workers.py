@@ -73,7 +73,7 @@ class WorkerContracts(unittest.TestCase):
             call=SimpleNamespace(id="call", function=SimpleNamespace(name=name,arguments=json.dumps(args)))
             message=SimpleNamespace(tool_calls=[call], model_dump=lambda **kwargs: {"role":"assistant","tool_calls":[{"id":"call","type":"function","function":{"name":name,"arguments":json.dumps(args)}}]})
             return SimpleNamespace(choices=[SimpleNamespace(message=message)])
-        calls=[response("mark_task_complete",{"summary":"premature"}),response("list_dir",{"path":"."}),response("remember",{"key":"fixture","value_json":"42"}),response("remember_if_version",{"key":"conditional","value_json":"true","expected_version":"0"}),response("mark_task_complete",{"summary":"verified"})]
+        calls=[response("mark_task_complete",{"summary":"premature"}),response("write_file",{"path":"report.md","content":"verified work"}),response("read_file",{"path":"report.md"}),response("write_file",{"path":"notes.md","content":"also verify this"}),response("read_file",{"path":"report.md"}),response("mark_task_complete",{"summary":"still premature"}),response("read_file",{"path":"notes.md"}),response("remember",{"key":"fixture","value_json":"42"}),response("remember_if_version",{"key":"conditional","value_json":"true","expected_version":"0"}),response("mark_task_complete",{"summary":"verified"})]
         with tempfile.TemporaryDirectory() as temp:
             req={"id":"execution|node","execution":"execution","memory":{"workspace_dir":temp,"prior_agent_fact":{"dataset":"fixture-v2"}},"parameters":{"llm_model":"ollama/fixture"}}
             output=io.StringIO()
@@ -88,7 +88,20 @@ class WorkerContracts(unittest.TestCase):
             result=json.loads(output.getvalue())
             self.assertEqual(result["artifact"]["data"],"verified")
             self.assertEqual(result["memory"],[{"key":"fixture","value":42,"scope":"execution"},{"key":"conditional","value":True,"scope":"execution","expected_version":0}])
+            self.assertEqual(result["verification"],[{"tool":"read_file","target":"report.md","outcome":"succeeded"},{"tool":"read_file","target":"notes.md","outcome":"succeeded"}])
             self.assertEqual(calls,[])
+
+    def test_devops_availability_checks_are_not_verification(self):
+        import worker_sdk
+        self.assertFalse(worker_sdk._meaningful_terminal_verification("devops", ["terraform", "version"]))
+        self.assertFalse(worker_sdk._meaningful_terminal_verification("devops", ["docker", "images"]))
+        self.assertFalse(worker_sdk._meaningful_terminal_verification("pentest", ["bandit", "--version"]))
+        self.assertFalse(worker_sdk._meaningful_terminal_verification("coding", ["ls", "."]))
+        self.assertFalse(worker_sdk._meaningful_terminal_verification("coding", ["echo", "done"]))
+        self.assertTrue(worker_sdk._meaningful_terminal_verification("devops", ["terraform", "validate"]))
+        self.assertTrue(worker_sdk._meaningful_terminal_verification("devops", ["kubectl", "describe"]))
+        self.assertTrue(worker_sdk._meaningful_terminal_verification("coding", ["go", "test", "./..."]))
+        self.assertTrue(worker_sdk._meaningful_terminal_verification("coding", ["npm", "run", "build"]))
 
     def test_shared_memory_context_budget(self):
         import worker_sdk

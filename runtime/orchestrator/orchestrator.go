@@ -25,6 +25,7 @@ type Orchestrator struct {
 	Artifacts    *memory.ArtifactStore
 	RuntimeState *memory.RuntimeState
 	SessionState *memory.SessionState
+	Memory       *memory.Manager
 	Settings     LlmSettings
 }
 
@@ -56,14 +57,17 @@ func New() *Orchestrator {
 	}
 
 	root := os.Getenv("RETICLE_ROOT")
+	var memoryManager *memory.Manager
 	if root != "" && os.Getenv("RETICLE_MEMORY_PERSISTENCE") != "false" {
 		path := filepath.Join(root, ".reticle", "memory", "state.json")
-		if _, err := memory.NewPersistentManager(artifacts, runtimeState, sessionState, b, path); err != nil {
+		if persistent, err := memory.NewPersistentManager(artifacts, runtimeState, sessionState, b, path); err != nil {
 			l.Error("Memory restart recovery disabled", "error", err)
-			memory.NewManager(artifacts, runtimeState, sessionState, b)
+			memoryManager = memory.NewManager(artifacts, runtimeState, sessionState, b)
+		} else {
+			memoryManager = persistent
 		}
 	} else {
-		memory.NewManager(artifacts, runtimeState, sessionState, b)
+		memoryManager = memory.NewManager(artifacts, runtimeState, sessionState, b)
 	}
 
 	// The central Event Logger (Source of Truth)
@@ -96,6 +100,7 @@ func New() *Orchestrator {
 		Artifacts:    artifacts,
 		RuntimeState: runtimeState,
 		SessionState: sessionState,
+		Memory:       memoryManager,
 		Settings:     llmSettings,
 	}
 }

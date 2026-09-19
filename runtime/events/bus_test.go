@@ -56,3 +56,31 @@ func TestOverflowFailsExplicitlyWithoutDeadlocking(t *testing.T) {
 		t.Fatal("unbounded queue")
 	}
 }
+
+func TestPanickingSubscriberIsQuarantined(t *testing.T) {
+	b := NewBus("fixture")
+	defer b.Close()
+	reported := make(chan RuntimeEvent, 1)
+	survived := make(chan struct{}, 2)
+	b.Subscribe("work", func(RuntimeEvent) { panic("fixture panic") })
+	b.Subscribe("work", func(RuntimeEvent) { survived <- struct{}{} })
+	b.Subscribe("SubscriberPanicked", func(event RuntimeEvent) { reported <- event })
+	b.Publish("work", "test", nil)
+	select {
+	case event := <-reported:
+		payload := event.Payload.(map[string]any)
+		if payload["event_type"] != "work" || payload["error"] != "subscriber panicked" {
+			t.Fatalf("bad panic report: %#v", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscriber panic stopped dispatch")
+	}
+	b.Publish("work", "test", nil)
+	for i := 0; i < 2; i++ {
+		select {
+		case <-survived:
+		case <-time.After(time.Second):
+			t.Fatal("surviving subscriber stopped receiving events")
+		}
+	}
+}

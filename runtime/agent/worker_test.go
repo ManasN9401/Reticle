@@ -24,6 +24,79 @@ func TestRegistryRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestRegistryRequiresSchemaIdentityFields(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "worker.py"), []byte("# fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "definition.yml"), []byte("id: fixture\nruntime: python\nentrypoint: worker.py\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewRegistry().LoadAgents(dir); err == nil || !strings.Contains(err.Error(), "name and version") {
+		t.Fatalf("manifest without schema identity fields accepted: %v", err)
+	}
+}
+
+func TestSerializedTaskFieldsAreDeclaredBySchema(t *testing.T) {
+	schemaBytes, err := os.ReadFile("../../schemas/task.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
+		t.Fatal(err)
+	}
+	taskBytes, err := json.Marshal(Task{
+		ID: "execution|node", AttemptID: "execution/attempt", AgentID: "fixture", ExecutionID: "execution",
+		Workflow: "workflow", Origin: "test", Inputs: []TaskInput{{ArtifactID: "input", Version: 1}},
+		Parameters: map[string]any{"effort": "high"}, Memory: map[string]any{"fact": true},
+		MemoryMetadata: map[string]MemoryReference{"fact": {Scope: memory.ScopeExecution, ScopeID: "execution", Version: 1}},
+		Instructions:   []string{"verify"}, Modality: "coding", Capabilities: []Capability{CapabilityWorkspaceRead},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var serialized map[string]any
+	if err := json.Unmarshal(taskBytes, &serialized); err != nil {
+		t.Fatal(err)
+	}
+	for key := range serialized {
+		if _, declared := schema.Properties[key]; !declared {
+			t.Errorf("serialized task field %q is absent from task.schema.json", key)
+		}
+	}
+}
+
+func TestLLMStreamFilterDoesNotHideOrdinaryDiagnostics(t *testing.T) {
+	if !isLLMStreamLine("  [LLM_STREAM] chunk") {
+		t.Fatal("structured stream line was not recognized")
+	}
+	if isLLMStreamLine("protocol error: unexpected [LLM_STREAM] marker") {
+		t.Fatal("ordinary diagnostic containing the marker was hidden")
+	}
+}
+
+func TestProvisioningEventCarriesOperationAndExecutionIdentity(t *testing.T) {
+	bus := events.NewBus("environment")
+	defer bus.Close()
+	manager := NewEnvironmentManager(&logger.Logger{}, t.TempDir(), bus)
+	received := make(chan map[string]any, 1)
+	bus.Subscribe("EnvironmentProvisioningStarted", func(event events.RuntimeEvent) { received <- event.Payload.(map[string]any) })
+	manager.publishProvisioning("EnvironmentProvisioningStarted", "coder", []string{"fixture==1"}, true, false, 0, nil, provisioningContext{
+		executionID: "run", taskID: "run|node", attemptID: "run/attempt",
+	})
+	select {
+	case payload := <-received:
+		if payload["execution"] != "run" || payload["task_id"] != "run|node" || payload["operation_id"] != "run/attempt:environment:agent:coder" {
+			t.Fatalf("provisioning identity missing: %#v", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("provisioning event was not delivered")
+	}
+}
+
 func TestRetriesRequireNoEffectProof(t *testing.T) {
 	for _, fixture := range []struct {
 		text string
@@ -196,6 +269,51 @@ func TestPersistentExecutionRecoveryRequiresReconciliation(t *testing.T) {
 	}
 }
 
+func TestCompletionPersistenceFailureInterruptsExecution(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "executions", "state.json")
+	bus := events.NewBus("persistence-failure")
+	defer bus.Close()
+	engine, err := NewPersistentGraphEngine(&logger.Logger{}, bus, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.Start()
+	wf := &WorkflowDefinition{ID: "fixture", Nodes: map[string]WorkflowNode{"node": {ID: "node", WorkerID: "fixture"}}, Roots: []string{"node"}, Parents: map[string][]string{}, Children: map[string][]string{}}
+	if err := engine.SubmitWorkflow(wf, "durable"); err != nil {
+		t.Fatal(err)
+	}
+	engine.mu.Lock()
+	engine.Executions["durable"].ActiveAttempt["node"] = "durable/attempt"
+	engine.mu.Unlock()
+	// A regular file used as the parent directory deterministically fails the next save.
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	engine.store.path = filepath.Join(blocker, "state.json")
+	failed := make(chan map[string]any, 1)
+	completed := make(chan struct{}, 1)
+	bus.Subscribe("RuntimePersistenceFailed", func(e events.RuntimeEvent) { failed <- e.Payload.(map[string]any) })
+	bus.Subscribe("WorkflowCompleted", func(events.RuntimeEvent) { completed <- struct{}{} })
+	bus.Publish("WorkerCompleted", "test", map[string]any{"task_id": "durable|node", "attempt_id": "durable/attempt"})
+	select {
+	case payload := <-failed:
+		if payload["execution"] != "durable" || payload["phase"] != "worker_completion" {
+			t.Fatalf("persistence failure lacks identity: %#v", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("persistence failure was not published")
+	}
+	if execution := engine.Executions["durable"]; execution.Status != ExecutionInterrupted || execution.NodeStates["node"] != NodeInterrupted {
+		t.Fatalf("unpersisted completion was not interrupted: %#v", execution)
+	}
+	select {
+	case <-completed:
+		t.Fatal("unpersisted completion was published as successful")
+	default:
+	}
+}
+
 func TestEffectRecoveryAndReconciliation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "effects", "state.json")
 	manager, err := NewPersistentEffectManager(path)
@@ -294,7 +412,7 @@ func TestEnvironmentProvisioningPublishesStructuredStatus(t *testing.T) {
 		received <- event
 	})
 	manager := &EnvironmentManager{Logger: &logger.Logger{}, Bus: bus}
-	manager.publishProvisioning("EnvironmentProvisioningCompleted", "run__coder", []string{"requests==2.34.2"}, true, false, 750*time.Millisecond, nil)
+	manager.publishProvisioning("EnvironmentProvisioningCompleted", "run__coder", []string{"requests==2.34.2"}, true, false, 750*time.Millisecond, nil, provisioningContext{})
 	select {
 	case event := <-received:
 		payload, ok := event.Payload.(map[string]any)

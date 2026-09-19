@@ -69,36 +69,10 @@ func (m *Manager) subscribe() {
 		if !ok {
 			return
 		}
-		m.commitMu.Lock()
-		defer m.commitMu.Unlock()
-
-		before, existed := m.Runtime.Get(entry.Scope, entry.ScopeID, entry.Key)
-		stored, err := m.Runtime.set(entry)
-		if err != nil {
-			m.bus.Publish("MemoryWriteRejected", "memory", map[string]any{"scope": entry.Scope, "scope_id": entry.ScopeID, "key": entry.Key, "reason": err.Error()})
-			if result != nil {
-				result <- err
-			}
-			return
-		}
-		if err = m.persist(); err != nil {
-			m.Runtime.rollback(entry, before, existed)
-			m.bus.Publish("MemoryWriteRejected", "memory", map[string]any{"scope": entry.Scope, "scope_id": entry.ScopeID, "key": entry.Key, "reason": err.Error()})
-			if result != nil {
-				result <- err
-			}
-			return
-		}
+		err := m.Write(entry)
 		if result != nil {
-			result <- nil
+			result <- err
 		}
-
-		m.bus.Publish(events.EventType("MemoryUpdated"), events.Component("memory"), map[string]any{
-			"scope":    entry.Scope,
-			"scope_id": entry.ScopeID,
-			"key":      entry.Key,
-			"version":  stored.Version,
-		})
 	})
 
 	m.bus.Subscribe(events.EventType("MemoryReadRequested"), func(e events.RuntimeEvent) {
@@ -274,4 +248,57 @@ func (m *Manager) subscribe() {
 		defer m.commitMu.Unlock()
 		_ = m.persist()
 	})
+}
+
+// Write synchronously commits one memory entry. Runtime-owned admission paths
+// use this method when they must know that required controls are durable before
+// starting work; workers normally use the acknowledged event request instead.
+func (m *Manager) Write(entry MemoryEntry) error {
+	return m.WriteBatch([]MemoryEntry{entry})
+}
+
+// WriteBatch applies all entries and persists one snapshot. Any validation or
+// persistence failure restores every prior value, so callers never observe a
+// partially admitted execution context.
+func (m *Manager) WriteBatch(entries []MemoryEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	type previousValue struct {
+		entry   MemoryEntry
+		before  MemoryEntry
+		existed bool
+	}
+	m.commitMu.Lock()
+	defer m.commitMu.Unlock()
+	previous := make([]previousValue, 0, len(entries))
+	stored := make([]MemoryEntry, 0, len(entries))
+	rollback := func() {
+		for i := len(previous) - 1; i >= 0; i-- {
+			m.Runtime.rollback(previous[i].entry, previous[i].before, previous[i].existed)
+		}
+	}
+	for _, entry := range entries {
+		before, existed := m.Runtime.Get(entry.Scope, entry.ScopeID, entry.Key)
+		value, err := m.Runtime.set(entry)
+		if err != nil {
+			rollback()
+			m.bus.Publish("MemoryWriteRejected", "memory", map[string]any{"scope": entry.Scope, "scope_id": entry.ScopeID, "key": entry.Key, "reason": err.Error()})
+			return err
+		}
+		previous = append(previous, previousValue{entry: entry, before: before, existed: existed})
+		stored = append(stored, value)
+	}
+	if err := m.persist(); err != nil {
+		rollback()
+		failed := entries[len(entries)-1]
+		m.bus.Publish("MemoryWriteRejected", "memory", map[string]any{"scope": failed.Scope, "scope_id": failed.ScopeID, "key": failed.Key, "reason": err.Error()})
+		return err
+	}
+	for _, entry := range stored {
+		m.bus.Publish(events.EventType("MemoryUpdated"), events.Component("memory"), map[string]any{
+			"scope": entry.Scope, "scope_id": entry.ScopeID, "key": entry.Key, "version": entry.Version,
+		})
+	}
+	return nil
 }

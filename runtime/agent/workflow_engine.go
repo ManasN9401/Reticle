@@ -123,17 +123,48 @@ func (we *GraphEngine) persistLocked() error {
 
 func (we *GraphEngine) persistReported() bool {
 	if err := we.persistLocked(); err != nil {
-		we.Logger.Error("Execution state persistence failed; active work interrupted", "error", err)
-		for id, execution := range we.Executions {
-			if execution.Status == ExecutionRunning || execution.Status == ExecutionPaused {
-				execution.Status = ExecutionInterrupted
-				we.cancelled[id] = true
-			}
-		}
-		we.Bus.Publish("RuntimePersistenceFailed", "graph_engine", map[string]any{"error": err.Error(), "restart_required": true})
+		we.reportPersistenceFailure(err, "state_update", "", "")
 		return false
 	}
 	return true
+}
+
+// reportPersistenceFailure is the single fatal boundary for execution-state
+// writes. Once the durable snapshot cannot be updated, no active execution may
+// continue because the runtime can no longer prove which transitions survived.
+func (we *GraphEngine) reportPersistenceFailure(err error, phase, executionID, nodeID string) {
+	affected := make([]string, 0)
+	now := time.Now().UTC()
+	for id, execution := range we.Executions {
+		if execution.Status != ExecutionRunning && execution.Status != ExecutionPaused && id != executionID {
+			continue
+		}
+		execution.Status = ExecutionInterrupted
+		we.cancelled[id] = true
+		for node, state := range execution.NodeStates {
+			if state == NodeRunning || (id == executionID && node == nodeID) {
+				execution.NodeStates[node] = NodeInterrupted
+			}
+		}
+		for node, attemptID := range execution.ActiveAttempt {
+			attempts := execution.Attempts[node]
+			for i := range attempts {
+				if attempts[i].ID == attemptID && attempts[i].State == AttemptRunning {
+					attempts[i].State = AttemptInterrupted
+					attempts[i].Reason = "persistence_failure"
+					attempts[i].EndedAt = now
+				}
+			}
+			execution.Attempts[node] = attempts
+		}
+		we.touch(execution)
+		affected = append(affected, id)
+	}
+	we.Logger.Error("Execution state persistence failed; active work interrupted", "phase", phase, "execution", executionID, "node", nodeID, "error", err)
+	we.Bus.Publish("RuntimePersistenceFailed", "graph_engine", map[string]any{
+		"error": err.Error(), "phase": phase, "execution": executionID, "node_id": nodeID,
+		"execution_ids": affected, "restart_required": true,
+	})
 }
 
 func (we *GraphEngine) touch(execution *WorkflowExecution) {
@@ -268,7 +299,7 @@ func (we *GraphEngine) Start() {
 			we.touch(exec)
 			if err := we.persistLocked(); err != nil {
 				we.Executions[execID] = before
-				we.Logger.Error("Graph mutation persistence failed", "exec_id", execID, "error", err)
+				we.reportPersistenceFailure(err, "graph_mutation", execID, supervisorNodeID)
 				return
 			}
 
@@ -299,7 +330,9 @@ func (we *GraphEngine) Start() {
 		}
 		exec.Artifacts[nodeID] = artifact
 		we.touch(exec)
-		we.persistReported()
+		if err := we.persistLocked(); err != nil {
+			we.reportPersistenceFailure(err, "artifact_reference", execID, nodeID)
+		}
 	}
 
 	we.subscribe(events.EventType("ArtifactStored"), handleArtifact)
@@ -316,12 +349,14 @@ func (we *GraphEngine) Start() {
 			return
 		}
 		ex.NodeStates[nodeID] = NodeDone
+		activeAttempt := ex.ActiveAttempt[nodeID]
 		delete(ex.ActiveAttempt, nodeID)
 		we.touch(ex)
 		if err := we.persistLocked(); err != nil {
-			ex.NodeStates[nodeID] = NodeFailed
-			ex.Status = ExecutionFailed
-			we.Logger.Error("Execution persistence failed", "exec_id", execID, "error", err)
+			if activeAttempt != "" {
+				ex.ActiveAttempt[nodeID] = activeAttempt
+			}
+			we.reportPersistenceFailure(err, "worker_completion", execID, nodeID)
 			return
 		}
 		for _, id := range ex.Workflow.Children[nodeID] {
@@ -334,7 +369,10 @@ func (we *GraphEngine) Start() {
 		}
 		ex.Status = ExecutionSucceeded
 		we.touch(ex)
-		we.persistReported()
+		if err := we.persistLocked(); err != nil {
+			we.reportPersistenceFailure(err, "workflow_completion", execID, nodeID)
+			return
+		}
 		we.Bus.Publish("WorkflowCompleted", "graph_engine", map[string]any{"workflow": ex.Workflow.ID, "execution": execID})
 	})
 
@@ -369,7 +407,10 @@ func (we *GraphEngine) Start() {
 			}
 		}
 		we.touch(exec)
-		we.persistReported()
+		if err := we.persistLocked(); err != nil {
+			we.reportPersistenceFailure(err, "workflow_failure", execID, nodeID)
+			return
+		}
 		we.Logger.Error("GraphEngine node failed", "exec_id", execID, "node_id", nodeID, "reason", payload["reason"])
 
 		// 2. Emit TaskFailed
@@ -429,7 +470,9 @@ func (we *GraphEngine) Start() {
 					we.touch(exec)
 					we.Logger.Info("GraphEngine marked execution as cancelled", "exec_id", execID)
 				}
-				we.persistReported()
+				if err := we.persistLocked(); err != nil {
+					we.reportPersistenceFailure(err, "execution_cancel", execID, "")
+				}
 			}
 		}
 	})
@@ -449,7 +492,9 @@ func (we *GraphEngine) Start() {
 					we.touch(exec)
 					we.Logger.Info("GraphEngine marked execution as paused", "exec_id", execID)
 				}
-				we.persistReported()
+				if err := we.persistLocked(); err != nil {
+					we.reportPersistenceFailure(err, "execution_pause", execID, "")
+				}
 			}
 		}
 	})
@@ -470,6 +515,7 @@ func (we *GraphEngine) Start() {
 					we.touch(exec)
 					if err := we.persistLocked(); err != nil {
 						exec.Status = ExecutionPaused
+						we.reportPersistenceFailure(err, "execution_resume", execID, "")
 						return
 					}
 					we.Logger.Info("GraphEngine marked execution as resumed", "exec_id", execID)
@@ -500,6 +546,7 @@ func (we *GraphEngine) Start() {
 		}
 		switch payload["action"] {
 		case "retry":
+			before := cloneWorkflowExecution(exec)
 			exec.Status = ExecutionRunning
 			for node, state := range exec.NodeStates {
 				if state == NodeInterrupted {
@@ -508,8 +555,9 @@ func (we *GraphEngine) Start() {
 				}
 			}
 			we.touch(exec)
-			if we.persistLocked() != nil {
-				exec.Status = ExecutionInterrupted
+			if err := we.persistLocked(); err != nil {
+				we.Executions[payload["execution"]] = before
+				we.reportPersistenceFailure(err, "execution_reconcile_retry", payload["execution"], "")
 				return
 			}
 			for node, state := range exec.NodeStates {
@@ -529,7 +577,9 @@ func (we *GraphEngine) Start() {
 				}
 			}
 			we.touch(exec)
-			we.persistReported()
+			if err := we.persistLocked(); err != nil {
+				we.reportPersistenceFailure(err, "execution_reconcile_terminal", payload["execution"], "")
+			}
 		}
 	})
 }
@@ -616,9 +666,7 @@ func (we *GraphEngine) dispatchNode(exec *WorkflowExecution, nodeID string, inpu
 	exec.NodeStates[nodeID] = NodeRunning
 	we.touch(exec)
 	if err := we.persistLocked(); err != nil {
-		exec.NodeStates[nodeID] = NodeFailed
-		exec.Status = ExecutionFailed
-		we.Logger.Error("Could not persist node admission", "exec_id", exec.ExecutionID, "node_id", nodeID, "error", err)
+		we.reportPersistenceFailure(err, "node_admission", exec.ExecutionID, nodeID)
 		return
 	}
 

@@ -24,6 +24,34 @@ type EnvironmentManager struct {
 	reported map[string]bool
 }
 
+type provisioningContext struct {
+	executionID string
+	taskID      string
+	attemptID   string
+}
+
+func newProvisioningContext(tasks []Task) provisioningContext {
+	if len(tasks) == 0 {
+		return provisioningContext{}
+	}
+	return provisioningContext{
+		executionID: tasks[0].ExecutionID,
+		taskID:      string(tasks[0].ID),
+		attemptID:   tasks[0].AttemptID,
+	}
+}
+
+func (p provisioningContext) operationID(scope string) string {
+	identity := p.attemptID
+	if identity == "" {
+		identity = p.taskID
+	}
+	if identity == "" {
+		identity = "runtime"
+	}
+	return identity + ":environment:" + scope
+}
+
 // NewEnvironmentManager initializes an environment manager that stores venvs in <root>/.reticle/envs
 func NewEnvironmentManager(l *logger.Logger, rootDir string, buses ...*events.Bus) *EnvironmentManager {
 	manager := &EnvironmentManager{
@@ -48,12 +76,13 @@ func (em *EnvironmentManager) firstReport(key string) bool {
 	return true
 }
 
-func (em *EnvironmentManager) publishProvisioning(event string, agentID WorkerID, dependencies []string, hasUV, cached bool, duration time.Duration, err error) {
+func (em *EnvironmentManager) publishProvisioning(event string, agentID WorkerID, dependencies []string, hasUV, cached bool, duration time.Duration, err error, context provisioningContext) {
 	if em.Bus == nil {
 		return
 	}
 	payload := map[string]any{
 		"scope":        "base",
+		"operation_id": context.operationID("base"),
 		"dependencies": append([]string(nil), dependencies...),
 		"using_uv":     hasUV,
 		"cached":       cached,
@@ -61,6 +90,16 @@ func (em *EnvironmentManager) publishProvisioning(event string, agentID WorkerID
 	if agentID != "" {
 		payload["scope"] = "agent"
 		payload["agent_id"] = agentID
+		payload["operation_id"] = context.operationID("agent:" + string(agentID))
+	}
+	if context.executionID != "" {
+		payload["execution"] = context.executionID
+	}
+	if context.taskID != "" {
+		payload["task_id"] = context.taskID
+	}
+	if context.attemptID != "" {
+		payload["attempt_id"] = context.attemptID
 	}
 	if duration > 0 {
 		payload["duration_ms"] = duration.Milliseconds()
@@ -76,9 +115,10 @@ func (em *EnvironmentManager) publishProvisioning(event string, agentID WorkerID
 func (em *EnvironmentManager) Provision(agentID WorkerID, skills []SkillDefinition) (string, []string, error) {
 	return em.ProvisionContext(context.Background(), agentID, skills)
 }
-func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID WorkerID, skills []SkillDefinition) (string, []string, error) {
+func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID WorkerID, skills []SkillDefinition, tasks ...Task) (string, []string, error) {
 	ctx, cancel := context.WithTimeout(parent, 15*time.Minute)
 	defer cancel()
+	provisioning := newProvisioningContext(tasks)
 	if err := os.MkdirAll(em.BaseDir, 0755); err != nil {
 		return "", nil, fmt.Errorf("failed to create env base dir: %w", err)
 	}
@@ -169,7 +209,7 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 	if needsBaseInstall {
 		startedAt := time.Now()
 		em.Logger.Info("Installing base dependencies", "deps", baseDeps, "using_uv", hasUv)
-		em.publishProvisioning("EnvironmentProvisioningStarted", "", baseDeps, hasUv, false, 0, nil)
+		em.publishProvisioning("EnvironmentProvisioningStarted", "", baseDeps, hasUv, false, 0, nil, provisioning)
 		var cmd *exec.Cmd
 		if hasUv {
 			args := append([]string{"pip", "install", "--python", basePythonExe}, baseDeps...)
@@ -180,18 +220,18 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 		}
 		if out, err := cmd.CombinedOutput(); err != nil {
 			em.Logger.Error("Base dependency installation failed", "deps", baseDeps, "using_uv", hasUv, "error", err)
-			em.publishProvisioning("EnvironmentProvisioningFailed", "", baseDeps, hasUv, false, time.Since(startedAt), err)
+			em.publishProvisioning("EnvironmentProvisioningFailed", "", baseDeps, hasUv, false, time.Since(startedAt), err, provisioning)
 			return "", nil, fmt.Errorf("base install failed: %s - %w", string(out), err)
 		}
 		if err := os.WriteFile(baseDepsFile, []byte(baseDepsString), 0600); err != nil {
 			return "", nil, err
 		}
 		em.Logger.Info("Base dependencies ready", "deps", baseDeps, "using_uv", hasUv, "cached", false, "duration_ms", time.Since(startedAt).Milliseconds())
-		em.publishProvisioning("EnvironmentProvisioningCompleted", "", baseDeps, hasUv, false, time.Since(startedAt), nil)
+		em.publishProvisioning("EnvironmentProvisioningCompleted", "", baseDeps, hasUv, false, time.Since(startedAt), nil, provisioning)
 		em.firstReport("base")
 	} else if em.firstReport("base") {
 		em.Logger.Info("Base dependencies ready", "deps", baseDeps, "using_uv", hasUv, "cached", true)
-		em.publishProvisioning("EnvironmentProvisioningCompleted", "", baseDeps, hasUv, true, 0, nil)
+		em.publishProvisioning("EnvironmentProvisioningCompleted", "", baseDeps, hasUv, true, 0, nil, provisioning)
 	}
 
 	// Aggregate agent-specific dependencies and env vars
@@ -226,7 +266,7 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 		if needsInstall {
 			startedAt := time.Now()
 			em.Logger.Info("Installing agent dependencies", "agent_id", agentID, "deps", dependencies, "using_uv", hasUv)
-			em.publishProvisioning("EnvironmentProvisioningStarted", agentID, dependencies, hasUv, false, 0, nil)
+			em.publishProvisioning("EnvironmentProvisioningStarted", agentID, dependencies, hasUv, false, 0, nil, provisioning)
 
 			var cmd *exec.Cmd
 			if hasUv {
@@ -239,18 +279,18 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 
 			if out, err := cmd.CombinedOutput(); err != nil {
 				em.Logger.Error("Agent dependency installation failed", "agent_id", agentID, "deps", dependencies, "using_uv", hasUv, "error", err)
-				em.publishProvisioning("EnvironmentProvisioningFailed", agentID, dependencies, hasUv, false, time.Since(startedAt), err)
+				em.publishProvisioning("EnvironmentProvisioningFailed", agentID, dependencies, hasUv, false, time.Since(startedAt), err, provisioning)
 				return "", nil, fmt.Errorf("agent install failed: %s - %w", string(out), err)
 			}
 			if err := os.WriteFile(depsFile, []byte(depsString), 0600); err != nil {
 				return "", nil, err
 			}
 			em.Logger.Info("Agent dependencies ready", "agent_id", agentID, "deps", dependencies, "using_uv", hasUv, "cached", false, "duration_ms", time.Since(startedAt).Milliseconds())
-			em.publishProvisioning("EnvironmentProvisioningCompleted", agentID, dependencies, hasUv, false, time.Since(startedAt), nil)
+			em.publishProvisioning("EnvironmentProvisioningCompleted", agentID, dependencies, hasUv, false, time.Since(startedAt), nil, provisioning)
 			em.firstReport("agent:" + string(agentID))
 		} else if em.firstReport("agent:" + string(agentID)) {
 			em.Logger.Info("Agent dependencies ready", "agent_id", agentID, "deps", dependencies, "using_uv", hasUv, "cached", true)
-			em.publishProvisioning("EnvironmentProvisioningCompleted", agentID, dependencies, hasUv, true, 0, nil)
+			em.publishProvisioning("EnvironmentProvisioningCompleted", agentID, dependencies, hasUv, true, 0, nil, provisioning)
 		}
 
 		// Add PYTHONPATH to envVars

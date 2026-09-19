@@ -47,7 +47,6 @@ func NewRouter(l *logger.Logger, b *events.Bus, loadAll bool) *ModelRouter {
 		UseBayesianRouting: true,
 	}
 	r.loadMatrix()
-	r.subscribe()
 	return r
 }
 
@@ -70,50 +69,64 @@ func (r *ModelRouter) getMatrixPath() string {
 func (r *ModelRouter) loadMatrix() {
 	path := r.getMatrixPath()
 	data, err := os.ReadFile(path)
-	if err == nil {
-		var matrix map[string]map[string]float64
-		if err := json.Unmarshal(data, &matrix); err == nil {
-			r.Matrix = matrix
-			r.Logger.Info("Loaded persisted model routing preferences", "path", path)
-		}
+	if os.IsNotExist(err) {
+		return
 	}
+	if err != nil {
+		r.Logger.Error("Could not read persisted model routing preferences", "path", path, "error", err)
+		return
+	}
+	var matrix map[string]map[string]float64
+	if err := json.Unmarshal(data, &matrix); err != nil {
+		r.Logger.Error("Could not decode persisted model routing preferences", "path", path, "error", err)
+		return
+	}
+	r.Matrix = matrix
+	r.Logger.Info("Loaded persisted model routing preferences", "path", path)
 }
 
-func (r *ModelRouter) saveMatrix() {
+func (r *ModelRouter) saveMatrix() error {
 	path := r.getMatrixPath()
-	os.MkdirAll(filepath.Dir(path), 0755)
-	data, err := json.MarshalIndent(r.Matrix, "", "  ")
-	if err == nil {
-		os.WriteFile(path, data, 0644)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
 	}
-}
-
-func (r *ModelRouter) subscribe() {
-	// WorkerCompleted: Increase probability
-	r.Bus.Subscribe(events.EventType("WorkerCompleted"), func(e events.RuntimeEvent) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-		taskID, okTask := payload["task_id"].(string)
-		workerID, okWorker := payload["worker_id"].(string)
-		if okTask && okWorker {
-			r.updateProbability(workerID, taskID, true)
-		}
-	})
-
-	// WorkerFailed: Decrease probability
-	r.Bus.Subscribe(events.EventType("WorkerFailed"), func(e events.RuntimeEvent) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-		taskID, okTask := payload["task_id"].(string)
-		workerID, okWorker := payload["worker_id"].(string)
-		if okTask && okWorker {
-			r.updateProbability(workerID, taskID, false)
-		}
-	})
+	data, err := json.MarshalIndent(r.Matrix, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".routing-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err = tmp.Chmod(0600); err == nil {
+		_, err = tmp.Write(data)
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Rename(tmpName, path); err == nil {
+		return nil
+	}
+	backup := path + ".previous"
+	_ = os.Remove(backup)
+	if moveErr := os.Rename(path, backup); moveErr != nil && !os.IsNotExist(moveErr) {
+		return err
+	}
+	if moveErr := os.Rename(tmpName, path); moveErr != nil {
+		_ = os.Rename(backup, path)
+		return moveErr
+	}
+	_ = os.Remove(backup)
+	return nil
 }
 
 // UpdateProbability allows external components (like Dispatcher) to manually report success/failure
@@ -190,7 +203,9 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 	// Cleanup inflight
 	delete(r.inFlight, taskID)
 
-	r.saveMatrix()
+	if err := r.saveMatrix(); err != nil {
+		r.Logger.Error("Could not persist model routing preferences", "error", err)
+	}
 
 	r.Logger.Info("Model utility updated", "agent_id", agentID, "model_key", modelID, "success", success, "new_prob", newProb)
 }

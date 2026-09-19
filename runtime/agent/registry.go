@@ -93,7 +93,10 @@ func (r *Registry) LoadAgents(directory string) error {
 		}
 
 		if !regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$").MatchString(string(def.ID)) {
-			return fmt.Errorf("agent definition in %s is missing ID", path)
+			return fmt.Errorf("agent definition in %s has an invalid ID", path)
+		}
+		if strings.TrimSpace(def.Name) == "" || strings.TrimSpace(def.Version) == "" {
+			return fmt.Errorf("agent definition in %s requires name and version", path)
 		}
 
 		if def.Entrypoint == "" || (def.Runtime != RuntimePython && def.Runtime != RuntimeBinary && def.Runtime != RuntimeGo) {
@@ -323,7 +326,7 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 		var executable string
 		var args []string
 		var envVars []string
-		var prepare func(context.Context) (string, []string, error)
+		var prepare func(context.Context, Task) (string, []string, error)
 
 		switch def.Runtime {
 		case RuntimePython:
@@ -340,7 +343,9 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 			// Resolve dependencies only when this worker is executed. A missing
 			// environment fails that task, not startup or unrelated specialists.
 			ownID, ownSkills := id, append([]SkillDefinition(nil), activeSkills...)
-			prepare = func(ctx context.Context) (string, []string, error) { return em.ProvisionContext(ctx, ownID, ownSkills) }
+			prepare = func(ctx context.Context, task Task) (string, []string, error) {
+				return em.ProvisionContext(ctx, ownID, ownSkills, task)
+			}
 			args = []string{def.Entrypoint}
 
 		case RuntimeGo, RuntimeBinary:
