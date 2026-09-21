@@ -157,6 +157,9 @@ export type OutboundCommand =
       max_tokens?: number
       temperature?: number
       use_bayesian_routing?: boolean
+      first_token_timeout_seconds?: number
+      ollama_keep_alive?: string
+      allow_text_to_coding_fallback?: boolean
     }
 
 export type ForgePhase = 'stopped' | 'starting' | 'running' | 'exited' | 'error'

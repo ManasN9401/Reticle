@@ -47,13 +47,19 @@ export function ModelsSection() {
   const [maxTokens, setMaxTokens] = useState(4096)
   const [temperature, setTemperature] = useState(0.1)
   const [bayesian, setBayesian] = useState(false)
+  const [firstTokenTimeout, setFirstTokenTimeout] = useState(180)
+  const [ollamaKeepAlive, setOllamaKeepAlive] = useState('5m')
+  const [allowTextCoderFallback, setAllowTextCoderFallback] = useState(false)
 
   const applySettings = async () => {
     await updateSettings({
       num_ctx: numCtx,
       max_tokens: maxTokens,
       temperature,
-      use_bayesian_routing: bayesian
+      use_bayesian_routing: bayesian,
+      first_token_timeout_seconds: firstTokenTimeout,
+      ollama_keep_alive: ollamaKeepAlive,
+      allow_text_to_coding_fallback: allowTextCoderFallback,
     })
   }
 
@@ -243,11 +249,39 @@ export function ModelsSection() {
               onChange={(e) => setTemperature(Number(e.target.value))}
             />
           </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-fg-1">First Output Timeout</label>
+            <Input
+              type="number"
+              min="5"
+              max="1800"
+              className="w-24"
+              value={firstTokenTimeout}
+              onChange={(e) => setFirstTokenTimeout(Number(e.target.value))}
+              title="Seconds allowed for a model to return its first stream event."
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-fg-1">Ollama Keep Alive</label>
+            <Input
+              className="w-24"
+              value={ollamaKeepAlive}
+              onChange={(e) => setOllamaKeepAlive(e.target.value)}
+              title="Ollama duration such as 5m. Use 0 to unload after every response."
+            />
+          </div>
           <div className="flex flex-col gap-1.5 pb-1">
             <Toggle
               label="Bayesian Routing"
               checked={bayesian}
               onChange={setBayesian}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5 pb-1">
+            <Toggle
+              label="Allow coder fallback for text"
+              checked={allowTextCoderFallback}
+              onChange={setAllowTextCoderFallback}
             />
           </div>
           <div className="flex-1" />
@@ -457,6 +491,13 @@ export function ModelsSection() {
                         {model.api_key_env.replace(/_API_KEY/, '')}
                       </button>
                     </>
+                  ) : model.endpoint_env ? (
+                    <span
+                      className="mono truncate-1 text-2xs text-fg-4"
+                      title={`Local endpoint configured by ${model.endpoint_env}`}
+                    >
+                      Local
+                    </span>
                   ) : (
                     <span className="text-2xs text-fg-4">—</span>
                   )}

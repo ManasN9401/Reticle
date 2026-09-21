@@ -228,6 +228,7 @@ export interface RoutingModel {
   id: string
   cost: number
   capability: number
+  endpoint_env?: string
   api_key_env?: string
   enabled: boolean
 }

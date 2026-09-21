@@ -115,6 +115,9 @@ export async function updateSettings(settings: {
   max_tokens?: number
   temperature?: number
   use_bayesian_routing?: boolean
+  first_token_timeout_seconds?: number
+  ollama_keep_alive?: string
+  allow_text_to_coding_fallback?: boolean
 }): Promise<boolean> {
   if (!bridge) return false
   return bridge.connection.send({

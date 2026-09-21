@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FlaskConical, MousePointerSquareDashed, TriangleAlert } from 'lucide-react'
 import { cn } from '@/design/cn'
 import { Badge, Button, EmptyState, StatusPip } from '@/design/primitives'
@@ -197,7 +197,15 @@ export function Inspector() {
         ) : null}
 
         {tab === 'log' ? <NodeLog records={nodeLogs} llm={false} /> : null}
-        {tab === 'llm' ? <NodeLog records={nodeLogs} llm /> : null}
+        {tab === 'llm' ? (
+          <LlmNodeLog
+            records={nodeLogs}
+            model={node.model}
+            attempts={node.attempts}
+            startedAt={node.startedAt}
+            running={node.status === 'running'}
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -274,7 +282,7 @@ function NodeLog({
                 'px-2.5 py-2 text-xs leading-relaxed whitespace-pre-wrap break-words',
                 entry.kind === 'reasoning' ? 'text-fg-3 italic' : 'text-fg-2',
                 entry.kind === 'tool' && 'mono text-accent',
-                entry.kind === 'status' && 'mono text-st-failed',
+                entry.kind === 'status' && 'mono text-fg-3',
               )}
             >
               {entry.text}
@@ -298,6 +306,45 @@ function NodeLog({
           {compactToolLog(record.message)}
         </div>
       ))}
+    </div>
+  )
+}
+
+function LlmNodeLog({
+  records,
+  model,
+  attempts,
+  startedAt,
+  running,
+}: {
+  records: { seq: number; message: string; isLlm: boolean; level: string }[]
+  model?: string
+  attempts: number
+  startedAt?: number
+  running: boolean
+}) {
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [running])
+  const elapsed = startedAt === undefined ? undefined : Math.max(0, now - startedAt)
+
+  return (
+    <div className="flex flex-col">
+      <div className="border-b border-line-1 bg-bg-2 px-3 py-2 text-2xs text-fg-3">
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          <span className="mono text-fg-2">{model ?? 'Model not selected'}</span>
+          <span>Attempt {Math.max(1, attempts)}</span>
+          {elapsed !== undefined ? <span>Elapsed {formatDuration(elapsed)}</span> : null}
+        </div>
+        <p className="mt-1 text-fg-4">
+          Response tokens stream live. Separate reasoning appears only when the model returns a
+          reasoning field.
+        </p>
+      </div>
+      <NodeLog records={records} llm />
     </div>
   )
 }
