@@ -4,6 +4,14 @@ Copy `.env.example` to `.env` only when no configuration exists. Preserve popula
 
 `OLLAMA_HOST` and `COMFYUI_HOST` are endpoint settings, not secret values. `HF_TOKEN` and `WANDB_API_KEY` are optional for experiments that actually need those services. A blank optional key does not mean the core application is broken.
 
+Local Ollama and ComfyUI work shares one GPU coordination lock by default. Before an Ollama request, Reticle asks an idle ComfyUI server to unload its models and cached executor state. Before a ComfyUI request, it unloads every model reported by Ollama, and it asks ComfyUI to release its model after the image has been collected. This prevents Reticle workers from loading both stacks concurrently; it cannot control unrelated requests submitted directly to either server. Set `RETICLE_LOCAL_GPU_COORDINATION=false` to disable serialization, or disable either unload direction with `RETICLE_OLLAMA_AUTO_UNLOAD=false` or `RETICLE_COMFY_AUTO_UNLOAD=false`. `RETICLE_LOCAL_GPU_LOCK_TIMEOUT` controls how long a worker waits for the shared lock.
+
+Ollama model residency remains configurable. `RETICLE_OLLAMA_KEEP_ALIVE` defaults to `5m`; use `0` to unload after each response, accepting a reload before every subsequent agent turn. Ollama documents `keep_alive: 0` as immediate unloading in its [generate API](https://docs.ollama.com/api/generate). ComfyUI's local server accepts `POST /free` with `unload_models` and `free_memory`; the request is applied by the queue when it is able to do so. Reticle treats cleanup failure as a diagnostic because either local service may legitimately be absent.
+
+`RETICLE_LLM_FIRST_TOKEN_TIMEOUT` defaults to 180 seconds and bounds the time from request dispatch to the provider's first stream event. Studio exposes this value as **First Output Timeout**. A silent timeout is retry-safe only before the worker has started an external effect. The complete task deadline remains a separate runtime limit.
+
+Text-to-coder fallback is disabled by default. This prevents an ordinary planning node from silently selecting a model whose catalog modality is `coding` after all text models fail. Enable **Allow coder fallback for text** in Studio or set `RETICLE_ALLOW_TEXT_TO_CODING_FALLBACK=true` when that tradeoff is intentional.
+
 The audit repair inspected variable names and whether values were populated, without printing values. All currently catalogued hosted-provider variables were populated. Additional missing secret values require the user's integration/key names and an identified credential source; they cannot be reconstructed or invented.
 
 The local control service creates `.reticle/control-token`. Studio reads this in its trusted main process. The browser interface asks for that access code. Never commit this file, forward it to an agent, or paste it into task prompts.
@@ -28,7 +36,7 @@ Workers provision dependencies lazily, with a cancellation-aware deadline. Each 
 
 For a prepared job image, set `RETICLE_WORKER_IMAGE` (prefer a digest), `RETICLE_MEMORY_LIMIT`, `RETICLE_CPU_LIMIT`, and `RETICLE_COMMAND_TIMEOUT` (1–3600 seconds; default 120). Select `RETICLE_ML_PROFILE` as `cpu`, `amd-rocm`, `nvidia-cuda` or `user`. The runtime automatically distinguishes native Windows, WSL2 and Linux and emits profile-specific warnings; it never silently changes the selected profile. Accelerator profiles require numeric `RETICLE_GPU_DEVICES`, and the runtime leases those devices exclusively between its own attempts. Linux/WSL AMD containers receive `/dev/kfd`, `/dev/dri` and the video group, while NVIDIA uses Docker's GPU option. Native Windows AMD execution requires the user's explicit native-execution setting because Linux device mappings cannot be applied to that path. The lease does not coordinate other programs or prove that the host, driver, image and framework are compatible. Validate device visibility and a tensor smoke run before a full experiment.
 
-`COMFYUI_CHECKPOINT` must match a checkpoint installed on the configured local ComfyUI server. Image requests have a deadline; an already-running server job may outlive the requesting worker. Inspect the server queue after cancellation.
+`COMFYUI_CHECKPOINT` must match a checkpoint installed on the configured local ComfyUI server. Image requests have a deadline; an already-running server job may outlive the requesting worker. Inspect the server queue after cancellation. Dynamic unloading affects model residency and caches, not installed checkpoint files.
 
 `HF_TOKEN` and `WANDB_API_KEY` are passed only to the builtin ML worker. They are not automatically injected into arbitrary generated workers or container commands. Configure any such transfer deliberately in a scoped adapter.
 
