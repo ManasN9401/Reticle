@@ -152,7 +152,7 @@ func (d *Dispatcher) Start() {
 			if task.Memory == nil {
 				task.Memory = make(map[string]any)
 			}
-			baseKeys := []string{"user_prompt", "workspace_dir", "max_retries", "allow_native_execution", "ide_context", "prompt_attachments", "prompt_history", "global_effort", "agent_complexity", "task_timeout_seconds", "llm_num_ctx", "llm_max_tokens", "llm_temperature"}
+			baseKeys := []string{"user_prompt", "workspace_dir", "max_retries", "allow_native_execution", "ide_context", "prompt_attachments", "prompt_history", "global_effort", "agent_complexity", "task_timeout_seconds", "llm_num_ctx", "llm_max_tokens", "llm_temperature", "llm_first_token_timeout_seconds", "ollama_keep_alive"}
 			for _, key := range baseKeys {
 				// Execution-scoped first (per-prompt), then global fallback
 				if val, found := d.RuntimeState.Get(memory.ScopeExecution, task.ExecutionID, key); found {

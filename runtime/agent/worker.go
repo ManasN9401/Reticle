@@ -321,7 +321,7 @@ func (b *limitedOutput) flush() {
 }
 
 func workerEnvironment(req Task, explicit []string) []string {
-	allowed := map[string]bool{"PATH": true, "PATHEXT": true, "SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "TEMP": true, "TMP": true, "HOME": true, "USERPROFILE": true, "LANG": true, "LC_ALL": true, "PYTHONIOENCODING": true, "OLLAMA_HOST": true, "COMFYUI_HOST": true, "COMFYUI_CHECKPOINT": true, "RETICLE_WORKER_IMAGE": true, "RETICLE_COMMAND_TIMEOUT": true, "RETICLE_MEMORY_LIMIT": true, "RETICLE_CPU_LIMIT": true}
+	allowed := map[string]bool{"PATH": true, "PATHEXT": true, "SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "TEMP": true, "TMP": true, "HOME": true, "USERPROFILE": true, "LANG": true, "LC_ALL": true, "PYTHONIOENCODING": true, "OLLAMA_HOST": true, "COMFYUI_HOST": true, "COMFYUI_CHECKPOINT": true, "RETICLE_ROOT": true, "RETICLE_LOCAL_GPU_COORDINATION": true, "RETICLE_LOCAL_GPU_LOCK_TIMEOUT": true, "RETICLE_OLLAMA_AUTO_UNLOAD": true, "RETICLE_COMFY_AUTO_UNLOAD": true, "RETICLE_WORKER_IMAGE": true, "RETICLE_COMMAND_TIMEOUT": true, "RETICLE_MEMORY_LIMIT": true, "RETICLE_CPU_LIMIT": true}
 	if hasCapability(req.Capabilities, CapabilityGPUUse) {
 		allowed["RETICLE_ML_PROFILE"] = true
 		allowed["RETICLE_GPU_DEVICES"] = true

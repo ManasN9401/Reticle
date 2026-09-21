@@ -265,6 +265,7 @@ func main() {
 
 	instructionStore := agent.NewInstructionStore()
 	router := routing.NewRouter(orch.Logger, orch.Bus, *allModelsFlag)
+	router.SetTextToCodingFallback(orch.Settings.AllowTextCoderFallback)
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)
@@ -339,6 +340,14 @@ func main() {
 		Key:     "llm_temperature",
 		Value:   orch.Settings.Temperature,
 		Owner:   "forge",
+	})
+	orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+		Scope: memory.ScopeGlobal, ScopeID: "global", Key: "llm_first_token_timeout_seconds",
+		Value: orch.Settings.FirstTokenTimeout, Owner: "forge",
+	})
+	orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+		Scope: memory.ScopeGlobal, ScopeID: "global", Key: "ollama_keep_alive",
+		Value: orch.Settings.OllamaKeepAlive, Owner: "forge",
 	})
 
 	time.Sleep(500 * time.Millisecond) // Let memory propagate

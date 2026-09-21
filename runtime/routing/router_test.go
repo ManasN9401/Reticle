@@ -34,6 +34,22 @@ func TestCapacityAndCooldownWithoutLearning(t *testing.T) {
 	}
 }
 
+func TestTextTasksRequireExplicitCoderFallback(t *testing.T) {
+	ModelsMutex.Lock()
+	old := AvailableModels
+	AvailableModels = []Model{{ID: "ollama/qwen-coder", Enabled: true, Modality: "coding", APIKeyEnv: "OLLAMA_HOST"}}
+	ModelsMutex.Unlock()
+	defer func() { ModelsMutex.Lock(); AvailableModels = old; ModelsMutex.Unlock() }()
+	r := &ModelRouter{Logger: &logger.Logger{}, Matrix: map[string]map[string]float64{}, inFlight: map[string]string{}, ProviderCapacity: map[string]int{}, ProviderInFlight: map[string]int{}}
+	if got := r.SelectModel("planning", "planner", 1, 0.9, "text"); got != nil {
+		t.Fatalf("text task silently received coder model: %s", got.ID)
+	}
+	r.SetTextToCodingFallback(true)
+	if got := r.SelectModel("planning-enabled", "planner", 1, 0.9, "text"); got == nil || got.Modality != "coding" {
+		t.Fatal("explicit text-to-coder fallback was not honored")
+	}
+}
+
 func TestProviderFamilyCooldownCoversCredentialSlots(t *testing.T) {
 	ModelsMutex.Lock()
 	old := AvailableModels

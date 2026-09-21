@@ -14,9 +14,12 @@ import (
 )
 
 type LlmSettings struct {
-	NumCtx      int
-	MaxTokens   int
-	Temperature float64
+	NumCtx                 int
+	MaxTokens              int
+	FirstTokenTimeout      int
+	Temperature            float64
+	OllamaKeepAlive        string
+	AllowTextCoderFallback bool
 }
 
 type Orchestrator struct {
@@ -51,9 +54,12 @@ func New() *Orchestrator {
 	sessionState := memory.NewSessionState(sessionID)
 
 	llmSettings := LlmSettings{
-		NumCtx:      8192,
-		MaxTokens:   4096,
-		Temperature: 0.1,
+		NumCtx:                 8192,
+		MaxTokens:              4096,
+		FirstTokenTimeout:      positiveEnv("RETICLE_LLM_FIRST_TOKEN_TIMEOUT", 180),
+		Temperature:            0.1,
+		OllamaKeepAlive:        envOr("RETICLE_OLLAMA_KEEP_ALIVE", "5m"),
+		AllowTextCoderFallback: os.Getenv("RETICLE_ALLOW_TEXT_TO_CODING_FALLBACK") == "true",
 	}
 
 	root := os.Getenv("RETICLE_ROOT")
@@ -111,6 +117,13 @@ func positiveEnv(name string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func envOr(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func (o *Orchestrator) Start() {

@@ -8,6 +8,7 @@ import tempfile
 import types
 import unittest
 from contextlib import redirect_stderr
+from unittest import mock
 
 
 COMPILER = Path(__file__).resolve().parents[1]
@@ -47,11 +48,30 @@ def load_worker_sdk():
             sys.modules["forge_utils"] = previous
 
 
+def load_comfy_tools():
+    toolset = types.ModuleType("forge_utils")
+    toolset.safe_path = lambda root, path: Path(root) / path
+    previous = sys.modules.get("forge_utils")
+    sys.modules["forge_utils"] = toolset
+    try:
+        path = COMPILER / "lib" / "comfy_tools.py"
+        spec = importlib.util.spec_from_file_location("reticle_comfy_tools", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        if previous is None:
+            sys.modules.pop("forge_utils", None)
+        else:
+            sys.modules["forge_utils"] = previous
+
+
 class CompilerContractsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.architect = load_architect()
         cls.worker_sdk = load_worker_sdk()
+        cls.comfy_tools = load_comfy_tools()
 
     def fixture(self):
         return {
@@ -130,7 +150,7 @@ class CompilerContractsTest(unittest.TestCase):
 
         self.assertEqual(
             self.worker_sdk.generation_options("ollama/qwen3:8b", memory),
-            {"num_ctx": 8192, "max_tokens": 4096, "temperature": 0.1},
+            {"num_ctx": 8192, "keep_alive": "5m", "max_tokens": 4096, "temperature": 0.1},
         )
 
     def test_llm_controls_are_not_exposed_as_shared_memory_facts(self):
@@ -139,8 +159,51 @@ class CompilerContractsTest(unittest.TestCase):
             "llm_num_ctx": 8192,
             "llm_max_tokens": 4096,
             "llm_temperature": 0.1,
+            "llm_first_token_timeout_seconds": 180,
+            "ollama_keep_alive": "5m",
         })
         self.assertEqual(context, {"project_fact": "keep me"})
+
+    def test_local_skill_compaction_removes_fenced_examples_and_preserves_directives(self):
+        source = "Agent contract\n" + ("plain prose\n" * 2000) + "# Required\n- Verify output\n```python\nsecret_example()\n```\n"
+        compacted = self.worker_sdk._compact_local_instructions(source, limit=500)
+        self.assertLessEqual(len(compacted), 570)
+        self.assertIn("Agent contract", compacted)
+        self.assertNotIn("secret_example", compacted)
+
+    def test_comfy_release_uses_dynamic_local_endpoint(self):
+        calls = []
+        with mock.patch.dict("os.environ", {"COMFYUI_HOST": "http://localhost:9000"}), \
+             mock.patch.object(self.comfy_tools, "_post_json", side_effect=lambda *args, **kwargs: calls.append((args, kwargs))):
+            self.comfy_tools.release_comfy_models(log=lambda _message: None)
+        self.assertEqual(calls[0][0], (
+            "http://localhost:9000/free",
+            {"unload_models": True, "free_memory": True},
+        ))
+
+    def test_ollama_models_are_discovered_and_dynamically_unloaded(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self, _limit):
+                return json.dumps({"models": [{"name": "qwen:7b"}, {"model": "coder:3b"}]}).encode()
+
+        calls = []
+        with mock.patch.dict("os.environ", {"OLLAMA_HOST": "http://127.0.0.1:11434"}), \
+             mock.patch.object(self.comfy_tools.urllib.request, "urlopen", return_value=Response()), \
+             mock.patch.object(self.comfy_tools, "_post_json", side_effect=lambda *args, **kwargs: calls.append((args, kwargs))):
+            self.comfy_tools.unload_ollama_models(log=lambda _message: None)
+        self.assertEqual(
+            [call[0] for call in calls],
+            [
+                ("http://127.0.0.1:11434/api/generate", {"model": "coder:3b", "keep_alive": 0}),
+                ("http://127.0.0.1:11434/api/generate", {"model": "qwen:7b", "keep_alive": 0}),
+            ],
+        )
 
     def test_reasoning_diagnostics_accept_standard_litellm_shapes(self):
         direct = types.SimpleNamespace(reasoning_content="inspect inputs")

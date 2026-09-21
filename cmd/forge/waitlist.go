@@ -289,7 +289,28 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 					wm.orchestrator.Settings.Temperature = temperature
 					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{Scope: memory.ScopeGlobal, ScopeID: "global", Key: "llm_temperature", Value: temperature, Owner: "forge"})
 				}
-				wm.orchestrator.Logger.Info("LLM settings updated", "num_ctx", wm.orchestrator.Settings.NumCtx, "max_tokens", wm.orchestrator.Settings.MaxTokens, "temperature", wm.orchestrator.Settings.Temperature)
+				if firstTokenTimeout, ok := payload["first_token_timeout_seconds"].(float64); ok {
+					value := int(firstTokenTimeout)
+					if value < 5 {
+						value = 5
+					}
+					if value > 1800 {
+						value = 1800
+					}
+					wm.orchestrator.Settings.FirstTokenTimeout = value
+					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{Scope: memory.ScopeGlobal, ScopeID: "global", Key: "llm_first_token_timeout_seconds", Value: value, Owner: "forge"})
+				}
+				if keepAlive, ok := payload["ollama_keep_alive"].(string); ok && keepAlive != "" {
+					wm.orchestrator.Settings.OllamaKeepAlive = keepAlive
+					wm.orchestrator.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{Scope: memory.ScopeGlobal, ScopeID: "global", Key: "ollama_keep_alive", Value: keepAlive, Owner: "forge"})
+				}
+				if allow, ok := payload["allow_text_to_coding_fallback"].(bool); ok {
+					wm.orchestrator.Settings.AllowTextCoderFallback = allow
+					if wm.dispatcher != nil && wm.dispatcher.Router != nil {
+						wm.dispatcher.Router.SetTextToCodingFallback(allow)
+					}
+				}
+				wm.orchestrator.Logger.Info("LLM settings updated", "num_ctx", wm.orchestrator.Settings.NumCtx, "max_tokens", wm.orchestrator.Settings.MaxTokens, "temperature", wm.orchestrator.Settings.Temperature, "first_token_timeout_seconds", wm.orchestrator.Settings.FirstTokenTimeout, "ollama_keep_alive", wm.orchestrator.Settings.OllamaKeepAlive, "allow_text_to_coding_fallback", wm.orchestrator.Settings.AllowTextCoderFallback)
 			}
 		}
 	})

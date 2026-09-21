@@ -7,8 +7,14 @@ MANDATORY READING:
 import sys
 import json
 import os
+from contextlib import nullcontext
+from pathlib import Path
 from litellm import completion
 import logging
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib"))
+import comfy_tools
+from worker_sdk import _stream_with_first_event_timeout
 
 logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger(__name__)
@@ -336,6 +342,8 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         kwargs = {}
         if model.startswith(("ollama/", "ollama_chat/")):
             kwargs["api_base"] = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+            kwargs["num_ctx"] = int(mem.get("llm_num_ctx", 8192))
+            kwargs["keep_alive"] = str(mem.get("ollama_keep_alive", "5m"))
             if not api_key: api_key = "dummy"
         elif model.startswith("llama/"):
             model = "openai/" + model[6:]
@@ -348,8 +356,10 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 
         def get_architect_response():
             try:
-                # Architect output is just a schema with 'TBD' system prompts, so it's very small
-                target_max_tokens = 8192
+                # The compiler schema is bounded; respect the global output budget,
+                # especially when input and output share a small local context.
+                target_max_tokens = min(8192, int(mem.get("llm_max_tokens", 4096)))
+                first_event_timeout = max(5, int(mem.get("llm_first_token_timeout_seconds", 180)))
                 
                 extra_headers = {
                     "HTTP-Referer": "https://github.com/ManasN9401/Reticle",
@@ -357,43 +367,53 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 }
                 print(f"Calling litellm.completion for model {model}", file=sys.stderr)
                 log_file.flush()
-                response = completion(
-                    model=model,
-                    max_tokens=target_max_tokens,
-                    messages=conversation,
-                    temperature=0.2,
-                    timeout=7200,
-                    extra_headers=extra_headers,
-                    stop=["```\n", "``` "],
-                    stream=True,
-                    **kwargs
-                )
-                print("litellm.completion returned!", file=sys.stderr)
-                content_parts = []
-                if hasattr(response, "choices") and response.choices and hasattr(response.choices[0], "message"):
-                    message = response.choices[0].message
-                    content = _llm_field(message, "content", "") or ""
-                    reasoning = _llm_reasoning(message)
-                    if reasoning:
-                        _emit_llm("reasoning", reasoning)
-                    if content:
-                        content_parts.append(str(content))
-                        _emit_llm("content", content)
+                local_model = model.startswith(("ollama/", "ollama_chat/"))
+                if local_model and not comfy_tools.ollama_model_loaded(model):
+                    _emit_llm("status", f"Loading local model {model}; waiting for first output (timeout {first_event_timeout}s)")
                 else:
-                    for chunk in response:
-                        choices = _llm_field(chunk, "choices", []) or []
-                        if not choices:
-                            continue
-                        delta = _llm_field(choices[0], "delta")
-                        if delta is None:
-                            continue
-                        reasoning = _llm_reasoning(delta)
-                        content = _llm_field(delta, "content", "") or ""
+                    _emit_llm("status", f"Request sent to {model}; waiting for first output (timeout {first_event_timeout}s)")
+                session = (
+                    comfy_tools.local_gpu_session("ollama", lambda message: _emit_llm("status", message))
+                    if local_model else nullcontext()
+                )
+                with session:
+                    response = completion(
+                        model=model,
+                        max_tokens=target_max_tokens,
+                        messages=conversation,
+                        temperature=0.2,
+                        timeout=1800,
+                        extra_headers=extra_headers,
+                        stop=["```\n", "``` "],
+                        stream=True,
+                        **kwargs
+                    )
+                    print("litellm.completion returned!", file=sys.stderr)
+                    content_parts = []
+                    if hasattr(response, "choices") and response.choices and hasattr(response.choices[0], "message"):
+                        message = response.choices[0].message
+                        content = _llm_field(message, "content", "") or ""
+                        reasoning = _llm_reasoning(message)
                         if reasoning:
                             _emit_llm("reasoning", reasoning)
                         if content:
                             content_parts.append(str(content))
                             _emit_llm("content", content)
+                    else:
+                        for chunk in _stream_with_first_event_timeout(response, first_event_timeout):
+                            choices = _llm_field(chunk, "choices", []) or []
+                            if not choices:
+                                continue
+                            delta = _llm_field(choices[0], "delta")
+                            if delta is None:
+                                continue
+                            reasoning = _llm_reasoning(delta)
+                            content = _llm_field(delta, "content", "") or ""
+                            if reasoning:
+                                _emit_llm("reasoning", reasoning)
+                            if content:
+                                content_parts.append(str(content))
+                                _emit_llm("content", content)
                 raw_text = "".join(content_parts)
                 log_file.flush()
             except Exception as e:

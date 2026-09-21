@@ -393,12 +393,12 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 			json.Unmarshal(b, &ollamaData)
 			for _, m := range ollamaData.Models {
 				newAvailableModels = append(newAvailableModels, Model{
-					ID:         "ollama/" + m.Name,
-					Cost:       0.0, // Local is free
-					Capability: estimateCapability(m.Name),
-					APIKeyEnv:  "OLLAMA_HOST",
-					Enabled:    true,
-					Modality:   detectModality(m.Name),
+					ID:          "ollama/" + m.Name,
+					Cost:        0.0, // Local is free
+					Capability:  estimateCapability(m.Name),
+					EndpointEnv: "OLLAMA_HOST",
+					Enabled:     true,
+					Modality:    detectModality(m.Name),
 				})
 			}
 			log.Info("Dynamically loaded Ollama models", "host", ollamaHost, "count", len(ollamaData.Models))
@@ -430,12 +430,12 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool) {
 								for _, ckptRaw := range ckptList {
 									if ckptStr, ok := ckptRaw.(string); ok {
 										newAvailableModels = append(newAvailableModels, Model{
-											ID:         "comfyui/" + ckptStr,
-											Cost:       0.0,
-											Capability: 10.0,
-											APIKeyEnv:  "COMFYUI_HOST",
-											Enabled:    true,
-											Modality:   "image",
+											ID:          "comfyui/" + ckptStr,
+											Cost:        0.0,
+											Capability:  10.0,
+											EndpointEnv: "COMFYUI_HOST",
+											Enabled:     true,
+											Modality:    "image",
 										})
 									}
 								}

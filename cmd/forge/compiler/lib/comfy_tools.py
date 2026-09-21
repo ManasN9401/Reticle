@@ -1,9 +1,130 @@
 import os, json, uuid, urllib.request, urllib.parse, time, sys
+from contextlib import contextmanager
+from pathlib import Path
 from forge_utils import safe_path
 def emit_log(msg): print(msg,file=sys.stderr,flush=True)
 def ui_state(state): emit_log(f"[UI_STATE: {state}]")
 
+def _local_endpoint(name, default):
+    host = os.getenv(name, default).rstrip("/")
+    if urllib.parse.urlsplit(host).hostname not in ("localhost", "127.0.0.1", "::1"):
+        raise ValueError(f"{name} must identify a local endpoint for GPU coordination")
+    return host
+
+def _post_json(url, payload, timeout=5):
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        response.read(1024 * 1024)
+
+def release_comfy_models(log=emit_log):
+    """Ask an idle ComfyUI queue to release model and executor caches."""
+    if os.getenv("RETICLE_COMFY_AUTO_UNLOAD", "true").lower() == "false":
+        return
+    try:
+        host = _local_endpoint("COMFYUI_HOST", "http://127.0.0.1:8188")
+        _post_json(host + "/free", {"unload_models": True, "free_memory": True})
+        log("Requested ComfyUI model and cache unload")
+    except Exception as exc:
+        # Coordination is an optimization. An absent ComfyUI server must not
+        # prevent a local language model from running.
+        log(f"ComfyUI unload unavailable: {exc}")
+
+def unload_ollama_models(log=emit_log):
+    """Unload every currently resident Ollama model before an image job."""
+    if os.getenv("RETICLE_OLLAMA_AUTO_UNLOAD", "true").lower() == "false":
+        return
+    try:
+        host = _local_endpoint("OLLAMA_HOST", "http://127.0.0.1:11434")
+        with urllib.request.urlopen(host + "/api/ps", timeout=3) as response:
+            payload = json.loads(response.read(1024 * 1024))
+        names = {
+            item.get("name") or item.get("model")
+            for item in payload.get("models", [])
+            if isinstance(item, dict)
+        }
+        for name in sorted(value for value in names if isinstance(value, str) and value):
+            _post_json(host + "/api/generate", {"model": name, "keep_alive": 0}, timeout=15)
+            log(f"Unloaded Ollama model {name} before ComfyUI generation")
+    except Exception as exc:
+        # As above, do not turn optional resource cleanup into a job failure.
+        log(f"Ollama unload unavailable: {exc}")
+
+@contextmanager
+def local_gpu_session(kind, log=emit_log):
+    """Serialize local Ollama/ComfyUI GPU work across worker processes."""
+    if os.getenv("RETICLE_LOCAL_GPU_COORDINATION", "true").lower() == "false":
+        yield
+        return
+
+    root = Path(os.getenv("RETICLE_ROOT", os.getcwd())) / ".reticle"
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = root / "local-gpu.lock"
+    stream = lock_path.open("a+b")
+    acquired = False
+    deadline = time.monotonic() + max(1, int(os.getenv("RETICLE_LOCAL_GPU_LOCK_TIMEOUT", "600")))
+    try:
+        while not acquired:
+            try:
+                stream.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    if stream.seek(0, os.SEEK_END) == 0:
+                        stream.write(b"0")
+                        stream.flush()
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except (OSError, BlockingIOError):
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Timed out waiting for the shared local GPU")
+                time.sleep(0.25)
+        if kind == "ollama":
+            release_comfy_models(log)
+        elif kind == "comfy":
+            unload_ollama_models(log)
+        yield
+    finally:
+        if acquired:
+            try:
+                stream.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+        stream.close()
+
+def ollama_model_loaded(model):
+    name = model.split("/", 1)[1] if "/" in model else model
+    try:
+        host = _local_endpoint("OLLAMA_HOST", "http://127.0.0.1:11434")
+        with urllib.request.urlopen(host + "/api/ps", timeout=2) as response:
+            payload = json.loads(response.read(1024 * 1024))
+        return any(
+            isinstance(item, dict) and (item.get("name") == name or item.get("model") == name)
+            for item in payload.get("models", [])
+        )
+    except Exception:
+        return False
+
 def generate_local_asset(prompt: str, output_path: str, workspace_dir: str, checkpoint: str = None, width: int = 1024, height: int = 1024) -> str:
+    with local_gpu_session("comfy"):
+        try:
+            return _generate_local_asset(prompt, output_path, workspace_dir, checkpoint, width, height)
+        finally:
+            release_comfy_models()
+
+def _generate_local_asset(prompt: str, output_path: str, workspace_dir: str, checkpoint: str = None, width: int = 1024, height: int = 1024) -> str:
     """
     Sends a prompt to a local ComfyUI instance (http://localhost:8188) to generate an image.
     The image is saved directly to output_path.

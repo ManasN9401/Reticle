@@ -2,9 +2,12 @@
 import json
 import os
 from pathlib import Path
+import queue
 import shlex
 import sys
+import threading
 import time
+from contextlib import nullcontext
 import forge_utils as toolset
 
 def _llm_field(value, name, default=None):
@@ -38,6 +41,36 @@ def _emit_llm(kind, text, **metadata):
     sys.stderr.write(f"\n[LLM_STREAM] {json.dumps(event, ensure_ascii=False)}\n")
     sys.stderr.flush()
 
+def _stream_with_first_event_timeout(response, timeout_seconds):
+    """Pump a provider stream and fail boundedly if it remains completely silent."""
+    events = queue.Queue(maxsize=128)
+    finished = object()
+
+    def produce():
+        try:
+            for chunk in response:
+                events.put(chunk)
+        except BaseException as exc:
+            events.put(exc)
+        finally:
+            events.put(finished)
+
+    threading.Thread(target=produce, name="reticle-llm-stream", daemon=True).start()
+    first = True
+    while True:
+        try:
+            item = events.get(timeout=timeout_seconds if first else None)
+        except queue.Empty as exc:
+            raise TimeoutError(
+                f"Model produced no stream event within {timeout_seconds} seconds"
+            ) from exc
+        first = False
+        if item is finished:
+            return
+        if isinstance(item, BaseException):
+            raise item
+        yield item
+
 def _tool_call_signature(tool_calls):
     """Canonicalize a tool round so repeated no-progress rounds are detectable."""
     signature = []
@@ -59,6 +92,34 @@ def _tool_repeat_state(previous, rounds, tool_calls):
     if signature == previous:
         return signature, rounds + 1
     return signature, 1
+
+def _compact_local_instructions(text, limit=16000):
+    """Bound verbose skill references for small local context windows.
+
+    Keep the agent contract plus headings and directive/list lines from skill
+    documents. Long fenced examples are useful references for cloud models but
+    can consume most of an 8K local context before the task itself is seen.
+    """
+    if len(text) <= limit:
+        return text
+    lines = text.splitlines()
+    result = []
+    result_length = 0
+    in_fence = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if index < 20 or stripped.startswith(("#", "-", "*", "name:", "description:")):
+            result.append(line)
+            result_length += len(line) + 1
+        if result_length >= limit:
+            break
+    compacted = "\n".join(result).strip()
+    return compacted[:limit] + "\n[Skill examples omitted to fit the local model context.]"
 
 def _meaningful_terminal_verification(kind, parts):
     """Recognize commands that inspect or validate the produced work."""
@@ -95,7 +156,8 @@ def shared_memory_context(memory):
     controls = {"user_prompt", "workspace_dir", "max_retries", "allow_native_execution",
                 "ide_context", "prompt_attachments", "prompt_history", "global_effort",
                 "agent_complexity", "task_timeout_seconds", "llm_num_ctx",
-                "llm_max_tokens", "llm_temperature"}
+                "llm_max_tokens", "llm_temperature", "llm_first_token_timeout_seconds",
+                "ollama_keep_alive"}
     facts = {key: value for key, value in memory.items() if key not in controls}
     if len(json.dumps(facts, ensure_ascii=False).encode("utf-8")) > 65536:
         raise ValueError("Shared memory exceeds 64 KiB: select fewer required_memory keys or use summaries/artifact references")
@@ -115,6 +177,7 @@ def generation_options(model, memory):
     # on the server rather than per completion request.
     if model.startswith(("ollama/", "ollama_chat/")) and "llm_num_ctx" in memory:
         options["num_ctx"] = int(memory["llm_num_ctx"])
+        options["keep_alive"] = str(memory.get("ollama_keep_alive", "5m"))
     if "llm_max_tokens" in memory:
         options["max_tokens"] = int(memory["llm_max_tokens"])
     if "llm_temperature" in memory:
@@ -197,7 +260,12 @@ def run(instructions, kind="coding"):
         elif checked_path is not None:
             pending_modified_paths.discard(checked_path)
         verified = bool(verification) and not pending_modified_paths
-    messages = [{"role":"system", "content": instructions + "\n" + req.get("parameters",{}).get("system_prompt","") + "\nUse workspace-relative paths. Terminal cwd is src. Finish only after checking your work. An exhausted loop is a failure."},
+    prompt_instructions = instructions
+    if model.startswith(("ollama/", "ollama_chat/")):
+        prompt_instructions = _compact_local_instructions(instructions)
+        if prompt_instructions != instructions:
+            _emit_llm("status", f"Compacted skill references from {len(instructions)} to {len(prompt_instructions)} characters for the local context window")
+    messages = [{"role":"system", "content": prompt_instructions + "\n" + req.get("parameters",{}).get("system_prompt","") + "\nUse workspace-relative paths. Terminal cwd is src. Finish only after checking your work. An exhausted loop is a failure."},
                 {"role":"user", "content":json.dumps(build_user_context(req, mem))}]
     kwargs = generation_options(model, mem)
     key_name = req.get("parameters", {}).get("api_key")
@@ -230,58 +298,70 @@ def run(instructions, kind="coding"):
                 "HTTP-Referer": "https://github.com/ManasN9401/Reticle",
                 "X-Title": "Reticle Agentic Harness",
             }
-            response = completion(model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
-            content_buffer = []
-            tool_calls_buffer = {}
-            if hasattr(response, "choices") and hasattr(response.choices[0], "message"):
-                complete_message = response.choices[0].message
-                complete_reasoning = _llm_reasoning(complete_message)
-                if complete_reasoning:
-                    _emit_llm("reasoning", complete_reasoning)
-                if getattr(complete_message, "content", None):
-                    content_buffer.append(complete_message.content)
-                    _emit_llm("content", complete_message.content)
-                for idx, tc in enumerate(getattr(complete_message, "tool_calls", None) or []):
-                    tool_calls_buffer[idx] = {
-                        "id": getattr(tc, "id", "") or "",
-                        "function": {
-                            "name": getattr(tc.function, "name", "") or "",
-                            "arguments": getattr(tc.function, "arguments", "") or "",
-                        },
-                    }
-                    _emit_llm("tool", f"Requested {getattr(tc.function, 'name', '') or 'tool'}", name=getattr(tc.function, "name", "") or "")
-                response_chunks = []
+            first_event_timeout = max(5, int(mem.get("llm_first_token_timeout_seconds", 180)))
+            local_model = model.startswith(("ollama/", "ollama_chat/"))
+            if local_model and not comfy_tools.ollama_model_loaded(model):
+                status = f"Loading local model {model}; waiting for first output"
             else:
-                response_chunks = response
-            for chunk in response_chunks:
-                delta = chunk.choices[0].delta
-                reasoning_delta = _llm_reasoning(delta)
-                if reasoning_delta:
-                    _emit_llm("reasoning", reasoning_delta)
-                if hasattr(delta, "content") and delta.content:
-                    _emit_llm("content", delta.content)
-                    content_buffer.append(delta.content)
-                if hasattr(delta, "tool_calls") and delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in tool_calls_buffer:
-                            tc_id = getattr(tc, "id", None) or ""
-                            tc_name = ""
-                            if hasattr(tc, "function") and hasattr(tc.function, "name") and tc.function.name:
-                                tc_name = tc.function.name
-                            tool_calls_buffer[idx] = {"id": tc_id, "function": {"name": tc_name, "arguments": ""}}
-                            if tc_name:
-                                _emit_llm("tool", f"Requested {tc_name}", name=tc_name)
-                        else:
-                            if hasattr(tc, "id") and tc.id:
-                                tool_calls_buffer[idx]["id"] = tc.id
-                            if hasattr(tc, "function") and hasattr(tc.function, "name") and tc.function.name:
-                                had_name = bool(tool_calls_buffer[idx]["function"]["name"])
-                                tool_calls_buffer[idx]["function"]["name"] = tc.function.name
-                                if not had_name:
-                                    _emit_llm("tool", f"Requested {tc.function.name}", name=tc.function.name)
-                        if hasattr(tc, "function") and hasattr(tc.function, "arguments") and tc.function.arguments:
-                            tool_calls_buffer[idx]["function"]["arguments"] += tc.function.arguments
+                status = f"Request sent to {model}; waiting for first output"
+            _emit_llm("status", f"{status} (timeout {first_event_timeout}s)")
+            session = (
+                comfy_tools.local_gpu_session("ollama", lambda message: _emit_llm("status", message))
+                if local_model else nullcontext()
+            )
+            with session:
+                response = completion(model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
+                content_buffer = []
+                tool_calls_buffer = {}
+                if hasattr(response, "choices") and hasattr(response.choices[0], "message"):
+                    complete_message = response.choices[0].message
+                    complete_reasoning = _llm_reasoning(complete_message)
+                    if complete_reasoning:
+                        _emit_llm("reasoning", complete_reasoning)
+                    if getattr(complete_message, "content", None):
+                        content_buffer.append(complete_message.content)
+                        _emit_llm("content", complete_message.content)
+                    for idx, tc in enumerate(getattr(complete_message, "tool_calls", None) or []):
+                        tool_calls_buffer[idx] = {
+                            "id": getattr(tc, "id", "") or "",
+                            "function": {
+                                "name": getattr(tc.function, "name", "") or "",
+                                "arguments": getattr(tc.function, "arguments", "") or "",
+                            },
+                        }
+                        _emit_llm("tool", f"Requested {getattr(tc.function, 'name', '') or 'tool'}", name=getattr(tc.function, "name", "") or "")
+                    response_chunks = []
+                else:
+                    response_chunks = _stream_with_first_event_timeout(response, first_event_timeout)
+                for chunk in response_chunks:
+                    delta = chunk.choices[0].delta
+                    reasoning_delta = _llm_reasoning(delta)
+                    if reasoning_delta:
+                        _emit_llm("reasoning", reasoning_delta)
+                    if hasattr(delta, "content") and delta.content:
+                        _emit_llm("content", delta.content)
+                        content_buffer.append(delta.content)
+                    if hasattr(delta, "tool_calls") and delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in tool_calls_buffer:
+                                tc_id = getattr(tc, "id", None) or ""
+                                tc_name = ""
+                                if hasattr(tc, "function") and hasattr(tc.function, "name") and tc.function.name:
+                                    tc_name = tc.function.name
+                                tool_calls_buffer[idx] = {"id": tc_id, "function": {"name": tc_name, "arguments": ""}}
+                                if tc_name:
+                                    _emit_llm("tool", f"Requested {tc_name}", name=tc_name)
+                            else:
+                                if hasattr(tc, "id") and tc.id:
+                                    tool_calls_buffer[idx]["id"] = tc.id
+                                if hasattr(tc, "function") and hasattr(tc.function, "name") and tc.function.name:
+                                    had_name = bool(tool_calls_buffer[idx]["function"]["name"])
+                                    tool_calls_buffer[idx]["function"]["name"] = tc.function.name
+                                    if not had_name:
+                                        _emit_llm("tool", f"Requested {tc.function.name}", name=tc.function.name)
+                            if hasattr(tc, "function") and hasattr(tc.function, "arguments") and tc.function.arguments:
+                                tool_calls_buffer[idx]["function"]["arguments"] += tc.function.arguments
 
             # Reconstruct the message
             message_dict = {"role": "assistant"}

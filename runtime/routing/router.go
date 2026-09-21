@@ -29,9 +29,16 @@ type ModelRouter struct {
 	ProviderCapacity map[string]int
 	ProviderInFlight map[string]int
 
-	UseBayesianRouting bool
+	UseBayesianRouting        bool
+	AllowTextToCodingFallback bool
 
 	mu sync.RWMutex
+}
+
+func (r *ModelRouter) SetTextToCodingFallback(enabled bool) {
+	r.mu.Lock()
+	r.AllowTextToCodingFallback = enabled
+	r.mu.Unlock()
 }
 
 func NewRouter(l *logger.Logger, b *events.Bus, loadAll bool) *ModelRouter {
@@ -300,7 +307,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 	}
 
 	// Cross-modality fallback logic (e.g. text -> coding)
-	if len(capable) == 0 && modality == "text" {
+	if len(capable) == 0 && modality == "text" && r.AllowTextToCodingFallback {
 		r.Logger.Info("WARNING: No 'text' models available. Falling back to a standard 'coding' model.", "agent_id", agentID, "task_id", taskID)
 		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
@@ -321,10 +328,18 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 	}
 	// Final generic fallback
 	if len(capable) == 0 {
-		r.Logger.Info("WARNING: No models of requested modality available. Falling back to ANY non-image model.", "agent_id", agentID, "modality", modality)
+		fallbackScope := "any non-image model"
+		if modality == "text" && !r.AllowTextToCodingFallback {
+			fallbackScope = "another text model"
+		}
+		r.Logger.Info("WARNING: No models of requested modality available. Trying a fallback.", "agent_id", agentID, "modality", modality, "fallback_scope", fallbackScope)
 		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
-			if m.Enabled && !time.Now().Before(m.CooldownUntil) && m.Modality != "image" {
+			allowedModality := m.Modality != "image"
+			if modality == "text" && !r.AllowTextToCodingFallback {
+				allowedModality = m.Modality == "text"
+			}
+			if m.Enabled && !time.Now().Before(m.CooldownUntil) && allowedModality {
 				capacity := r.ProviderCapacity[m.APIKeyEnv]
 				if capacity > 0 && r.ProviderInFlight[m.APIKeyEnv] >= capacity {
 					continue
