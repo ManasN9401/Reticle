@@ -4,6 +4,7 @@ import { EmptyState } from '@/design/primitives'
 import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
 import { useApplyTheme } from '@/state/theme'
+import { useLayoutPersistence } from '@/state/useLayoutPersistence'
 import { useUi } from '@/state/ui'
 import { ActivityRail } from './ActivityRail'
 import { CommandPalette } from './CommandPalette'
@@ -34,6 +35,9 @@ export function Shell() {
   // Resolves 'system', writes data-theme, and keeps the native window
   // background in step.
   useApplyTheme()
+
+  // Restores the last-used layout once settings load, then keeps it synced.
+  useLayoutPersistence()
 
   useEffect(() => {
     let cleanup: (() => void) | undefined

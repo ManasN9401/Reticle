@@ -1,7 +1,7 @@
 import dagre from '@dagrejs/dagre'
 import type { Edge, Node } from '@xyflow/react'
 import type { Run, RunNode } from '@shared/projection'
-import type { NodeStyle } from '@shared/ipc'
+import type { NodeAppearanceSettings, NodeStyle } from '@shared/ipc'
 
 /**
  * Fixed node geometry, per presentation style.
@@ -31,18 +31,52 @@ export const NODE_GEOMETRY: Record<
 /** Corner radius for the elbow routing. */
 const EDGE_CORNER_RADIUS = 8
 
-/** Height of the label strip beneath a hexagon, inside its box. */
+/** Height of the label strip beneath a hexagon, inside its box, at scale 1. */
 export const HEX_LABEL_HEIGHT = 14
 
+export interface ResolvedNodeGeometry {
+  width: number
+  height: number
+  rankSep: number
+  nodeSep: number
+  /** Also exposed so render code can scale derived values (hex label strip, etc.) consistently. */
+  scale: number
+}
+
 /**
- * Vertices of a pointy-top hexagon, using the same formula as the embedded star
- * map (runtime/telemetry/ui/index.html:2706) so the two consoles draw the shape
- * at the same orientation.
+ * `NODE_GEOMETRY[style]` scaled uniformly by the user's per-style size
+ * preference (default 1, clamped 0.85–1.35 in settings validation). Uniform
+ * scaling — never an independent per-dimension knob — is what keeps the
+ * hand-tuned proportions above (edge corner clearance, hex label strip) in
+ * the same ratio they were tuned at.
  */
-export function hexPoints(cx: number, cy: number, r: number): string {
+export function getNodeGeometry(
+  style: NodeStyle,
+  appearance?: NodeAppearanceSettings,
+): ResolvedNodeGeometry {
+  const base = NODE_GEOMETRY[style]
+  const scale = appearance?.[style].scale ?? 1
+  if (scale === 1) return { ...base, scale: 1 }
+  return {
+    width: Math.round(base.width * scale),
+    height: Math.round(base.height * scale),
+    rankSep: Math.round(base.rankSep * scale),
+    nodeSep: Math.round(base.nodeSep * scale),
+    scale,
+  }
+}
+
+/**
+ * Vertices of a regular, point-up polygon. Defaults to 6 sides (a hexagon),
+ * using the same formula as the embedded star map
+ * (runtime/telemetry/ui/index.html:2706) so the two consoles draw the shape at
+ * the same orientation; the octagon node-appearance option reuses this with
+ * `sides: 8`.
+ */
+export function hexPoints(cx: number, cy: number, r: number, sides = 6): string {
   const points: string[] = []
-  for (let i = 0; i < 6; i += 1) {
-    const angle = (Math.PI / 3) * i - Math.PI / 2
+  for (let i = 0; i < sides; i += 1) {
+    const angle = ((2 * Math.PI) / sides) * i - Math.PI / 2
     points.push(`${(cx + r * Math.cos(angle)).toFixed(2)},${(cy + r * Math.sin(angle)).toFixed(2)}`)
   }
   return points.join(' ')
@@ -79,9 +113,10 @@ export function layoutPositions(
   run: Run,
   direction: LayoutDirection,
   style: NodeStyle,
+  appearance?: NodeAppearanceSettings,
   pinned: Record<string, { x: number; y: number }> = {},
 ): GraphLayout {
-  const geometry = NODE_GEOMETRY[style]
+  const geometry = getNodeGeometry(style, appearance)
   const graph = new dagre.graphlib.Graph()
   graph.setGraph({
     rankdir: direction,
@@ -137,8 +172,9 @@ export function buildGraph(
   layout: GraphLayout,
   style: NodeStyle,
   selectedNodeId: string | null,
+  appearance?: NodeAppearanceSettings,
 ): { nodes: AgentFlowNode[]; edges: Edge[] } {
-  const geometry = NODE_GEOMETRY[style]
+  const geometry = getNodeGeometry(style, appearance)
 
   const nodes: AgentFlowNode[] = Object.keys(run.nodes).map((id) => ({
     id,

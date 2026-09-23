@@ -1,7 +1,25 @@
 import { create } from 'zustand'
 
+/**
+ * Groups exist only once a section needs one — an empty group header helps no
+ * one. `context` (Shared Context) and `extensions` (MCP Servers, Plugins) join
+ * this list when those sections land.
+ */
+export type SettingsGroup = 'general' | 'profile' | 'connection' | 'credentials' | 'diagnostics'
+
+export const SETTINGS_GROUPS: { id: SettingsGroup; label: string }[] = [
+  { id: 'general', label: 'General' },
+  { id: 'profile', label: 'Profile' },
+  { id: 'connection', label: 'Connection' },
+  { id: 'credentials', label: 'Credentials & Models' },
+  { id: 'diagnostics', label: 'Diagnostics' },
+]
+
 export type SettingsSection =
   | 'appearance'
+  | 'nodeAppearance'
+  | 'profile'
+  | 'tabLayouts'
   | 'connection'
   | 'forge'
   | 'keys'
@@ -11,6 +29,7 @@ export type SettingsSection =
 
 export const SETTINGS_SECTIONS: {
   id: SettingsSection
+  group: SettingsGroup
   label: string
   hint: string
   /** Longer description shown in the section header. */
@@ -18,12 +37,39 @@ export const SETTINGS_SECTIONS: {
 }[] = [
   {
     id: 'appearance',
+    group: 'general',
     label: 'Appearance',
-    hint: 'Density and motion',
-    description: 'How dense the interface is, and how much of it moves.',
+    hint: 'Theme, colour schemes, density',
+    description:
+      'Density and motion, dark/light/custom theme, and the colour schemes layered on top of it.',
+  },
+  {
+    id: 'nodeAppearance',
+    group: 'general',
+    label: 'Node Appearance',
+    hint: 'Fields, size, hex shape',
+    description:
+      'Which data each node map style draws, how large it draws it, and the hexagon-style shape. Status colour lives in Appearance › Colour Schemes.',
+  },
+  {
+    id: 'profile',
+    group: 'profile',
+    label: 'Profile',
+    hint: 'Save & switch config bundles',
+    description:
+      'Save the current Appearance, Node Appearance, Colour Scheme and Connection settings as a named, switchable profile.',
+  },
+  {
+    id: 'tabLayouts',
+    group: 'profile',
+    label: 'Tab Layouts',
+    hint: 'Panel & tab arrangements',
+    description:
+      'Your current arrangement of sidebar, panels and tabs is remembered automatically. Save named arrangements here to switch between them.',
   },
   {
     id: 'connection',
+    group: 'connection',
     label: 'Connection',
     hint: 'Host, port, auto-connect',
     description:
@@ -31,6 +77,7 @@ export const SETTINGS_SECTIONS: {
   },
   {
     id: 'forge',
+    group: 'connection',
     label: 'Forge',
     hint: 'Binary, directory, flags',
     description:
@@ -38,6 +85,7 @@ export const SETTINGS_SECTIONS: {
   },
   {
     id: 'keys',
+    group: 'credentials',
     label: 'API Keys',
     hint: 'Provider credentials',
     description:
@@ -45,6 +93,7 @@ export const SETTINGS_SECTIONS: {
   },
   {
     id: 'models',
+    group: 'credentials',
     label: 'Models',
     hint: 'Routing catalog',
     description:
@@ -52,12 +101,14 @@ export const SETTINGS_SECTIONS: {
   },
   {
     id: 'logs',
+    group: 'diagnostics',
     label: 'Logs',
     hint: 'Buffer and tailing',
     description: 'How much log history Studio keeps, and how the log panel behaves.',
   },
   {
     id: 'about',
+    group: 'diagnostics',
     label: 'About',
     hint: 'Versions and paths',
     description: 'Build information and the paths this session resolved.',

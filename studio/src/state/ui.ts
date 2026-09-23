@@ -1,24 +1,13 @@
 import { create } from 'zustand'
+import type { EditorTab, LayoutSnapshot, PanelTab, ViewId } from '@shared/ipc'
 
-export type ViewId = 'runs' | 'graph' | 'agents' | 'artifacts' | 'explorer' | 'settings'
-export type PanelTab = 'activity' | 'logs' | 'problems' | 'terminal' | 'preview'
-
-export interface EditorTab {
-  id: string
-  kind: 'graph' | 'file'
-  title: string
-  /** Absolute path for file tabs read from disk. */
-  path?: string
-  /**
-   * Inline content, for files that arrived over the API rather than the
-   * filesystem. `GET /api/outputs/{execId}` already inlines file contents and
-   * returns paths relative to the session's `src`, which the main process
-   * cannot safely resolve — so those tabs carry their own body.
-   */
-  content?: string
-  /** Path shown in the breadcrumb. */
-  subtitle?: string
-}
+/**
+ * `ViewId`/`PanelTab`/`EditorTab` live in `@shared/ipc` now — a saved or
+ * auto-persisted layout crosses into the main process via settings.json, so
+ * these needed a shared home. Re-exported here so existing imports of them
+ * from `@/state/ui` keep working unchanged.
+ */
+export type { ViewId, PanelTab, EditorTab }
 
 const GRAPH_TAB: EditorTab = { id: 'graph', kind: 'graph', title: 'Node Map' }
 
@@ -59,6 +48,9 @@ export interface UiStore {
   setLauncherOpen(open: boolean): void
   toggleInspector(): void
   setReviewNode(nodeId: string | null): void
+
+  /** Applies a persisted arrangement (auto-persist on startup, or a saved layout). */
+  restoreLayout(snapshot: LayoutSnapshot): void
 }
 
 export const useUi = create<UiStore>((set, get) => ({
@@ -152,5 +144,20 @@ export const useUi = create<UiStore>((set, get) => ({
 
   setReviewNode(nodeId) {
     set({ reviewNodeId: nodeId })
+  },
+
+  restoreLayout(snapshot) {
+    set({
+      activeView: snapshot.activeView,
+      sidebarOpen: snapshot.sidebarOpen,
+      sidebarWidth: snapshot.sidebarWidth,
+      panelOpen: snapshot.panelOpen,
+      panelTab: snapshot.panelTab,
+      panelHeight: snapshot.panelHeight,
+      panelMaximized: snapshot.panelMaximized,
+      tabs: snapshot.tabs.length > 0 ? snapshot.tabs : [GRAPH_TAB],
+      activeTabId: snapshot.activeTabId,
+      inspectorOpen: snapshot.inspectorOpen,
+    })
   },
 }))

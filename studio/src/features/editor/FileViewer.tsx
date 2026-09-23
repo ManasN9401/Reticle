@@ -5,8 +5,16 @@ import { EmptyState, IconButton, Spinner, Tooltip } from '@/design/primitives'
 import { formatBytes } from '@/design/status'
 import { bridge } from '@/state/bridge'
 import { revealInExplorer } from '@/state/actions'
-import { useResolvedTheme } from '@/state/theme'
-import { RETICLE_DARK, RETICLE_LIGHT, languageFor, setupMonaco } from './monacoSetup'
+import { useActiveColorScheme, useResolvedTheme } from '@/state/theme'
+import { useStudio } from '@/state/store'
+import {
+  RETICLE_CUSTOM,
+  RETICLE_DARK,
+  RETICLE_LIGHT,
+  defineCustomMonacoTheme,
+  languageFor,
+  setupMonaco,
+} from './monacoSetup'
 
 /**
  * Read-only source viewer.
@@ -32,11 +40,16 @@ export function FileViewer({
   const truncated = inlineContent === undefined && current?.truncated
   const error = inlineContent === undefined ? current?.error : null
   const theme = useResolvedTheme()
+  const themePreference = useStudio((s) => s.settings?.appearance.theme ?? 'dark')
+  const activeScheme = useActiveColorScheme()
+  const useCustomTheme = themePreference === 'custom' && activeScheme !== null
 
-  // Re-run on theme change so both palettes exist before Monaco is asked for one.
+  // Re-run on theme change so both palettes (and the custom one, if active)
+  // exist before Monaco is asked for one.
   useEffect(() => {
     setupMonaco()
-  }, [theme])
+    if (activeScheme) defineCustomMonacoTheme(activeScheme)
+  }, [theme, activeScheme])
 
   useEffect(() => {
     if (inlineContent !== undefined || !path || !bridge) return
@@ -94,7 +107,7 @@ export function FileViewer({
         ) : (
           <Editor
             height="100%"
-            theme={theme === 'light' ? RETICLE_LIGHT : RETICLE_DARK}
+            theme={useCustomTheme ? RETICLE_CUSTOM : theme === 'light' ? RETICLE_LIGHT : RETICLE_DARK}
             language={languageFor(path ?? label)}
             value={content}
             options={{

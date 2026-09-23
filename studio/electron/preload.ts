@@ -13,16 +13,22 @@ import { IPC } from '../src/shared/ipc'
 import type {
   AgentCard,
   ApiResult,
+  ColorScheme,
   CommandId,
   ConnectRequest,
   ConnectionState,
   EnvKeyEntry,
+  FileExportResult,
+  ProfileImportResult,
+  SettingsProfile,
   ForgeOutputChunk,
   ForgeStartRequest,
   ForgeState,
   HitlCheckpoint,
   HitlResolveRequest,
   LogBatch,
+  LogExportRequest,
+  LogExportResult,
   LogQuery,
   ModelsResult,
   NativeAction,
@@ -34,6 +40,8 @@ import type {
   ReticleBridge,
   SettingsPatch,
   StudioSettings,
+  ThemeExportResult,
+  ThemeImportResult,
   TreeEntry,
   Unsubscribe,
   WindowState,
@@ -93,6 +101,8 @@ const bridge: ReticleBridge = {
     query: (query: LogQuery) =>
       ipcRenderer.invoke(IPC.logsQuery, query) as Promise<LogBatch>,
     scope: (scope) => ipcRenderer.invoke(IPC.logsScope, scope) as Promise<void>,
+    export: (request: LogExportRequest) =>
+      ipcRenderer.invoke(IPC.logsExport, request) as Promise<LogExportResult>,
     onBatch: (handler) => subscribe<LogBatch>(IPC.pushLogs, handler),
   },
 
@@ -148,6 +158,18 @@ const bridge: ReticleBridge = {
     patch: (patch: SettingsPatch) =>
       ipcRenderer.invoke(IPC.settingsPatch, patch) as Promise<StudioSettings>,
     onChange: (handler) => subscribe<StudioSettings>(IPC.pushSettings, handler),
+  },
+
+  theme: {
+    export: (scheme: ColorScheme) =>
+      ipcRenderer.invoke(IPC.themeExport, scheme) as Promise<ThemeExportResult>,
+    import: () => ipcRenderer.invoke(IPC.themeImport) as Promise<ThemeImportResult>,
+  },
+
+  profile: {
+    export: (profile: SettingsProfile) =>
+      ipcRenderer.invoke(IPC.profileExport, profile) as Promise<FileExportResult>,
+    import: () => ipcRenderer.invoke(IPC.profileImport) as Promise<ProfileImportResult>,
   },
 
   native: (action: NativeAction) =>

@@ -5,6 +5,8 @@ import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+import { BASE_HEX } from '@/design/palette'
+import type { ColorScheme, ResolvedTheme } from '@shared/ipc'
 
 /**
  * Monaco, bundled rather than fetched.
@@ -45,45 +47,81 @@ window.MonacoEnvironment = {
 
 export const RETICLE_DARK = 'reticle-dark'
 export const RETICLE_LIGHT = 'reticle-light'
+export const RETICLE_CUSTOM = 'reticle-custom'
 
 let configured = false
 
+/** Syntax-highlighting rules are unrelated to the achromatic-chrome/colour-scheme system, so a custom scheme reuses whichever base's rules match its `base` field rather than inventing derived ones. */
+const RULES: Record<ResolvedTheme, monaco.editor.ITokenThemeRule[]> = {
+  dark: [
+    { token: 'comment', foreground: '5a6472' },
+    { token: 'string', foreground: '57e8ab' },
+    { token: 'number', foreground: '56d6ff' },
+    { token: 'keyword', foreground: '4d8dfd' },
+    { token: 'type', foreground: 'f5b544' },
+  ],
+  light: [
+    { token: 'comment', foreground: '767e8a' },
+    { token: 'string', foreground: '0f7f57' },
+    { token: 'number', foreground: '0a76a8' },
+    { token: 'keyword', foreground: '2563eb' },
+    { token: 'type', foreground: '9a6410' },
+  ],
+}
+
 /**
- * Both editor themes mirror the values in `src/design/tokens.css`. Monaco needs
- * literal hex rather than custom properties, so these are kept in step by hand —
- * if a surface token changes there, change it here too.
+ * Both built-in editor themes mirror the values in `src/design/tokens.css`.
+ * Monaco needs literal hex rather than custom properties, so these are kept in
+ * step by hand — if a surface token changes there, change it here too.
  */
 export function setupMonaco(): void {
   monaco.editor.defineTheme(RETICLE_DARK, {
     base: 'vs-dark',
     inherit: true,
-    rules: [
-      { token: 'comment', foreground: '5a6472' },
-      { token: 'string', foreground: '57e8ab' },
-      { token: 'number', foreground: '56d6ff' },
-      { token: 'keyword', foreground: '4d8dfd' },
-      { token: 'type', foreground: 'f5b544' },
-    ],
-    colors: editorColors('#08090b', '#e4e7ec', '#474e59', '#98a0ad', '#101114', '#1e2128', '#16181c', '#282c34'),
+    rules: RULES.dark,
+    colors: editorColorsFromHex(BASE_HEX.dark),
   })
 
   monaco.editor.defineTheme(RETICLE_LIGHT, {
     base: 'vs',
     inherit: true,
-    rules: [
-      { token: 'comment', foreground: '767e8a' },
-      { token: 'string', foreground: '0f7f57' },
-      { token: 'number', foreground: '0a76a8' },
-      { token: 'keyword', foreground: '2563eb' },
-      { token: 'type', foreground: '9a6410' },
-    ],
-    colors: editorColors('#ffffff', '#14171c', '#767e8a', '#454c57', '#f7f8fa', '#e3e6ec', '#eceef2', '#d4d9e1'),
+    rules: RULES.light,
+    colors: editorColorsFromHex(BASE_HEX.light),
   })
 
   if (!configured) {
     configured = true
     loader.config({ monaco })
   }
+}
+
+/**
+ * Defines (or redefines) the `reticle-custom` Monaco theme from an active
+ * colour scheme, layering its overrides on top of the literal hex for
+ * whichever base it was built on. Call this whenever the active scheme
+ * changes, before setting the editor's theme to `RETICLE_CUSTOM`.
+ */
+export function defineCustomMonacoTheme(scheme: ColorScheme): void {
+  const hex = { ...BASE_HEX[scheme.base], ...scheme.tokens }
+  monaco.editor.defineTheme(RETICLE_CUSTOM, {
+    base: scheme.base === 'light' ? 'vs' : 'vs-dark',
+    inherit: true,
+    rules: RULES[scheme.base],
+    colors: editorColorsFromHex(hex),
+  })
+}
+
+function editorColorsFromHex(hex: Record<string, string>): Record<string, string> {
+  return editorColors(
+    hex.inset,
+    hex['fg-1'],
+    hex['fg-4'],
+    hex['fg-2'],
+    hex['bg-1'],
+    hex['line-1'],
+    hex['bg-2'],
+    hex['line-2'],
+  )
 }
 
 function editorColors(

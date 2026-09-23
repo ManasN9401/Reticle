@@ -6,6 +6,7 @@ import {
   Divider,
   IconButton,
   Input,
+  SectionLabel,
   Select,
   Spinner,
   StatusPip,
@@ -23,8 +24,12 @@ import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
 import { useUi } from '@/state/ui'
 import type { NodeStyle, SettingsPatch, ThemePreference } from '@shared/ipc'
+import { ColorSchemesSection } from './ColorSchemesSection'
 import { KeysSection } from './KeysSection'
 import { ModelsSection } from './ModelsSection'
+import { NodeAppearanceSection } from './NodeAppearanceSection'
+import { ProfileSection } from './ProfileSection'
+import { TabLayoutsSection } from './TabLayoutsSection'
 import { SETTINGS_SECTIONS, useSettingsUi } from './state'
 
 /**
@@ -51,7 +56,7 @@ export function SettingsView() {
   }
 
   const meta = SETTINGS_SECTIONS.find((s) => s.id === section)
-  const wide = section === 'models' || section === 'keys'
+  const wide = section === 'models' || section === 'keys' || section === 'appearance'
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg-0">
@@ -63,6 +68,9 @@ export function SettingsView() {
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
         <div className={wide ? 'max-w-[1100px]' : 'max-w-[640px]'}>
           {section === 'appearance' ? <AppearanceSection patch={patch} /> : null}
+          {section === 'nodeAppearance' ? <NodeAppearanceSection patch={patch} /> : null}
+          {section === 'profile' ? <ProfileSection patch={patch} /> : null}
+          {section === 'tabLayouts' ? <TabLayoutsSection patch={patch} /> : null}
           {section === 'connection' ? <ConnectionSection patch={patch} /> : null}
           {section === 'forge' ? <ForgeSection patch={patch} /> : null}
           {section === 'keys' ? <KeysSection /> : null}
@@ -81,11 +89,12 @@ type Patch = (next: SettingsPatch) => Promise<void>
 
 function AppearanceSection({ patch }: { patch: Patch }) {
   const appearance = useStudio((s) => s.settings!.appearance)
+  const schemeCount = useStudio((s) => s.settings!.colorSchemes.schemes.length)
   return (
     <div className="flex flex-col">
       <Row
         label="Theme"
-        description="Match System follows your OS colour scheme and switches live when it changes."
+        description="Match System follows your OS colour scheme and switches live when it changes. Custom applies whichever colour scheme is active below."
       >
         <Select
           value={appearance.theme}
@@ -97,6 +106,9 @@ function AppearanceSection({ patch }: { patch: Patch }) {
           <option value="system">Match System</option>
           <option value="dark">Dark</option>
           <option value="light">Light</option>
+          <option value="custom" disabled={schemeCount === 0}>
+            Custom
+          </option>
         </Select>
       </Row>
 
@@ -145,6 +157,14 @@ function AppearanceSection({ patch }: { patch: Patch }) {
           onChange={(reduceMotion) => patch({ appearance: { reduceMotion } })}
         />
       </Row>
+
+      <SectionLabel className="mt-2 px-0">Colour Schemes</SectionLabel>
+      <p className="pretty mb-3 text-2xs leading-relaxed text-fg-4">
+        Custom palettes layered on top of Dark or Light. Only colour tokens are editable — chrome
+        stays achromatic by design, so a scheme can re-pick the accent and status hues but never
+        make chrome carry status-like saturation.
+      </p>
+      <ColorSchemesSection patch={patch} />
     </div>
   )
 }
@@ -443,7 +463,7 @@ function AboutSection() {
 
 // ---------------------------------------------------------------------------
 
-function Row({
+export function Row({
   label,
   description,
   children,

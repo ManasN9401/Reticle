@@ -1,26 +1,39 @@
 import path from 'node:path'
-import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
+import { promises as fs } from 'node:fs'
+import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron'
 import { IPC } from '../src/shared/ipc'
 import type {
+  ColorScheme,
+  ColorToken,
   ConnectRequest,
   ConnectionState,
+  FileExportResult,
   ForgeOutputChunk,
   ForgeStartRequest,
   ForgeState,
   HitlResolveRequest,
   LogBatch,
+  LogExportFormat,
+  LogExportRequest,
+  LogExportResult,
+  LogRecord,
   LogQuery,
   NativeAction,
   OutboundCommand,
+  ProfileImportResult,
   ProjectionPush,
   ResolvedTheme,
   SettingsPatch,
+  SettingsProfile,
   StudioSettings,
+  ThemeExportResult,
+  ThemeImportResult,
   WindowState,
 } from '../src/shared/ipc'
+import { COLOR_TOKENS, isSafeColorValue } from '../src/shared/ipc'
 import { installMenu } from './menu'
 import { findRepoRoot, setRepoRoot } from './paths'
-import { SettingsStore } from './settings'
+import { SettingsStore, validateColorSchemes, validateNodeAppearance } from './settings'
 import { ForgeClient } from './forge/client'
 import { ForgeProcess } from './forge/process'
 import { ForgeRest } from './forge/rest'
@@ -55,6 +68,166 @@ function windowState(): WindowState {
     focused: mainWindow?.isFocused() ?? false,
     platform: process.platform,
   }
+}
+
+function formatLogRecords(records: LogRecord[], format: LogExportFormat): string {
+  if (format === 'json') return JSON.stringify(records, null, 2)
+  if (format === 'csv') {
+    const escape = (value: unknown) => {
+      const text = value === undefined || value === null ? '' : String(value)
+      return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+    }
+    const rows = records.map((r) =>
+      [r.seq, new Date(r.at).toISOString(), r.level, r.execId, r.nodeId, r.agentId, r.eventType, r.isLlm, r.message]
+        .map(escape)
+        .join(','),
+    )
+    return ['seq,at,level,execId,nodeId,agentId,eventType,isLlm,message', ...rows].join('\n')
+  }
+  return records
+    .map((r) => {
+      const scope = [r.agentId, r.nodeId].filter(Boolean).join(' · ')
+      return `${new Date(r.at).toISOString()} [${r.level}]${scope ? ` ${scope}` : ''} ${r.message}`
+    })
+    .join('\n')
+}
+
+/**
+ * Covers only what the in-memory ring buffer still holds, not the full
+ * on-disk logs/runtime.log — there is no historical-log REST endpoint yet.
+ */
+async function exportLogs(request: LogExportRequest): Promise<LogExportResult> {
+  const batch = store.queryLogs({ ...request.query, limit: request.query.limit ?? Infinity })
+  const content = formatLogRecords(batch.records, request.format)
+
+  if (request.destination === 'clipboard') {
+    clipboard.writeText(content)
+    return { ok: true, count: batch.records.length }
+  }
+
+  if (!mainWindow) return { ok: false, count: 0, error: 'Window unavailable' }
+  const extension = request.format === 'json' ? 'json' : request.format === 'csv' ? 'csv' : 'log'
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: `reticle-logs.${extension}`,
+    filters: [{ name: request.format.toUpperCase(), extensions: [extension] }],
+  })
+  if (result.canceled || !result.filePath) return { ok: false, count: 0, error: 'Export cancelled' }
+  try {
+    await fs.writeFile(result.filePath, content, 'utf8')
+    return { ok: true, path: result.filePath, count: batch.records.length }
+  } catch (error) {
+    return { ok: false, count: 0, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** Sanitizes a user-given name into a safe filename stem — reused by every "export this named thing as JSON" feature. */
+function safeFileStem(name: string, fallback: string): string {
+  return name.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || fallback
+}
+
+/** Shared by every "save a JSON file the user picks" export. */
+async function exportJsonFile(defaultStem: string, data: unknown): Promise<FileExportResult> {
+  if (!mainWindow) return { ok: false, error: 'Window unavailable' }
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: `${defaultStem}.json`,
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  })
+  if (result.canceled || !result.filePath) return { ok: false, error: 'Export cancelled' }
+  try {
+    await fs.writeFile(result.filePath, JSON.stringify(data, null, 2), 'utf8')
+    return { ok: true, path: result.filePath }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** Shared by every "open a file picker and parse/validate a previously exported JSON file" import. */
+async function importJsonFile<T>(validate: (value: unknown) => T | null): Promise<{ ok: boolean; data?: T; error?: string }> {
+  if (!mainWindow) return { ok: false, error: 'Window unavailable' }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [{ name: 'JSON', extensions: ['json'] }],
+  })
+  if (result.canceled || result.filePaths.length === 0) return { ok: false, error: 'Import cancelled' }
+  try {
+    const raw = await fs.readFile(result.filePaths[0], 'utf8')
+    const data = validate(JSON.parse(raw))
+    if (!data) return { ok: false, error: 'Not a valid file' }
+    return { ok: true, data }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+async function exportTheme(scheme: ColorScheme): Promise<ThemeExportResult> {
+  return exportJsonFile(safeFileStem(scheme.name, 'reticle-theme'), scheme)
+}
+
+/**
+ * Untrusted input: a scheme file the user picked, parsed and re-validated
+ * field by field before it can ever reach `settings.json` or an injected
+ * stylesheet. Unknown token keys are dropped; malformed colour values are
+ * dropped individually rather than failing the whole import.
+ */
+function validateImportedScheme(value: unknown): Omit<ColorScheme, 'id'> | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  if (typeof raw.name !== 'string' || !raw.name.trim()) return null
+  if (raw.base !== 'dark' && raw.base !== 'light') return null
+  const tokensRaw = raw.tokens
+  if (tokensRaw !== undefined && (typeof tokensRaw !== 'object' || tokensRaw === null)) return null
+  const tokens: Partial<Record<ColorToken, string>> = {}
+  for (const [key, val] of Object.entries((tokensRaw ?? {}) as Record<string, unknown>)) {
+    if (!(COLOR_TOKENS as readonly string[]).includes(key)) continue
+    if (typeof val !== 'string' || !isSafeColorValue(val)) continue
+    tokens[key as ColorToken] = val.trim()
+  }
+  return { name: raw.name.trim().slice(0, 80), base: raw.base, tokens }
+}
+
+async function importTheme(): Promise<ThemeImportResult> {
+  const result = await importJsonFile(validateImportedScheme)
+  return result.ok && result.data
+    ? { ok: true, scheme: result.data }
+    : { ok: false, error: result.error }
+}
+
+async function exportProfile(profile: SettingsProfile): Promise<FileExportResult> {
+  return exportJsonFile(safeFileStem(profile.name, 'reticle-profile'), profile)
+}
+
+/**
+ * Untrusted input: a profile file the user picked. Re-validates its embedded
+ * colour schemes and node appearance the same way settings.json itself is
+ * validated; appearance/connection are structurally trusted (same depth the
+ * top-level settings already apply to those fields).
+ */
+function validateImportedProfile(value: unknown): Omit<SettingsProfile, 'id'> | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  if (typeof raw.name !== 'string' || !raw.name.trim()) return null
+  const snapshot = raw.snapshot
+  if (!snapshot || typeof snapshot !== 'object') return null
+  const s = snapshot as Record<string, unknown>
+  try {
+    validateNodeAppearance(s.nodeAppearance as StudioSettings['nodeAppearance'])
+    validateColorSchemes(s.colorSchemes as StudioSettings['colorSchemes'])
+  } catch {
+    return null
+  }
+  if (!s.appearance || typeof s.appearance !== 'object') return null
+  if (!s.connection || typeof s.connection !== 'object') return null
+  return {
+    name: raw.name.trim().slice(0, 80),
+    snapshot: s as SettingsProfile['snapshot'],
+  }
+}
+
+async function importProfile(): Promise<ProfileImportResult> {
+  const result = await importJsonFile(validateImportedProfile)
+  return result.ok && result.data
+    ? { ok: true, profile: result.data }
+    : { ok: false, error: result.error }
 }
 
 function createWindow(): void {
@@ -178,6 +351,7 @@ function registerIpc(): void {
   handle(IPC.logsScope, (_e, scope: { execId?: string; nodeId?: string }) => {
     store.setScope(scope ?? {})
   })
+  handle(IPC.logsExport, (_e, request: LogExportRequest) => exportLogs(request))
 
   handle(IPC.hitlRead, (_e, target: string) => readCheckpoint(target))
   handle(IPC.hitlResolve, (_e, request: HitlResolveRequest) =>
@@ -256,6 +430,12 @@ function registerIpc(): void {
         return
     }
   })
+
+  handle(IPC.themeExport, (_e, scheme: ColorScheme) => exportTheme(scheme))
+  handle(IPC.themeImport, () => importTheme())
+
+  handle(IPC.profileExport, (_e, profile: SettingsProfile) => exportProfile(profile))
+  handle(IPC.profileImport, () => importProfile())
 
   handle(IPC.settingsGet, () => settings.get())
   handle(IPC.settingsPatch, (_e, patch: SettingsPatch): StudioSettings => {

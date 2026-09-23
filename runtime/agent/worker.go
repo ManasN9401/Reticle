@@ -27,6 +27,7 @@ type TaskInput struct {
 	Data       any    `json:"data,omitempty"`
 }
 
+// WorkerFailureReason enumerates the known failure modes of a worker process.
 type WorkerFailureReason string
 
 const (
@@ -38,12 +39,14 @@ const (
 	WorkerStartFailed   WorkerFailureReason = "start_failed"
 )
 
+// WorkerFailure represents the parsed state of a failed worker process.
 type WorkerFailure struct {
 	Reason   WorkerFailureReason `json:"reason"`
 	ExitCode int                 `json:"exit_code"`
 	Stderr   string              `json:"stderr"`
 }
 
+// Task represents an atomic unit of work dispatched to a worker, containing inputs, context, and capabilities.
 type Task struct {
 	ID             TaskID                     `json:"id"`
 	AttemptID      string                     `json:"attempt_id,omitempty"`
@@ -60,18 +63,21 @@ type Task struct {
 	Capabilities   []Capability               `json:"capabilities,omitempty"`
 }
 
+// MemoryReference defines the scope, entity, and required version of a shared memory dependency.
 type MemoryReference struct {
 	Scope   memory.MemoryScope `json:"scope"`
 	ScopeID string             `json:"scope_id"`
 	Version uint64             `json:"version"`
 }
 
+// GraphMutation instructs the runtime to alter the workflow DAG structure (e.g., dynamically spawning a sub-agent).
 type GraphMutation struct {
 	Action             string `json:"action"`
 	TargetAgent        string `json:"target_agent"`
 	ReturnToSupervisor bool   `json:"return_to_supervisor"`
 }
 
+// MemoryMutation specifies an update to shared execution memory that must be applied transactionally.
 type MemoryMutation struct {
 	Key             string  `json:"key"`
 	Value           any     `json:"value"`
@@ -79,6 +85,7 @@ type MemoryMutation struct {
 	ExpectedVersion *uint64 `json:"expected_version,omitempty"`
 }
 
+// TaskResponse is the final structured payload returned by a worker via stdout upon successful completion.
 type TaskResponse struct {
 	ID            TaskID                 `json:"id"`
 	Result        string                 `json:"result,omitempty"`   // Legacy scalar result
@@ -88,12 +95,14 @@ type TaskResponse struct {
 	Verification  []VerificationEvidence `json:"verification,omitempty"`
 }
 
+// VerificationEvidence records deterministic proof (like a successful read) that the worker checked its work.
 type VerificationEvidence struct {
 	Tool    string `json:"tool"`
 	Target  string `json:"target"`
 	Outcome string `json:"outcome"`
 }
 
+// Worker manages the lifecycle and OS process of a single Reticle agent.
 type Worker struct {
 	Prepare        func(context.Context, Task) (string, []string, error)
 	ID             WorkerID
@@ -106,6 +115,7 @@ type Worker struct {
 	Bus            *events.Bus
 }
 
+// NewWorker initializes a Worker instance with execution binaries and arguments.
 func NewWorker(id WorkerID, executable string, args []string, envVars []string, l *logger.Logger, b *events.Bus) *Worker {
 	return &Worker{
 		ID:         id,
@@ -117,7 +127,8 @@ func NewWorker(id WorkerID, executable string, args []string, envVars []string, 
 	}
 }
 
-// Execute implements one EOF-terminated request and one final JSON response.
+// Execute spawns the OS process for the worker, streams standard output/error, and captures the final TaskResponse.
+// It implements one EOF-terminated request on stdin and expects one final JSON response on stdout.
 func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerFailure) {
 	fail := func(reason WorkerFailureReason, err error) (*TaskResponse, *WorkerFailure) {
 		return nil, &WorkerFailure{Reason: reason, ExitCode: -1, Stderr: err.Error()}

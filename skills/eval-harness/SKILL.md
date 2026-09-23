@@ -52,7 +52,7 @@ npm run build && echo "PASS" || echo "FAIL"
 ```
 
 ### 2. Model-Based Grader
-Use Claude to evaluate open-ended outputs:
+Use an LLM to evaluate open-ended outputs. (Note: Prompts may refer to specific models like "Claude" generically, but Reticle will automatically use your configured model):
 ```markdown
 [MODEL GRADER PROMPT]
 Evaluate the following code change:

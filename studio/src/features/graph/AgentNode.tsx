@@ -9,10 +9,26 @@ import {
   formatDuration,
   formatFailureReason,
 } from '@/design/status'
+import { useStudio } from '@/state/store'
 import { useUi } from '@/state/ui'
-import type { AgentFlowNode } from './layout'
-import { HEX_LABEL_HEIGHT, NODE_GEOMETRY, hexPoints } from './layout'
+import type { AgentFlowNode, ResolvedNodeGeometry } from './layout'
+import { HEX_LABEL_HEIGHT, getNodeGeometry, hexPoints } from './layout'
 import type { RunNode } from '@shared/projection'
+import type { CompactFields, DetailedFields, HexFields, HexShape } from '@shared/ipc'
+
+/** Vertex count for the two polygon shapes; 'circle' is drawn as a real <circle>. */
+const HEX_SIDES: Record<Exclude<HexShape, 'circle'>, number> = { hexagon: 6, octagon: 8 }
+
+/** Mirrors `electron/settings.ts`'s defaults — used only until settings finish loading. */
+const DEFAULT_DETAILED_FIELDS: DetailedFields = {
+  modelChip: true,
+  nodeId: true,
+  artifactCount: true,
+  retryCount: true,
+  duration: true,
+}
+const DEFAULT_COMPACT_FIELDS: CompactFields = { duration: true, icons: true }
+const DEFAULT_HEX_FIELDS: HexFields = { label: true, durationOnHover: true }
 
 /**
  * The DAG node, in three presentations.
@@ -28,29 +44,37 @@ import type { RunNode } from '@shared/projection'
 function AgentNodeInner({ data, selected }: NodeProps<AgentFlowNode>) {
   const { node, blamed, style } = data
   const setReviewNode = useUi((s) => s.setReviewNode)
+  const nodeAppearance = useStudio((s) => s.settings?.nodeAppearance)
 
-  const geometry = NODE_GEOMETRY[style]
+  const geometry = getNodeGeometry(style, nodeAppearance)
   const statusColor = NODE_STATUS_VAR[node.status]
   const running = node.status === 'running'
   const waitingOnHuman = node.status === 'waiting' && node.waiting?.kind === 'human'
 
-  const title = `${node.label} · ${NODE_STATUS_LABEL[node.status]}${
-    node.durationMs !== undefined ? ` · ${formatDuration(node.durationMs)}` : ''
-  }${node.model ? ` · ${node.model}` : ''}`
+  const durationSuffix = node.durationMs !== undefined ? ` · ${formatDuration(node.durationMs)}` : ''
+  const modelSuffix = node.model ? ` · ${node.model}` : ''
 
   if (style === 'hex') {
+    const fields = nodeAppearance?.hex.fields ?? DEFAULT_HEX_FIELDS
+    const title = `${node.label} · ${NODE_STATUS_LABEL[node.status]}${fields.durationOnHover ? durationSuffix : ''}${modelSuffix}`
     return (
       <HexNode
         node={node}
         selected={Boolean(selected)}
         blamed={blamed}
         title={title}
+        geometry={geometry}
+        hexShape={nodeAppearance?.hexShape ?? 'hexagon'}
+        fields={fields}
         onReview={() => setReviewNode(node.nodeId)}
       />
     )
   }
 
+  const title = `${node.label} · ${NODE_STATUS_LABEL[node.status]}${durationSuffix}${modelSuffix}`
+
   if (style === 'compact') {
+    const fields = nodeAppearance?.compact.fields ?? DEFAULT_COMPACT_FIELDS
     return (
       <div
         title={title}
@@ -75,23 +99,27 @@ function AgentNodeInner({ data, selected }: NodeProps<AgentFlowNode>) {
         <span className="truncate-1 min-w-0 flex-1 px-2 text-[11px] text-fg-1">
           {node.label}
         </span>
-        {node.attempts > 1 ? (
+        {fields.icons && node.attempts > 1 ? (
           <RotateCw size={9} strokeWidth={2} className="mr-1 shrink-0 text-st-waiting" />
         ) : null}
-        {node.mocked ? (
+        {fields.icons && node.mocked ? (
           <FlaskConical size={9} strokeWidth={2} className="mr-1 shrink-0 text-st-waiting" />
         ) : null}
-        <span
-          className="num mono mr-2 shrink-0 text-[10px]"
-          style={{ color: durationVar(node.durationMs) }}
-        >
-          {node.durationMs === undefined && running ? '···' : formatDuration(node.durationMs)}
-        </span>
+        {fields.duration ? (
+          <span
+            className="num mono mr-2 shrink-0 text-[10px]"
+            style={{ color: durationVar(node.durationMs) }}
+          >
+            {node.durationMs === undefined && running ? '···' : formatDuration(node.durationMs)}
+          </span>
+        ) : null}
         {waitingOnHuman ? <ReviewPill compact onClick={() => setReviewNode(node.nodeId)} /> : null}
         <Handle type="source" position={Position.Bottom} />
       </div>
     )
   }
+
+  const fields = nodeAppearance?.detailed.fields ?? DEFAULT_DETAILED_FIELDS
 
   return (
     <div
@@ -132,35 +160,41 @@ function AgentNodeInner({ data, selected }: NodeProps<AgentFlowNode>) {
           >
             {node.label}
           </span>
-          <span
-            className="num mono shrink-0 text-2xs"
-            style={{ color: durationVar(node.durationMs) }}
-            title={node.durationMs === undefined ? 'No duration yet' : 'Derived duration'}
-          >
-            {node.durationMs === undefined && running
-              ? '···'
-              : formatDuration(node.durationMs)}
-          </span>
+          {fields.duration ? (
+            <span
+              className="num mono shrink-0 text-2xs"
+              style={{ color: durationVar(node.durationMs) }}
+              title={node.durationMs === undefined ? 'No duration yet' : 'Derived duration'}
+            >
+              {node.durationMs === undefined && running
+                ? '···'
+                : formatDuration(node.durationMs)}
+            </span>
+          ) : null}
         </div>
 
-        <div className="mono truncate-1 text-2xs text-fg-4" title={node.nodeId}>
-          {node.nodeId}
-        </div>
+        {fields.nodeId ? (
+          <div className="mono truncate-1 text-2xs text-fg-4" title={node.nodeId}>
+            {node.nodeId}
+          </div>
+        ) : null}
 
         <div className="flex min-w-0 items-center gap-1.5">
-          {node.model ? (
-            <span
-              className="mono truncate-1 min-w-0 rounded-[3px] border border-line-2 px-1 text-2xs text-fg-3"
-              title={node.model}
-            >
-              {shortModel(node.model)}
-            </span>
-          ) : (
-            <span className="text-2xs text-fg-4">—</span>
-          )}
+          {fields.modelChip ? (
+            node.model ? (
+              <span
+                className="mono truncate-1 min-w-0 rounded-[3px] border border-line-2 px-1 text-2xs text-fg-3"
+                title={node.model}
+              >
+                {shortModel(node.model)}
+              </span>
+            ) : (
+              <span className="text-2xs text-fg-4">—</span>
+            )
+          ) : null}
 
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
-            {node.artifacts.length > 0 ? (
+            {fields.artifactCount && node.artifacts.length > 0 ? (
               <span
                 className="num flex items-center gap-0.5 text-2xs text-fg-3"
                 title={`${node.artifacts.length} artifact${node.artifacts.length === 1 ? '' : 's'} produced`}
@@ -170,7 +204,7 @@ function AgentNodeInner({ data, selected }: NodeProps<AgentFlowNode>) {
               </span>
             ) : null}
 
-            {node.attempts > 1 ? (
+            {fields.retryCount && node.attempts > 1 ? (
               <span
                 className="num flex items-center gap-0.5 text-2xs text-st-waiting"
                 title={`${node.attempts} attempts — retried ${node.attempts - 1} time${node.attempts === 2 ? '' : 's'}`}
@@ -258,16 +292,22 @@ function HexNode({
   selected,
   blamed,
   title,
+  geometry,
+  hexShape,
+  fields,
   onReview,
 }: {
   node: RunNode
   selected: boolean
   blamed: boolean
   title: string
+  geometry: ResolvedNodeGeometry
+  hexShape: HexShape
+  fields: HexFields
   onReview: () => void
 }) {
-  const { width, height } = NODE_GEOMETRY.hex
-  const hexHeight = height - HEX_LABEL_HEIGHT
+  const { width, height, scale } = geometry
+  const hexHeight = height - HEX_LABEL_HEIGHT * scale
   const statusColor = NODE_STATUS_VAR[node.status]
 
   const running = node.status === 'running'
@@ -312,23 +352,47 @@ function HexNode({
         aria-hidden
       >
         {selected ? (
-          <polygon
-            points={hexPoints(cx, cy, radius + 3)}
-            fill="none"
-            stroke="var(--color-accent)"
-            strokeWidth={1}
-            opacity={0.5}
-          />
+          hexShape === 'circle' ? (
+            <circle
+              cx={cx}
+              cy={cy}
+              r={radius + 3}
+              fill="none"
+              stroke="var(--color-accent)"
+              strokeWidth={1}
+              opacity={0.5}
+            />
+          ) : (
+            <polygon
+              points={hexPoints(cx, cy, radius + 3, HEX_SIDES[hexShape])}
+              fill="none"
+              stroke="var(--color-accent)"
+              strokeWidth={1}
+              opacity={0.5}
+            />
+          )
         ) : null}
 
-        <polygon
-          points={hexPoints(cx, cy, radius)}
-          fill="var(--color-inset)"
-          stroke={stroke}
-          strokeWidth={selected ? 2 : 1.5}
-          opacity={pending ? 0.65 : 1}
-          strokeLinejoin="round"
-        />
+        {hexShape === 'circle' ? (
+          <circle
+            cx={cx}
+            cy={cy}
+            r={radius}
+            fill="var(--color-inset)"
+            stroke={stroke}
+            strokeWidth={selected ? 2 : 1.5}
+            opacity={pending ? 0.65 : 1}
+          />
+        ) : (
+          <polygon
+            points={hexPoints(cx, cy, radius, HEX_SIDES[hexShape])}
+            fill="var(--color-inset)"
+            stroke={stroke}
+            strokeWidth={selected ? 2 : 1.5}
+            opacity={pending ? 0.65 : 1}
+            strokeLinejoin="round"
+          />
+        )}
 
         {failed ? (
           <path
@@ -392,7 +456,7 @@ function HexNode({
         >
           Review
         </button>
-      ) : (
+      ) : fields.label ? (
         <span className="flex w-full justify-center">
           {/*
             Edges leave the hexagon's bottom vertex and pass straight through
@@ -407,7 +471,7 @@ function HexNode({
             {node.label}
           </span>
         </span>
-      )}
+      ) : null}
 
       <Handle
         type="source"

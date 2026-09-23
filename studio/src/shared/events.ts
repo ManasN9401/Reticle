@@ -118,29 +118,34 @@ export interface WireEdge {
   To?: string
 }
 
+/** Payload for the WorkflowStarted event, representing the initialization of a DAG. */
 export interface WorkflowStartedPayload {
   workflow_id?: string
   exec_id?: string
   edges?: WireEdge[]
 }
 
+/** Payload for the NodeReady event, triggered when a node's dependencies are satisfied. */
 export interface NodeReadyPayload {
   node_id?: string
   exec_id?: string
   workflow?: string
 }
 
+/** Payload for the TaskDispatched event, recording which model and worker took a task. */
 export interface TaskDispatchedPayload {
   task_id?: string
   worker_id?: string
   llm_model?: string
 }
 
+/** Payload for standard worker lifecycle events (WorkerStarted, WorkerCompleted). */
 export interface WorkerLifecyclePayload {
   task_id?: string
   worker_id?: string
 }
 
+/** Payload for the WorkerLog event, containing streaming stderr from the worker. */
 export interface WorkerLogPayload {
   task_id?: string
   worker_id?: string
@@ -156,6 +161,7 @@ export type WorkerFailureReason =
   | 'panic'
   | 'start_failed'
 
+/** Payload for the WorkerFailed event, containing error details and terminal output. */
 export interface WorkerFailedPayload {
   task_id?: string
   worker_id?: string
@@ -164,6 +170,7 @@ export interface WorkerFailedPayload {
   stderr?: string
 }
 
+/** Payload for terminal workflow events (WorkflowCompleted, WorkflowFailed). */
 export interface WorkflowTerminalPayload {
   workflow?: string
   execution?: string
@@ -198,6 +205,7 @@ export interface Attachment {
   path: string
 }
 
+/** Represents a pending or active instruction in the execution waitlist. */
 export interface WaitlistItem {
   id: string
   prompt: string
@@ -211,6 +219,7 @@ export interface WaitlistItem {
   created_at?: string
 }
 
+/** Payload for the WaitlistUpdated event, broadcasting the full queue state. */
 export interface WaitlistPayload {
   items: WaitlistItem[] | null
   maxWorkers: number

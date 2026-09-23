@@ -45,6 +45,7 @@ function GraphCanvasInner() {
   const { fitView } = useReactFlow()
 
   const nodeStyle = useStudio((s) => s.settings?.appearance.nodeStyle ?? 'detailed')
+  const nodeAppearance = useStudio((s) => s.settings?.nodeAppearance)
   const theme = useResolvedTheme()
   const [direction, setDirection] = useState<LayoutDirection>('TB')
   const [hidden, setHidden] = useState<Set<NodeStatus>>(new Set())
@@ -71,14 +72,14 @@ function GraphCanvasInner() {
    */
   const nodeCount = run ? Object.keys(run.nodes).length : 0
   const layout = useMemo(
-    () => (run ? layoutPositions(run, direction, nodeStyle, pinned) : null),
+    () => (run ? layoutPositions(run, direction, nodeStyle, nodeAppearance, pinned) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on topology, not on `run` identity
-    [run?.execId, run?.edges, nodeCount, direction, nodeStyle, pinned],
+    [run?.execId, run?.edges, nodeCount, direction, nodeStyle, nodeAppearance, pinned],
   )
 
   const { nodes, edges } = useMemo(() => {
     if (!run || !layout) return { nodes: [] as AgentFlowNode[], edges: [] as Edge[] }
-    const built = buildGraph(run, layout, nodeStyle, selectedNodeId)
+    const built = buildGraph(run, layout, nodeStyle, selectedNodeId, nodeAppearance)
     if (hidden.size === 0) return built
 
     const visible = new Set(
@@ -88,7 +89,7 @@ function GraphCanvasInner() {
       nodes: built.nodes.filter((n) => visible.has(n.id)),
       edges: built.edges.filter((e) => visible.has(e.source) && visible.has(e.target)),
     }
-  }, [run, layout, nodeStyle, selectedNodeId, hidden])
+  }, [run, layout, nodeStyle, selectedNodeId, nodeAppearance, hidden])
 
   const onNodesChange = useCallback((changes: NodeChange<AgentFlowNode>[]) => {
     // Only positions are persisted; everything else is derived from the run.

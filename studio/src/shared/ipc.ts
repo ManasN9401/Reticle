@@ -40,6 +40,7 @@ export const IPC = {
   // --- logs ----------------------------------------------------------------
   logsQuery: 'logs:query',
   logsScope: 'logs:scope',
+  logsExport: 'logs:export',
   pushLogs: 'push:logs',
 
   // --- human-in-the-loop checkpoints ---------------------------------------
@@ -73,6 +74,14 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsPatch: 'settings:patch',
   pushSettings: 'push:settings',
+
+  // --- colour scheme import/export ------------------------------------------
+  themeExport: 'theme:export',
+  themeImport: 'theme:import',
+
+  // --- settings profile import/export ---------------------------------------
+  profileExport: 'profile:export',
+  profileImport: 'profile:import',
 
   // --- native menu ----------------------------------------------------------
   pushCommand: 'push:command',
@@ -236,6 +245,24 @@ export interface LogBatch {
   truncated: boolean
 }
 
+export type LogExportFormat = 'json' | 'text' | 'csv'
+export type LogExportDestination = 'file' | 'clipboard'
+
+export interface LogExportRequest {
+  /** Same filter shape as the live panel, so an export matches what's on screen. */
+  query: LogQuery
+  format: LogExportFormat
+  destination: LogExportDestination
+}
+
+export interface LogExportResult {
+  ok: boolean
+  /** Absolute path written to. Present only when destination is 'file' and the save succeeded. */
+  path?: string
+  count: number
+  error?: string
+}
+
 export interface HitlCheckpoint {
   path: string
   exists: boolean
@@ -323,7 +350,7 @@ export interface ReadFileResult {
   size: number
 }
 
-export type ThemePreference = 'system' | 'dark' | 'light'
+export type ThemePreference = 'system' | 'dark' | 'light' | 'custom'
 export type ResolvedTheme = 'dark' | 'light'
 
 /**
@@ -333,6 +360,148 @@ export type ResolvedTheme = 'dark' | 'light'
  *  - hex:      hexagon echoing the embedded telemetry star map. Densest.
  */
 export type NodeStyle = 'detailed' | 'compact' | 'hex'
+
+/** Shape drawn for the 'hex' node style. Status colour and label are unaffected. */
+export type HexShape = 'hexagon' | 'octagon' | 'circle'
+
+/** Which pieces of data the 'detailed' card draws, beyond the always-on status rail and label. */
+export interface DetailedFields {
+  modelChip: boolean
+  nodeId: boolean
+  artifactCount: boolean
+  retryCount: boolean
+  duration: boolean
+}
+
+/** Which pieces of data the 'compact' one-liner draws, beyond the always-on status rail and label. */
+export interface CompactFields {
+  duration: boolean
+  /** Retry-count and mock-output glyphs — grouped since both are small inline icons. */
+  icons: boolean
+}
+
+/** Which pieces of data the 'hex' shape draws, beyond the always-on status stroke/core. */
+export interface HexFields {
+  label: boolean
+  /** Hex has no room for inline duration text; this toggles it out of the hover tooltip instead. */
+  durationOnHover: boolean
+}
+
+/** Uniform size multiplier + which fields are drawn, for one node map style. */
+export interface NodeStyleAppearance<TFields> {
+  /** Clamped 0.85–1.35. Applied uniformly to every geometry value for the style, never per-dimension, so hand-tuned proportions (edge clearance, hex label strip) never drift relative to each other. */
+  scale: number
+  fields: TFields
+}
+
+export interface NodeAppearanceSettings {
+  hexShape: HexShape
+  detailed: NodeStyleAppearance<DetailedFields>
+  compact: NodeStyleAppearance<CompactFields>
+  hex: NodeStyleAppearance<HexFields>
+}
+
+/**
+ * Colour-only design tokens a scheme may override — mirrors the custom
+ * property names in `src/design/tokens.css` minus the `color-` prefix.
+ * Structural tokens (radius, motion, type) are deliberately not exposed, so a
+ * custom scheme can never make chrome carry status-like saturation by
+ * accident — only these tokens are ever user-editable.
+ */
+export const COLOR_TOKENS = [
+  'bg-0', 'bg-1', 'bg-2', 'bg-3', 'inset',
+  'line-1', 'line-2', 'line-3',
+  'fg-1', 'fg-2', 'fg-3', 'fg-4',
+  'accent', 'accent-fg',
+  'st-idle', 'st-running', 'st-done', 'st-failed', 'st-waiting',
+] as const
+
+export type ColorToken = (typeof COLOR_TOKENS)[number]
+
+/** Accepts hex/rgb/rgba/hsl/hsla only — rejects anything that could break out of a CSS declaration (url(), ;, {, @import, ...). */
+const SAFE_COLOR_VALUE_RE =
+  /^(#[0-9a-fA-F]{3,8}|rgba?\(\s*[\d.]+%?\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*(,\s*[\d.]+%?\s*)?\)|hsla?\(\s*[\d.]+\s*,\s*[\d.]+%?\s*,\s*[\d.]+%?\s*(,\s*[\d.]+%?\s*)?\))$/
+
+export function isSafeColorValue(value: string): boolean {
+  return SAFE_COLOR_VALUE_RE.test(value.trim())
+}
+
+export interface ColorScheme {
+  id: string
+  name: string
+  /** Which built-in palette supplies any token this scheme doesn't override. */
+  base: ResolvedTheme
+  tokens: Partial<Record<ColorToken, string>>
+}
+
+/** Shared by every "save a JSON file the user picks" export (theme, profile). */
+export interface FileExportResult {
+  ok: boolean
+  path?: string
+  error?: string
+}
+
+export type ThemeExportResult = FileExportResult
+
+export interface ThemeImportResult {
+  ok: boolean
+  /** Present on success; caller assigns a fresh id before storing it. */
+  scheme?: Omit<ColorScheme, 'id'>
+  error?: string
+}
+
+// ---------------------------------------------------------------------------
+// Workspace layout — lives here (not only in state/ui.ts) because a saved or
+// auto-persisted layout crosses into the main process via settings.json.
+// `state/ui.ts` re-exports these so existing renderer imports are unaffected.
+// ---------------------------------------------------------------------------
+
+export type ViewId = 'runs' | 'graph' | 'agents' | 'artifacts' | 'explorer' | 'settings'
+export type PanelTab = 'activity' | 'logs' | 'problems' | 'terminal' | 'preview'
+
+export interface EditorTab {
+  id: string
+  kind: 'graph' | 'file'
+  title: string
+  /** Absolute path for file tabs read from disk. */
+  path?: string
+  /** Inline content for tabs delivered over the API rather than the filesystem. */
+  content?: string
+  /** Path shown in the breadcrumb. */
+  subtitle?: string
+}
+
+export interface LayoutSnapshot {
+  activeView: ViewId
+  sidebarOpen: boolean
+  sidebarWidth: number
+  panelOpen: boolean
+  panelTab: PanelTab
+  panelHeight: number
+  panelMaximized: boolean
+  tabs: EditorTab[]
+  activeTabId: string
+  inspectorOpen: boolean
+}
+
+export interface NamedLayout {
+  id: string
+  name: string
+  snapshot: LayoutSnapshot
+}
+
+export interface SettingsProfile {
+  id: string
+  name: string
+  snapshot: Pick<StudioSettings, 'appearance' | 'nodeAppearance' | 'colorSchemes' | 'connection'>
+}
+
+export interface ProfileImportResult {
+  ok: boolean
+  /** Present on success; caller assigns a fresh id before storing it. */
+  profile?: Omit<SettingsProfile, 'id'>
+  error?: string
+}
 
 export interface StudioSettings {
   connection: {
@@ -359,6 +528,22 @@ export interface StudioSettings {
     reduceMotion: boolean
     /** How nodes are drawn in the node map. */
     nodeStyle: NodeStyle
+  }
+  nodeAppearance: NodeAppearanceSettings
+  colorSchemes: {
+    schemes: ColorScheme[]
+    /** id of the scheme applied when appearance.theme === 'custom'. */
+    activeId: string | null
+  }
+  profiles: {
+    profiles: SettingsProfile[]
+    /** Informational only — "last profile applied." Not a live binding; editing settings afterward doesn't update the profile. */
+    activeId: string | null
+  }
+  tabLayouts: {
+    /** The current arrangement, written back (debounced) on every change so it survives a restart. */
+    autoPersist: LayoutSnapshot
+    saved: NamedLayout[]
   }
   logs: {
     /** Ring buffer size in the main process. */
@@ -491,6 +676,8 @@ export interface ReticleBridge {
     query(query: LogQuery): Promise<LogBatch>
     /** Narrow the live push stream; omit both fields for everything. */
     scope(scope: { execId?: string; nodeId?: string }): Promise<void>
+    /** Exports the buffered session history matching `query` — not the full on-disk runtime.log. */
+    export(request: LogExportRequest): Promise<LogExportResult>
     onBatch(handler: (batch: LogBatch) => void): Unsubscribe
   }
 
@@ -533,6 +720,20 @@ export interface ReticleBridge {
     get(): Promise<StudioSettings>
     patch(patch: SettingsPatch): Promise<StudioSettings>
     onChange(handler: (settings: StudioSettings) => void): Unsubscribe
+  }
+
+  theme: {
+    /** Saves one colour scheme to a JSON file the user picks. */
+    export(scheme: ColorScheme): Promise<ThemeExportResult>
+    /** Opens a file picker and parses/validates a previously exported scheme. */
+    import(): Promise<ThemeImportResult>
+  }
+
+  profile: {
+    /** Saves one settings profile to a JSON file the user picks. */
+    export(profile: SettingsProfile): Promise<FileExportResult>
+    /** Opens a file picker and parses/validates a previously exported profile. */
+    import(): Promise<ProfileImportResult>
   }
 
   /** Actions only the main process can perform (clipboard, zoom, devtools, quit). */

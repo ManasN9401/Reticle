@@ -1,12 +1,15 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowDownToLine, Ban, Filter, Search, Trash2 } from 'lucide-react'
+import { ArrowDownToLine, Ban, ClipboardCopy, Download, Filter, Search, Trash2 } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/design/cn'
-import { EmptyState, IconButton, Input } from '@/design/primitives'
+import { EmptyState, IconButton, Input, Select } from '@/design/primitives'
 import { formatClock } from '@/design/status'
 import { compactToolLog } from '@/features/graph/toolLog'
+import { bridge } from '@/state/bridge'
 import { useActiveRun, useStudio } from '@/state/store'
-import type { LogRecord } from '@shared/ipc'
+import type { LogExportFormat, LogQuery, LogRecord } from '@shared/ipc'
+
+const EXPORT_FORMATS: LogExportFormat[] = ['json', 'text', 'csv']
 
 const ROW_HEIGHT = 18
 
@@ -37,8 +40,40 @@ export function LogPanel() {
   const [scopeToNode, setScopeToNode] = useState(false)
   // Seeded from the persisted preference; scrolling away still releases it.
   const [follow, setFollow] = useState(followDefault)
+  const [exportFormat, setExportFormat] = useState<LogExportFormat>('json')
 
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Mirrors the in-memory `filtered` predicate above, so an export matches
+  // exactly what's on screen rather than re-deriving a second filter model.
+  const currentQuery = (): LogQuery => ({
+    execId: run?.execId,
+    nodeId: scopeToNode ? (selectedNodeId ?? undefined) : undefined,
+    search: search.trim() || undefined,
+    levels: levels.size < LEVELS.length ? Array.from(levels) : undefined,
+  })
+
+  async function handleExport() {
+    if (!bridge) return
+    const result = await bridge.logs.export({
+      query: currentQuery(),
+      format: exportFormat,
+      destination: 'file',
+    })
+    if (!result.ok && result.error !== 'Export cancelled') {
+      console.error('[logs] export failed', result.error)
+    }
+  }
+
+  async function handleCopy() {
+    if (!bridge) return
+    const result = await bridge.logs.export({
+      query: currentQuery(),
+      format: 'text',
+      destination: 'clipboard',
+    })
+    if (!result.ok) console.error('[logs] copy failed', result.error)
+  }
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -162,6 +197,27 @@ export function LogPanel() {
           }}
         >
           <ArrowDownToLine size={13} strokeWidth={1.7} />
+        </IconButton>
+
+        <Select
+          value={exportFormat}
+          onChange={(event) => setExportFormat(event.target.value as LogExportFormat)}
+          aria-label="Export format"
+          className="h-6 w-[68px] text-2xs"
+        >
+          {EXPORT_FORMATS.map((format) => (
+            <option key={format} value={format}>
+              {format.toUpperCase()}
+            </option>
+          ))}
+        </Select>
+
+        <IconButton label="Export filtered logs to a file" size="sm" onClick={handleExport}>
+          <Download size={13} strokeWidth={1.7} />
+        </IconButton>
+
+        <IconButton label="Copy filtered logs to clipboard" size="sm" onClick={handleCopy}>
+          <ClipboardCopy size={13} strokeWidth={1.7} />
         </IconButton>
 
         <IconButton label="Clear logs" size="sm" onClick={clearLogs}>

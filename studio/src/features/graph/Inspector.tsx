@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FlaskConical, MousePointerSquareDashed, TriangleAlert } from 'lucide-react'
+import { Download, FlaskConical, MousePointerSquareDashed, TriangleAlert } from 'lucide-react'
 import { cn } from '@/design/cn'
-import { Badge, Button, EmptyState, StatusPip } from '@/design/primitives'
+import { Badge, Button, EmptyState, IconButton, StatusPip } from '@/design/primitives'
 import {
   NODE_STATUS_LABEL,
   NODE_STATUS_VAR,
@@ -9,6 +9,7 @@ import {
   formatDuration,
   formatFailureReason,
 } from '@/design/status'
+import { bridge } from '@/state/bridge'
 import { useActiveRun, useActiveNode, useStudio } from '@/state/store'
 import { useUi } from '@/state/ui'
 import { compactToolLog } from './toolLog'
@@ -62,6 +63,19 @@ export function Inspector() {
           <Badge color={NODE_STATUS_VAR[node.status]}>
             {NODE_STATUS_LABEL[node.status]}
           </Badge>
+          <IconButton
+            label="Export logs for this node"
+            size="sm"
+            onClick={() =>
+              bridge?.logs.export({
+                query: { nodeId: node.nodeId },
+                format: 'json',
+                destination: 'file',
+              })
+            }
+          >
+            <Download size={13} strokeWidth={1.7} />
+          </IconButton>
         </div>
         <div className="mono mt-1 truncate-1 text-2xs text-fg-4">{node.taskId}</div>
       </div>

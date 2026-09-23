@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// RuntimeType defines the execution environment required by an agent.
 type RuntimeType string
 
 const (
@@ -23,6 +24,7 @@ const (
 	RuntimeBinary RuntimeType = "binary"
 )
 
+// AgentDefinition represents the parsed configuration of an agent.
 type AgentDefinition struct {
 	ID          WorkerID `yaml:"id"`
 	Name        string   `yaml:"name"`
@@ -41,6 +43,7 @@ type AgentDefinition struct {
 	Subscriptions []SubscriptionYAML `yaml:"subscriptions"`
 }
 
+// SkillDefinition defines a shared capability, toolset, or dependency group that can be attached to an agent.
 type SkillDefinition struct {
 	ID               string   `yaml:"id"`
 	Name             string   `yaml:"name"`
@@ -51,12 +54,14 @@ type SkillDefinition struct {
 	EnvVars          []string `yaml:"env_vars"`
 }
 
+// SubscriptionYAML defines an event subscription for an agent.
 type SubscriptionYAML struct {
 	ID      string            `yaml:"id"`
 	Event   string            `yaml:"event"`
 	Filters map[string]string `yaml:"filters"`
 }
 
+// Registry manages the collection of all loaded agents, workflows, and skills.
 type Registry struct {
 	mu          sync.Mutex
 	Definitions map[WorkerID]AgentDefinition
@@ -64,6 +69,7 @@ type Registry struct {
 	Skills      map[string]SkillDefinition
 }
 
+// NewRegistry initializes and returns a new empty Registry.
 func NewRegistry() *Registry {
 	return &Registry{
 		Definitions: make(map[WorkerID]AgentDefinition),
@@ -72,6 +78,7 @@ func NewRegistry() *Registry {
 	}
 }
 
+// LoadAgents recursively scans a directory for agent YAML definitions and loads them into the registry.
 func (r *Registry) LoadAgents(directory string) error {
 	return filepath.WalkDir(directory, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -122,6 +129,7 @@ func (r *Registry) LoadAgents(directory string) error {
 	})
 }
 
+// LoadSkills scans a directory for skill YAML definitions and loads them into the registry.
 func (r *Registry) LoadSkills(directory string) error {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
@@ -200,6 +208,7 @@ func validateSkillDependencies(def *SkillDefinition) error {
 	return nil
 }
 
+// LoadWorkflows scans a directory for workflow YAML definitions and loads them into the registry.
 func (r *Registry) LoadWorkflows(directory string) error {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
@@ -319,6 +328,7 @@ func (r *Registry) LoadWorkflows(directory string) error {
 	return nil
 }
 
+// BuildWorkers instantiates executable Worker instances for all agents currently in the registry.
 func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *EnvironmentManager) map[WorkerID]*Worker {
 	workers := make(map[WorkerID]*Worker)
 
@@ -366,6 +376,7 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 	return workers
 }
 
+// BuildSubscriptions generates a list of Event Bus Subscriptions from all agents in the registry.
 func (r *Registry) BuildSubscriptions() []*Subscription {
 	var subs []*Subscription
 
@@ -388,7 +399,7 @@ func (r *Registry) BuildSubscriptions() []*Subscription {
 	return subs
 }
 
-// Load a compiled registry under execution-specific keys. Public agent IDs stay local to the graph.
+// LoadAgentsForExecution loads a compiled registry under execution-specific keys. Public agent IDs stay local to the graph.
 func (r *Registry) LoadAgentsForExecution(dir, execution string) error {
 	local := NewRegistry()
 	if err := local.LoadAgents(dir); err != nil {
@@ -404,6 +415,7 @@ func (r *Registry) LoadAgentsForExecution(dir, execution string) error {
 	return nil
 }
 
+// LoadWorkflowsForExecution loads workflows and remaps agent references to use execution-scoped keys.
 func (r *Registry) LoadWorkflowsForExecution(dir, execution string) error {
 	r.mu.Lock()
 	local := NewRegistry()
@@ -425,6 +437,8 @@ func (r *Registry) LoadWorkflowsForExecution(dir, execution string) error {
 	}
 	return nil
 }
+
+// BuildWorkersForExecution instantiates workers only for agents specific to a given execution.
 func (r *Registry) BuildWorkersForExecution(execution string, l *logger.Logger, b *events.Bus, em *EnvironmentManager) map[WorkerID]*Worker {
 	r.mu.Lock()
 	local := NewRegistry()
@@ -446,6 +460,7 @@ func decodeDefinition(data []byte, value any) error {
 	return d.Decode(value)
 }
 
+// GetWorkflow retrieves a parsed workflow definition by its ID.
 func (r *Registry) GetWorkflow(id string) (*WorkflowDefinition, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
