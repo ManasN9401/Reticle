@@ -277,6 +277,8 @@ Defines:
 - Dependencies
 - Version compatibility
 
+> Filed as [`docs/rfc/RFC-047-Plugin-System.md`](rfc/RFC-047-Plugin-System.md) (`status: draft`) — "RFC-013" here is this roadmap's placeholder label, not the number the actual document was filed under.
+
 ---
 
 ## RFC-014 — MCP Integration
@@ -291,6 +293,8 @@ Topics include:
 - Context sharing
 - Tool exposure
 - Runtime management
+
+> Filed as [`docs/rfc/RFC-046-MCP-Integration.md`](rfc/RFC-046-MCP-Integration.md) (`status: draft`) — "RFC-014" here is this roadmap's placeholder label, not the number the actual document was filed under.
 
 ---
 
