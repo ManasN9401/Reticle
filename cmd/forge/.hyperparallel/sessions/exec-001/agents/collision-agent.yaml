@@ -1,6 +1,0 @@
-id: collision-agent
-name: "Collision and Score Manager"
-description: "Manages game state, scoring system, life count, and hit detection between sprites."
-version: 1.0.0
-runtime: python
-entrypoint: workers/collision-agent.py

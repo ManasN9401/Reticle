@@ -1,6 +1,0 @@
-id: player-agent
-name: "Player Ship Controller"
-description: "Implements the player movement, shooting mechanics, and cooldown logic."
-version: 1.0.0
-runtime: python
-entrypoint: workers/player-agent.py

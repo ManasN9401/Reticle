@@ -1,6 +1,0 @@
-id: main-agent
-name: "Game Loop Entrypoint"
-description: "Initializes the game engine, manages the state loop, and orchestrates the other components."
-version: 1.0.0
-runtime: python
-entrypoint: workers/main-agent.py

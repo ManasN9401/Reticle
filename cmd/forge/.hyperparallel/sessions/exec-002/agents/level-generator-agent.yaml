@@ -1,6 +1,0 @@
-id: level-generator-agent
-name: "Level Grid and Camera Coordinator"
-description: "Builds the game board layout, platform tiles, and tracks the side-scroller camera offsets."
-version: 1.0.0
-runtime: python
-entrypoint: workers/level-generator-agent.py

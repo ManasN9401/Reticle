@@ -1,6 +1,0 @@
-id: enemy-ai-agent
-name: "Enemy AI and Hazard Engine"
-description: "Develops the enemy sprite behavior, boundary patrolling logic, and player damage detection."
-version: 1.0.0
-runtime: python
-entrypoint: workers/enemy-ai-agent.py

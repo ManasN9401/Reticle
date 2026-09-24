@@ -1,6 +1,0 @@
-id: ui-and-hud-agent
-name: "UI and Game HUD Designer"
-description: "Creates overlays for user stats like health, score, levels, start screen, and game-over screens."
-version: 1.0.0
-runtime: python
-entrypoint: workers/ui-and-hud-agent.py

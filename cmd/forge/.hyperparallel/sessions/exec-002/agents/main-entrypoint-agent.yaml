@@ -1,6 +1,0 @@
-id: main-entrypoint-agent
-name: "Main Loop and Event Integrator"
-description: "Assembles all components into the main game loop, managing screens, frame rate, and inputs."
-version: 1.0.0
-runtime: python
-entrypoint: workers/main-entrypoint-agent.py
