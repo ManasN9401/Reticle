@@ -15,3 +15,9 @@ The lower Activity panel is the default operational view and has three sections:
 - **Tools** separates worker tool calls from ordinary output.
 
 Raw output remains available under Logs, node-specific output and model text remain in the node inspector, and failures remain under Problems. Dependency provisioning emits `EnvironmentProvisioningStarted`, `EnvironmentProvisioningCompleted` and `EnvironmentProvisioningFailed` events over the normal telemetry stream. Task-triggered events carry execution, task, attempt and operation identity; Activity keys each operation separately and selected-run log scope excludes other executions. This allows Activity to work when Studio connects to an external Forge process instead of relying on terminal text from a process Studio launched.
+
+## Integrated terminal and preview
+
+The lower Terminal panel starts a real pseudo-terminal in the selected run's isolated workspace (or the session-workspace root when no run is selected). The Electron main process owns the shell and validates its working directory against the configured Reticle checkout; the sandboxed renderer receives only bounded input/output and resize messages through the typed preload bridge. Changing the selected run restarts the terminal in the newly selected workspace. Closing Studio terminates every terminal process.
+
+The Preview panel embeds applications served on loopback addresses. It accepts only `http` or `https` URLs whose host is `localhost`, `127.0.0.1`, or `::1`; arbitrary remote origins and file URLs are rejected. URLs printed by the integrated terminal are detected and opened automatically, while the address field, reload button, and external-browser button remain available for manual control. The embedded page is sandboxed and receives no preload bridge or filesystem privileges.

@@ -32,6 +32,7 @@ The preload bridge exposes narrow typed groups rather than generic channel names
 - models, artifacts, uploads, and approvals;
 - guarded workspace summary/tree/file operations;
 - settings and theme.
+- pseudo-terminal lifecycle, text input/output and resize operations.
 
 Channel constants and request/response types live in `studio/src/shared/ipc.ts`. Privileged handlers live under `studio/electron/`. The renderer runs with Node integration disabled, context isolation enabled, and sandboxing enabled.
 
@@ -39,6 +40,8 @@ Channel constants and request/response types live in `studio/src/shared/ipc.ts`.
 
 - The projection is a deterministic fold, but historical events are bounded and are not a durable outbox.
 - Workspace reads execute in the main process, remain inside the configured checkout, reject symlinks and sensitive files, and cap recursive scans.
+- Integrated shells execute only in an existing directory inside that checkout. The main process owns each pseudo-terminal and terminates it at Studio shutdown; terminal data crosses IPC as typed text events.
+- Embedded preview navigation is renderer-local and limited to loopback HTTP(S) addresses. Preview frames are sandboxed and do not receive the preload bridge.
 - Scheduled Explorer refreshes wait for the previous scan to finish. Results carry an in-renderer generation and stale responses are discarded.
 - Environment Activity keys operations by `operation_id`; selected-run log scope uses the event's execution identity.
 - Shared memory is not mirrored as a generic renderer-accessible blackboard. Studio learns about artifacts and lifecycle state through typed events and APIs.
