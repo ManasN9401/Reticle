@@ -63,6 +63,14 @@ export const IPC = {
   workspacePickDirectory: 'workspace:pick-directory',
   workspacePickFiles: 'workspace:pick-files',
 
+  // --- integrated terminal -------------------------------------------------
+  terminalStart: 'terminal:start',
+  terminalWrite: 'terminal:write',
+  terminalResize: 'terminal:resize',
+  terminalStop: 'terminal:stop',
+  pushTerminalData: 'push:terminal-data',
+  pushTerminalExit: 'push:terminal-exit',
+
   // --- API keys (.env) -------------------------------------------------------
   envList: 'env:list',
   envReveal: 'env:reveal',
@@ -348,6 +356,30 @@ export interface ReadFileResult {
   content: string
   truncated: boolean
   size: number
+}
+
+export interface TerminalStartRequest {
+  /** A guarded directory inside the configured Reticle checkout. */
+  cwd: string
+  cols: number
+  rows: number
+}
+
+export interface TerminalSession {
+  id: string
+  cwd: string
+  shell: string
+}
+
+export interface TerminalData {
+  id: string
+  data: string
+}
+
+export interface TerminalExit {
+  id: string
+  exitCode: number
+  signal?: number
 }
 
 export type ThemePreference = 'system' | 'dark' | 'light' | 'custom'
@@ -702,6 +734,15 @@ export interface ReticleBridge {
     openExternal(url: string): Promise<void>
     pickDirectory(): Promise<string | null>
     pickFiles(): Promise<string[]>
+  }
+
+  terminal: {
+    start(request: TerminalStartRequest): Promise<ApiResult<TerminalSession>>
+    write(id: string, data: string): Promise<boolean>
+    resize(id: string, cols: number, rows: number): Promise<boolean>
+    stop(id: string): Promise<void>
+    onData(handler: (chunk: TerminalData) => void): Unsubscribe
+    onExit(handler: (event: TerminalExit) => void): Unsubscribe
   }
 
   /**

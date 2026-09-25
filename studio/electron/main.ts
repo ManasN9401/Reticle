@@ -29,10 +29,12 @@ import type {
   ThemeExportResult,
   ThemeImportResult,
   WindowState,
+  TerminalStartRequest,
 } from '../src/shared/ipc'
 import { COLOR_TOKENS, isSafeColorValue } from '../src/shared/ipc'
 import { installMenu } from './menu'
 import { findRepoRoot, setRepoRoot } from './paths'
+import { TerminalManager } from './terminal/manager'
 import { SettingsStore, validateColorSchemes, validateNodeAppearance } from './settings'
 import { ForgeClient } from './forge/client'
 import { ForgeProcess } from './forge/process'
@@ -50,6 +52,11 @@ const forge = new ForgeProcess()
 const rest = new ForgeRest()
 const store = new EventStore(settings.get().logs.bufferSize)
 const workspace = new WorkspaceReader(findRepoRoot())
+const terminals = new TerminalManager(
+  () => findRepoRoot(),
+  (id, data) => send(IPC.pushTerminalData, { id, data }),
+  event => send(IPC.pushTerminalExit, event),
+)
 
 function send<T>(channel: string, payload: T): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -389,6 +396,15 @@ function registerIpc(): void {
     return result.canceled ? [] : result.filePaths
   })
 
+  handle(IPC.terminalStart, (_e, request: TerminalStartRequest) =>
+    terminals.start(request.cwd, request.cols, request.rows),
+  )
+  handle(IPC.terminalWrite, (_e, id: string, data: string) => terminals.write(id, data))
+  handle(IPC.terminalResize, (_e, id: string, cols: number, rows: number) =>
+    terminals.resize(id, cols, rows),
+  )
+  handle(IPC.terminalStop, (_e, id: string) => terminals.stop(id))
+
   handle(IPC.envList, () => listKeys())
   handle(IPC.envReveal, (_e, name: string) => revealKey(name))
   handle(IPC.envSet, (_e, name: string, value: string) => setKey(name, value))
@@ -486,4 +502,5 @@ app.on('before-quit', () => {
   forge.dispose()
   client.dispose()
   store.dispose()
+  terminals.dispose()
 })

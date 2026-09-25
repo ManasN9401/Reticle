@@ -46,6 +46,10 @@ import type {
   Unsubscribe,
   WindowState,
   WorkspaceSummary,
+  TerminalData,
+  TerminalExit,
+  TerminalSession,
+  TerminalStartRequest,
 } from '../src/shared/ipc'
 import type { RuntimeEvent, WaitlistItem } from '../src/shared/events'
 import type { ProjectionState } from '../src/shared/projection'
@@ -140,6 +144,18 @@ const bridge: ReticleBridge = {
     pickDirectory: () =>
       ipcRenderer.invoke(IPC.workspacePickDirectory) as Promise<string | null>,
     pickFiles: () => ipcRenderer.invoke(IPC.workspacePickFiles) as Promise<string[]>,
+  },
+
+  terminal: {
+    start: (request: TerminalStartRequest) =>
+      ipcRenderer.invoke(IPC.terminalStart, request) as Promise<ApiResult<TerminalSession>>,
+    write: (id: string, data: string) =>
+      ipcRenderer.invoke(IPC.terminalWrite, id, data) as Promise<boolean>,
+    resize: (id: string, cols: number, rows: number) =>
+      ipcRenderer.invoke(IPC.terminalResize, id, cols, rows) as Promise<boolean>,
+    stop: (id: string) => ipcRenderer.invoke(IPC.terminalStop, id) as Promise<void>,
+    onData: (handler) => subscribe<TerminalData>(IPC.pushTerminalData, handler),
+    onExit: (handler) => subscribe<TerminalExit>(IPC.pushTerminalExit, handler),
   },
 
   keys: {

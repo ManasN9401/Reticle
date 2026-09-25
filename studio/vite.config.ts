@@ -11,6 +11,14 @@ export default defineConfig({
     electron([
       {
         entry: 'electron/main.ts',
+        vite: {
+          build: {
+            // node-pty resolves platform-native binaries relative to its own
+            // package directory. Bundling its JS would move __dirname and
+            // make packaged Studio unable to find those binaries.
+            rollupOptions: { external: ['node-pty'] },
+          },
+        },
       },
       {
         entry: 'electron/preload.ts',

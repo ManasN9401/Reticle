@@ -1,12 +1,14 @@
-import { ChevronDown, Globe, Maximize2, Minimize2, SquareTerminal } from 'lucide-react'
+import { ChevronDown, Maximize2, Minimize2 } from 'lucide-react'
 import { cn } from '@/design/cn'
-import { EmptyState, IconButton } from '@/design/primitives'
+import { IconButton } from '@/design/primitives'
 import { LogPanel } from '@/features/logs/LogPanel'
 import { ProblemsPanel } from '@/features/problems/ProblemsPanel'
 import { ActivityPanel } from '@/features/activity/ActivityPanel'
 import { dependencyOperationCount } from '@/features/activity/dependencyActivity'
 import { useActiveRun, useStudio } from '@/state/store'
 import { useUi, type PanelTab } from '@/state/ui'
+import { TerminalPanel } from '@/features/terminal/TerminalPanel'
+import { PreviewPanel } from '@/features/preview/PreviewPanel'
 
 const TABS: { id: PanelTab; label: string }[] = [
   { id: 'activity', label: 'Activity' },
@@ -94,51 +96,10 @@ export function DockPanel() {
         {panelTab === 'activity' ? <ActivityPanel /> : null}
         {panelTab === 'logs' ? <LogPanel /> : null}
         {panelTab === 'problems' ? <ProblemsPanel /> : null}
-        {panelTab === 'terminal' ? <TerminalPlaceholder /> : null}
-        {panelTab === 'preview' ? <PreviewPlaceholder /> : null}
+        <div className={panelTab === 'terminal' ? 'h-full' : 'hidden'}><TerminalPanel /></div>
+        <div className={panelTab === 'preview' ? 'h-full' : 'hidden'}><PreviewPanel /></div>
       </div>
     </section>
-  )
-}
-
-/**
- * Not-yet-built surfaces say what they will be rather than presenting a
- * disabled control with no explanation. An honest empty state is better than a
- * button that does nothing.
- */
-function TerminalPlaceholder() {
-  return (
-    <div className="h-full bg-inset">
-      <EmptyState
-        icon={<SquareTerminal size={22} strokeWidth={1.4} />}
-        title="Terminal is not wired up yet"
-        description={
-          <>
-            This panel will host an interactive shell in the workspace directory, backed by
-            a pty. For now, forge's own stdout and stderr are folded into the{' '}
-            <span className="text-fg-2">Logs</span> tab.
-          </>
-        }
-      />
-    </div>
-  )
-}
-
-function PreviewPlaceholder() {
-  return (
-    <div className="h-full bg-inset">
-      <EmptyState
-        icon={<Globe size={22} strokeWidth={1.4} />}
-        title="Preview is not wired up yet"
-        description={
-          <>
-            This panel will render a browser view of whatever a run serves, outside the
-            agent sandbox. Generated files can be opened from{' '}
-            <span className="text-fg-2">Artifacts</span> in the meantime.
-          </>
-        }
-      />
-    </div>
   )
 }
 
