@@ -1,3 +1,11 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-23
+---
+
+> Historical design record, relocated from the repository root where it had been sitting unlinked. Current versioned specifications under `docs/specifications/` take precedence where they conflict.
+
 # RFC-031: Artifact Outputs Standard
 
 ## 1. Abstract
