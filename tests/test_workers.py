@@ -91,6 +91,45 @@ class WorkerContracts(unittest.TestCase):
             self.assertEqual(result["verification"],[{"tool":"read_file","target":"report.md","outcome":"succeeded"},{"tool":"read_file","target":"notes.md","outcome":"succeeded"}])
             self.assertEqual(calls,[])
 
+    def test_sdk_requires_declared_outputs_before_completion(self):
+        # Reproduces a real failure: a node with declared output_files
+        # (e.g. "Create or update exactly these workspace files: report.md.")
+        # could satisfy verification just by reading an unrelated upstream
+        # input file, then call mark_task_complete without ever writing its
+        # own deliverable. Verification must require the declared outputs
+        # actually get written, not just that *some* file was read.
+        import worker_sdk
+        def response(name, args):
+            call=SimpleNamespace(id="call", function=SimpleNamespace(name=name,arguments=json.dumps(args)))
+            message=SimpleNamespace(tool_calls=[call], model_dump=lambda **kwargs: {"role":"assistant","tool_calls":[{"id":"call","type":"function","function":{"name":name,"arguments":json.dumps(args)}}]})
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+        calls=[
+            response("read_file",{"path":"plan.md"}),
+            response("mark_task_complete",{"summary":"premature: only read an unrelated upstream file"}),
+            response("write_file",{"path":"report.md","content":"the real deliverable"}),
+            response("mark_task_complete",{"summary":"premature: written but not re-verified"}),
+            response("read_file",{"path":"report.md"}),
+            response("mark_task_complete",{"summary":"verified"}),
+        ]
+        instructions=(
+            "You are fixture-agent. Read these workspace files: plan.md. "
+            "Create or update exactly these workspace files: report.md.\n"
+            "Upstream nodes are: none declared."
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            (Path(temp)/"src").mkdir()
+            (Path(temp)/"src"/"plan.md").write_text("upstream plan", encoding="utf-8")
+            req={"id":"execution|node","execution":"execution","memory":{"workspace_dir":temp},"parameters":{"llm_model":"ollama/fixture"}}
+            output=io.StringIO()
+            def completion(**kwargs):
+                return calls.pop(0)
+            with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{},clear=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stdout",output):
+                worker_sdk.run(instructions,kind="coding")
+            result=json.loads(output.getvalue())
+            self.assertEqual(result["artifact"]["data"],"verified")
+            self.assertEqual(calls,[])
+            self.assertTrue((Path(temp)/"src"/"report.md").exists())
+
     def test_devops_availability_checks_are_not_verification(self):
         import worker_sdk
         self.assertFalse(worker_sdk._meaningful_terminal_verification("devops", ["terraform", "version"]))

@@ -71,6 +71,15 @@ def safe_path(workspace, relative, *, base="src"):
 def read_file(path, workspace_dir):
     try:
         target = safe_path(workspace_dir, path)
+        if not target.exists() and isinstance(path, str) and path.startswith("src/"):
+            # safe_path already resolves every path under a workspace-internal
+            # "src" root (base="src" above); a model that also includes a
+            # "src/" prefix of its own — a reasonable but wrong assumption
+            # about the layout — ends up doubled to ".../src/src/...". Retry
+            # once with that redundant prefix stripped before giving up.
+            stripped = safe_path(workspace_dir, path[len("src/"):])
+            if stripped.exists():
+                target = stripped
         with target.open("r", encoding="utf-8") as stream:
             return stream.read(MAX_FILE)
     except Exception as exc:
@@ -88,7 +97,9 @@ def write_file(path, content, workspace_dir, files_modified):
         files_modified[path] = content
         return f"Successfully wrote to {path}"
     except FileExistsError:
-        return "Error: File exists. Read it and use replace_file_content."
+        return ("Error: File exists. If it already has the content you intend, read it with "
+                 "read_file to verify it, then call mark_task_complete — do not write_file it "
+                 "again. Only use replace_file_content if it actually needs a different change.")
     except Exception as exc:
         return f"Error writing file: {exc}"
 

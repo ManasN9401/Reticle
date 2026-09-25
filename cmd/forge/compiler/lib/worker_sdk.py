@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import shlex
 import sys
 import threading
@@ -148,8 +149,59 @@ def _meaningful_terminal_verification(kind, parts):
         }
     return False
 
+_SCRIPT_INTERPRETERS = {
+    "python", "python3", "py", "node", "nodejs", "ruby", "php", "perl", "bash", "sh",
+    "pwsh", "powershell",
+}
+
+def _direct_script_verification_path(parts):
+    """Recognize `<interpreter> <script>` invocations, distinct from
+    _meaningful_terminal_verification's test/build/lint allowlist. A standalone
+    script with no test suite has no other way to prove it works than running
+    it directly, so this returns the workspace-relative path of the script
+    argument when the command is a real interpreter invoking a file — the
+    caller still requires that path to match a just-modified file and the
+    command to have exited 0 before treating it as verification.
+    """
+    if len(parts) < 2:
+        return None
+    command = Path(parts[0]).stem.lower()
+    if command not in _SCRIPT_INTERPRETERS:
+        return None
+    for arg in parts[1:]:
+        if arg.startswith("-"):
+            continue
+        return _normalized_workspace_path(arg)
+    return None
+
 def _normalized_workspace_path(path):
     return Path(os.path.normpath(path)).as_posix()
+
+def _required_output_paths(instructions):
+    """Extract a node's declared output files straight out of the fixed
+    sentence architect.py's build_agent_prompt() emits ("Create or update
+    exactly these workspace files: a, b."), so verification can require they
+    actually get written. The Go runtime has no structured concept of
+    per-node output_files at all — this is the only place that information
+    still exists by the time a worker is running — so it's recovered from
+    prose rather than plumbed through as a new field.
+    """
+    match = re.search(
+        r"Create or update exactly these workspace files:\s*([^\n]*?)\.\s*\n",
+        instructions,
+    )
+    if not match:
+        return set()
+    listed = match.group(1).strip()
+    if not listed or listed.lower() == "none declared":
+        return set()
+    return {_normalized_workspace_path(p.strip()) for p in listed.split(",") if p.strip()}
+
+def _output_satisfied(required, written_paths):
+    return any(
+        w == required or w.startswith(required + "/") or required.startswith(w + "/")
+        for w in written_paths
+    )
 
 def shared_memory_context(memory):
     """Expose dispatched facts, excluding runtime controls, with an explicit size limit."""
@@ -251,7 +303,11 @@ def run(instructions, kind="coding"):
     verified = False
     verification = []
     pending_modified_paths = set()
+    written_paths = set()
+    required_outputs = _required_output_paths(instructions)
     effects_started = False
+    def missing_outputs():
+        return sorted(r for r in required_outputs if not _output_satisfied(r, written_paths))
     def record_verification(tool, target, checked_path=None, covers_changes=False):
         nonlocal verified
         verification.append({"tool": tool, "target": target, "outcome": "succeeded"})
@@ -259,7 +315,7 @@ def run(instructions, kind="coding"):
             pending_modified_paths.clear()
         elif checked_path is not None:
             pending_modified_paths.discard(checked_path)
-        verified = bool(verification) and not pending_modified_paths
+        verified = bool(verification) and not pending_modified_paths and not missing_outputs()
     prompt_instructions = instructions
     if model.startswith(("ollama/", "ollama_chat/")):
         prompt_instructions = _compact_local_instructions(instructions)
@@ -457,13 +513,35 @@ def run(instructions, kind="coding"):
             try:
                 args = json.loads(call.function.arguments)
                 expected = definitions.get(name)
-                if expected is None or set(args) != set(expected[1]) or not all(isinstance(v,str) for v in args.values()):
-                    raise ValueError("Unsupported tool or invalid arguments")
+                if expected is None:
+                    # A weak model can hallucinate a plausible-looking tool name
+                    # (e.g. echoing a node/agent id from its own prompt) instead of
+                    # picking from its actual tool schema. A bare "unsupported"
+                    # error gives it nothing to correct against, so list the real
+                    # options — the same intent as the write_file/mark_task_complete
+                    # error messages already do for their own failure modes.
+                    raise ValueError(
+                        f"'{name}' is not a real tool. Choose one of the tools actually "
+                        f"available to you: {', '.join(sorted(definitions))}."
+                    )
+                if set(args) != set(expected[1]) or not all(isinstance(v,str) for v in args.values()):
+                    raise ValueError(
+                        f"Invalid arguments for '{name}'. It requires exactly these string "
+                        f"arguments: {', '.join(sorted(expected[1])) or '(none)'}."
+                    )
                 if name in ("write_file", "replace_file_content", "execute_terminal_command", "generate_local_asset", "index_directory", "remove_path_from_index"):
                     effects_started = True
                 if name == "mark_task_complete":
                     if not verified:
-                        raise ValueError("No successful verification has been recorded")
+                        still_missing = missing_outputs()
+                        if still_missing:
+                            raise ValueError(
+                                "You have not created your required output files yet: "
+                                f"{', '.join(still_missing)}. Reading or verifying an unrelated file "
+                                "does not satisfy this — use write_file to create each of these, then "
+                                "verify them, before calling mark_task_complete again."
+                            )
+                        raise ValueError("No successful verification has been recorded. Re-read every changed file with read_file, or run it/test it successfully with execute_terminal_command, before calling mark_task_complete again.")
                     sys.stdout.write(json.dumps({"id":req["id"],"memory":memory_updates,"graph_mutation":graph_mutation,"verification":verification,"artifact":{"id":req["id"]+"_output","name":kind+" output","type":"document/markdown","data":args["summary"]}})+"\n")
                     return
                 if name in ("remember", "remember_if_version"):
@@ -496,18 +574,27 @@ def run(instructions, kind="coding"):
                         if len(parts)<2 or parts[0] not in allowed or parts[1] not in allowed[parts[0]] or any(c in args["command"] for c in ";&|`$<>\n"):
                             raise PermissionError("This specialist supports validation/read-only operations. Protected deployment or active scanning requires a separately authorized execution adapter.")
                     result = toolset.execute_terminal_command(args["command"],workspace,native)
-                    if result.startswith("Exit code: 0\n") and _meaningful_terminal_verification(kind, parts):
-                        record_verification(name, args["command"], covers_changes=True)
+                    if result.startswith("Exit code: 0\n"):
+                        if _meaningful_terminal_verification(kind, parts):
+                            record_verification(name, args["command"], covers_changes=True)
+                        else:
+                            script_path = _direct_script_verification_path(parts)
+                            if script_path and script_path in pending_modified_paths:
+                                record_verification(name, args["command"], checked_path=script_path)
                 elif name == "write_file":
                     result = toolset.write_file(workspace_dir=workspace, files_modified=files, **args)
-                    verified = False
                     if result.startswith("Successfully"):
-                        pending_modified_paths.add(_normalized_workspace_path(args["path"]))
+                        verified = False
+                        written_path = _normalized_workspace_path(args["path"])
+                        pending_modified_paths.add(written_path)
+                        written_paths.add(written_path)
                 elif name == "replace_file_content":
                     result = toolset.replace_file_content(workspace_dir=workspace, **args)
-                    verified = False
                     if result.startswith("Successfully"):
-                        pending_modified_paths.add(_normalized_workspace_path(args["path"]))
+                        verified = False
+                        written_path = _normalized_workspace_path(args["path"])
+                        pending_modified_paths.add(written_path)
+                        written_paths.add(written_path)
                 else:
                     result = getattr(toolset,name)(workspace_dir=workspace, **args)
                     if not result.startswith("Error"):
@@ -524,6 +611,14 @@ def run(instructions, kind="coding"):
             else:
                 _emit_llm("tool", f"\nCompleted {name}", name=name)
             messages.append({"role":"tool","tool_call_id":call.id,"content":result_text[:20000]})
+        # A weak local model can keep exploring with other tools long after
+        # verification is already satisfied, never returning to
+        # mark_task_complete on its own. Surface that state explicitly rather
+        # than relying on it to remember — mark_task_complete itself already
+        # returns before reaching here on success, so getting this far with
+        # `verified` true means it wasn't called (or wasn't the last call).
+        if verified:
+            messages.append({"role":"user","content":"Verification is already satisfied. Call mark_task_complete now instead of taking further actions."})
     _emit_llm("status", "Stopped: agent iteration budget exhausted without verified completion")
     if not effects_started:
         print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr, flush=True)

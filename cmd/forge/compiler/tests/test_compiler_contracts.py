@@ -97,6 +97,21 @@ class CompilerContractsTest(unittest.TestCase):
         self.assertIn("result.txt", prompt)
         self.assertLess(len(prompt), 2000)
 
+    def test_build_agent_prompt_resolves_registered_agents_too(self):
+        # The architect is told to leave every agent's system_prompt as "TBD"
+        # (both new and pre-registered) on the assumption this step fills them
+        # all in afterward. A pre-registered agent (is_new: False) reused from
+        # the built-in catalog must get a real, task-specific prompt exactly
+        # like a newly generated one — otherwise its worker never learns the
+        # user's goal or its declared output files and can pass verification
+        # without producing them.
+        dag = self.fixture()
+        self.architect.validate_dag(dag, {"existing"}, set())
+        prompt = self.architect.build_agent_prompt(dag["agents"][0], dag, "make fixture")
+        self.assertNotEqual(prompt.strip(), "TBD")
+        self.assertIn("plan.md", prompt)
+        self.assertIn("make fixture", prompt)
+
     def test_rejects_input_without_upstream_producer(self):
         dag = self.fixture()
         dag["edges"] = []

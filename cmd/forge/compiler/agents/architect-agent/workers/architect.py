@@ -63,12 +63,27 @@ def build_agent_prompt(agent, data, user_prompt):
         e["to"] for e in data.get("edges", []) if e.get("from") in node_ids
     })
     description = str(agent.get("description", "Complete the assigned work")).strip()
+    # An architect-designed node sometimes ends up with no declared
+    # output_files (a planning gap, not necessarily wrong for a pure
+    # review/analysis role) — leaving the instruction as a bare "none
+    # declared" gives the worker no path to ever satisfy verification, since
+    # mark_task_complete still requires it to have verified *something*.
+    # Give it two concrete ways forward instead of a dead end.
+    if outputs:
+        output_instruction = f"Create or update exactly these workspace files: {_list_text(outputs)}."
+    else:
+        output_instruction = (
+            "No specific output files were declared for this role. If your task naturally "
+            "produces a file, decide on a sensible path under the workspace and create it. "
+            "If your task is review, analysis or validation only, verify by reading the "
+            "relevant upstream files listed above (or running a validation command) and "
+            "summarize your findings — do not wait for a file to appear."
+        )
     return (
         f"You are {agent_id}. Your responsibility is: {description}.\n"
         f"The user's goal is: {user_prompt}\n"
         f"Your workflow nodes are: {_list_text(node_ids)}. Read these workspace files: "
-        f"{_list_text(inputs)}. Create or update exactly these workspace files: "
-        f"{_list_text(outputs)}.\n"
+        f"{_list_text(inputs)}. {output_instruction}\n"
         f"Upstream nodes are: {_list_text(predecessors)}. Downstream nodes are: "
         f"{_list_text(successors)}. Preserve upstream work and make every declared output usable "
         "by downstream nodes. Use the language and framework requested by the user or established "
@@ -314,6 +329,7 @@ CRITICAL: Every node in the `nodes` array MUST have a valid `agent_id` that EXAC
 CRITICAL: Node IDs MUST be highly descriptive, semantic, and human-readable (e.g. 'compile-frontend', 'research-sources', 'draft-outline'). DO NOT use generic IDs like 'node-1' or 'node-2'.
 CRITICAL: Every edge in the `edges` array MUST reference `from` and `to` nodes that EXACTLY match the `id` of a node defined in the `nodes` array. NEVER reference a node that does not exist.
 CRITICAL: Every node MUST declare `input_files` and `output_files`. If an input file is created by this workflow, its producer MUST be an upstream node connected through the edge graph; inputs already present in the workspace are allowed. Each output file may have only one producer. Use workspace-relative paths.
+CRITICAL: Every `output_files` entry MUST be a concrete file path with a real filename and extension (e.g. "src/backend/app.py", "Dockerfile", ".github/workflows/ci.yml") — NEVER a bare directory name or vague placeholder (e.g. "src/backend", "app-folder"). A worker is only considered done once these exact files exist, so a vague path can never be satisfied.
 CRITICAL: Keep your reasoning brief. Do NOT repeat instructions or rules. Output the JSON as soon as possible without getting stuck in a loop.
 
 Output ONLY the raw JSON. Do not output markdown code blocks.
@@ -483,8 +499,15 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 
         # Build prompts from the validated graph. Calling the provider once per
         # agent made compilation slow and allowed partial, placeholder workers.
-        new_agents = [a for a in data.get("agents", []) if a.get("is_new")]
-        for agent in new_agents:
+        # The architect is told to leave every agent's system_prompt as "TBD"
+        # (new AND pre-registered) so this step can fill them all in for free —
+        # see the schema instructions above. Filtering this to only is_new
+        # agents left every reused built-in agent (frontend-agent, devops-agent,
+        # etc.) stuck with the literal placeholder "TBD" as its task-specific
+        # prompt, with no user goal, no declared output_files, and no upstream
+        # context — those nodes then had no way to know what to build and would
+        # pass verification without producing their declared deliverables.
+        for agent in data.get("agents", []):
             agent["system_prompt"] = build_agent_prompt(agent, data, user_prompt)
 
         result = json.dumps(data, indent=2)
