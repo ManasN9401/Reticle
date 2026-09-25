@@ -449,7 +449,7 @@ type providerFailureDisposition struct {
 
 func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 	var result providerFailureDisposition
-	if f == nil || f.Reason != WorkerExitedNonZero || !strings.Contains(f.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]") {
+	if f == nil || f.Reason != WorkerExitedNonZero {
 		return result
 	}
 	message := strings.ToLower(f.Stderr)
@@ -462,11 +462,35 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 		return false
 	}
 
+	// Agent-side stalls (stuck repeating the same tool call, or exhausting
+	// its iteration/time budget without ever reaching verified completion)
+	// are a property of the stuck conversation, not of any partial effects
+	// it produced along the way. A retry reuses the same task/session, so
+	// any files the stalled attempt already wrote are still there — the
+	// fresh attempt just needs to notice that and finish (e.g. write_file's
+	// "File exists" message now tells it to read and verify instead of
+	// re-writing). Unlike provider/timeout failures, this is retry-safe
+	// regardless of whether NO_EFFECTS was printed, so it's checked before
+	// that gate.
+	if containsAny("agent stalled: repeated identical tool requests", "agent iteration budget exhausted", "agent time budget exhausted") {
+		return providerFailureDisposition{retryable: true, category: "model_behavior"}
+	}
+
+	if !strings.Contains(f.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]") {
+		return result
+	}
+
 	if (strings.Contains(message, "tool calling") && strings.Contains(message, "not supported")) ||
 		strings.Contains(message, "only available on agentic harnesses") {
 		return providerFailureDisposition{retryable: true, disableModel: true, category: "model_incompatible"}
 	}
-	if containsAny("agent stalled: repeated identical tool requests", "agent iteration budget exhausted", "agent time budget exhausted") {
+	// The architect's own DAG schema validation (architect.py's validate_dag)
+	// rejects a structurally invalid plan — e.g. a referenced agent missing
+	// is_new — before any work starts. That's the model producing malformed
+	// output, not a provider fault, but it's exactly as retry-safe: nothing
+	// was written, and another generation attempt may simply comply with the
+	// schema this time.
+	if containsAny("validation failed:") {
 		return providerFailureDisposition{retryable: true, category: "model_behavior"}
 	}
 	if containsAny("free-models-per-day", "openrouter_free_tier_daily") {

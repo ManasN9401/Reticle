@@ -108,12 +108,38 @@ func TestRetriesRequireNoEffectProof(t *testing.T) {
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] 403 Forbidden", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] BadRequestError", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] Agent stalled: repeated identical tool requests", true},
-		{"Agent stalled: repeated identical tool requests", false},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] command failed", false},
 	} {
 		if retryableProviderFailure(&WorkerFailure{Reason: WorkerExitedNonZero, Stderr: fixture.text}) != fixture.want {
 			t.Fatal("unsafe retry classification")
 		}
+	}
+}
+
+// A node that has already written files (so NO_EFFECTS was never printed)
+// can still stall out repeating mark_task_complete against a verification
+// failure it never resolves. Because a retry reuses the same task/session,
+// those effects are exactly what the next attempt needs to see to finish
+// quickly — so this category must stay retryable without the marker, while
+// failure categories that genuinely depend on "nothing happened yet" (like
+// the architect's own DAG schema validation) must still require it.
+func TestAgentStallRetryableWithoutEffectProof(t *testing.T) {
+	for _, fixture := range []struct {
+		name string
+		text string
+		want bool
+	}{
+		{"stalled tool loop, effects already started", "Agent stalled: repeated identical tool requests for 3 consecutive iterations", true},
+		{"iteration budget exhausted, effects already started", "Agent iteration budget exhausted without verified completion", true},
+		{"time budget exhausted, effects already started", "Agent time budget exhausted", true},
+		{"dag validation failure still requires no-effect proof", "Validation failed: Agent backend-agent is not registered and must be marked is_new", false},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			got := retryableProviderFailure(&WorkerFailure{Reason: WorkerExitedNonZero, Stderr: fixture.text})
+			if got != fixture.want {
+				t.Fatalf("retryableProviderFailure(%q) = %v, want %v", fixture.text, got, fixture.want)
+			}
+		})
 	}
 }
 
@@ -139,6 +165,7 @@ func TestProviderFailureDisposition(t *testing.T) {
 		{"harness gate", "403: model is only available on agentic harnesses", false, true, false, "model_incompatible"},
 		{"repeated tools", "Agent stalled: repeated identical tool requests for 3 consecutive iterations", false, false, false, "model_behavior"},
 		{"iteration budget", "Agent iteration budget exhausted without verified completion", false, false, false, "model_behavior"},
+		{"dag schema validation", "Validation failed: Agent backend-agent is not registered and must be marked is_new", false, false, false, "model_behavior"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

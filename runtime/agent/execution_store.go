@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 const executionSnapshotVersion = 1
@@ -101,17 +102,35 @@ func (s *ExecutionStore) Save(executions map[string]*WorkflowExecution, cancelle
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close execution snapshot: %w", err)
 	}
-	if err := os.Rename(tmpName, s.path); err != nil {
-		backup := s.path + ".previous"
-		_ = os.Remove(backup)
-		if moveErr := os.Rename(s.path, backup); moveErr != nil && !os.IsNotExist(moveErr) {
-			return fmt.Errorf("prepare execution snapshot replacement: %w", err)
+	// Windows can transiently deny a rename over state.json while an external
+	// process (antivirus real-time scan, search indexer, backup agent) has it
+	// briefly open without FILE_SHARE_DELETE. A single failure here used to
+	// kill an otherwise-healthy execution outright (RuntimePersistenceFailed,
+	// "restart required") for what is normally a lock held for milliseconds —
+	// retry the replace a few times with a short backoff before giving up.
+	var replaceErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 50 * time.Millisecond)
 		}
-		if moveErr := os.Rename(tmpName, s.path); moveErr != nil {
-			_ = os.Rename(backup, s.path)
-			return fmt.Errorf("replace execution snapshot: %w", moveErr)
+		replaceErr = func() error {
+			if err := os.Rename(tmpName, s.path); err != nil {
+				backup := s.path + ".previous"
+				_ = os.Remove(backup)
+				if moveErr := os.Rename(s.path, backup); moveErr != nil && !os.IsNotExist(moveErr) {
+					return fmt.Errorf("prepare execution snapshot replacement: %w", err)
+				}
+				if moveErr := os.Rename(tmpName, s.path); moveErr != nil {
+					_ = os.Rename(backup, s.path)
+					return fmt.Errorf("replace execution snapshot: %w", moveErr)
+				}
+				_ = os.Remove(backup)
+			}
+			return nil
+		}()
+		if replaceErr == nil {
+			return nil
 		}
-		_ = os.Remove(backup)
 	}
-	return nil
+	return replaceErr
 }

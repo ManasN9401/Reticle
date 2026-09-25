@@ -54,8 +54,14 @@ func New() *Orchestrator {
 	sessionState := memory.NewSessionState(sessionID)
 
 	llmSettings := LlmSettings{
-		NumCtx:                 8192,
-		MaxTokens:              4096,
+		// A complex multi-agent DAG (the architect's own JSON output) has been
+		// observed to need well over 4096 completion tokens and to run past a
+		// too-small context window mid-object, truncating into invalid JSON
+		// that fails every retry identically. These were also the only two
+		// LlmSettings fields with no environment override, unlike the others
+		// below — both gaps are closed together.
+		NumCtx:                 positiveEnv("RETICLE_LLM_NUM_CTX", 24576),
+		MaxTokens:              positiveEnv("RETICLE_LLM_MAX_TOKENS", 12288),
 		FirstTokenTimeout:      positiveEnv("RETICLE_LLM_FIRST_TOKEN_TIMEOUT", 180),
 		Temperature:            0.1,
 		OllamaKeepAlive:        envOr("RETICLE_OLLAMA_KEEP_ALIVE", "5m"),
