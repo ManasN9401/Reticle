@@ -1,35 +1,78 @@
 ---
 status: draft
 owner: Reticle Project
-updated: 2026-09-23
+updated: 2026-09-27
 ---
 
 # RFC-046: MCP Integration
 
-## Motivation
+## 1. Purpose
 
-`docs/planning/ARCITECTURAL_BACKLOG.md` records that the worker stdio JSON-RPC protocol was deliberately kept generic so that "any agent, whether a simple python script or a massive LLM acting through an MCP server, can be seamlessly plugged into the runtime." No MCP client or server code exists anywhere in `runtime/` or `cmd/forge/` today; `docs/ROADMAP.md`'s RFC-014 entry is a placeholder that was never filed. This RFC proposes the concrete design that placeholder described: discovery, registration, permissions, context sharing, tool exposure and runtime management for Model Context Protocol servers.
+Define bounded Model Context Protocol support: explicitly registered local stdio servers, supervised by Go, exposed to workers through RFC-050's attempt-scoped tool broker, and managed from Studio through the authenticated control service.
 
-## Design
+## 2. Motivation
 
-**Transport.** Stdio only for v1, matching the existing worker-process integration seam in `runtime/agent/worker.go`. A `transport` field is reserved on the server-config shape so Streamable HTTP/SSE can be added later without a breaking change; this is a stated deferral, not an omission.
+Reticle has capability-filtered SDK tools, durable attempt identities and an authoritative architect catalogue, but no MCP client or lifecycle. The earlier draft assigned MCP process ownership to Go while saying Python workers would add discovered tools locally. It never defined how a running one-shot worker could call Go without violating Worker Protocol v1, whose stdout is reserved for one final result. RFC-050 closes that gap: MCP is a broker adapter, not a second worker protocol or a Python-owned subprocess tree.
 
-**Discovery.** Server configuration is Studio/REST-driven, not filesystem auto-discovery. A server only becomes reachable when explicitly registered through the API below — an explicit trust boundary rather than an implicit one.
+## 3. Scope
 
-**Permissions.** Discovered MCP tools are surfaced as `Capability`-gated entries so `AgentDefinition.Capabilities` (`runtime/agent/registry.go`) remains the single permission gate a worker's tool exposure goes through. This avoids a second, parallel permission system. Each MCP server's tools are added to the same `tool_capabilities` dispatch table `cmd/forge/compiler/lib/worker_sdk.py` already uses to gate its own built-in tools, filtered by the task's `capabilities` set.
+Version 1 includes local stdio JSON-RPC servers; explicit CRUD and enable/disable; `initialize`, `notifications/initialized`, `tools/list` and `tools/call`; lazy start, health testing, bounded restart and shutdown; persistent non-secret configuration; per-attempt capability filtering; telemetry, authenticated REST management, Studio settings and a deterministic fixture-server integration test.
 
-**Agent Definition Schema (additive).** A new optional `mcp_servers: []string` field on `AgentDefinition`, naming which registered servers an agent may reach. Documented in `docs/specifications/agent-definition/v1/001-schema.md` as non-breaking — existing manifests without the field are unaffected, matching the same v1 compatibility grant already given to `capabilities`.
+It excludes Streamable HTTP/SSE, remote servers, OAuth, marketplace or filesystem discovery, prompts/resources and plugin installation. These are deliberate exclusions, not implied partial support.
 
-**Event Taxonomy (additive).** Four new events: `McpServerConnected`, `McpServerDisconnected`, `McpServerError`, `McpToolInvoked`. Appended to `docs/specifications/event-taxonomy/v1/001-events.md` once this RFC is accepted.
+## 4. Dependencies
 
-**Backend.**
-- `runtime/mcp/client.go` — stdio JSON-RPC client (`initialize`, `tools/list`, `tools/call`), modeled on `runtime/agent/worker.go`'s subprocess discipline: same timeout handling, same kill-on-shutdown behaviour.
-- `runtime/mcp/registry.go` — server configuration store (id, command, args, env, enabled) and a discovered-tools cache, persisted at `.reticle/mcp/servers.json` — kept separate from `.reticle/memory/state.json` so MCP configuration isn't bound to any one execution's memory snapshot.
-- `runtime/mcp/lifecycle.go` — start/stop/restart/test-connection, publishing the four events above.
-- Lazy start: an enabled server's subprocess is spawned on first tool use, not the moment it is enabled, to avoid idle subprocess sprawl when several servers are configured but rarely exercised.
+RFC-050 must be accepted and implemented first. RFC-045 remains authoritative for attempt identity, capabilities, cancellation and effects. RFC-047 may consume MCP declarations only after this RFC is implemented.
 
-**Studio surface.** New REST endpoints on `runtime/telemetry/server.go`: `GET/POST /api/mcp/servers`, `PUT/DELETE /api/mcp/servers/{id}`, `POST /api/mcp/servers/{id}/enable`, `POST .../disable`, `POST .../test`, `GET .../tools`. The runtime is the source of truth — Studio's `McpServersSection.tsx` is a CRUD UI against these endpoints, not a locally persisted list, so other clients (and the CLI) observe the same server state.
+## 5. Server configuration
 
-## Drawbacks
+The runtime stores `.reticle/mcp/servers.json` separately from execution memory. A record has `id`, `command`, `args`, optional `cwd`, `env`, `enabled`, `transport`, `startupTimeoutSeconds` and `callTimeoutSeconds`. `transport` is exactly `stdio` in v1. `cwd`, when present, must resolve inside the configured checkout.
 
-Each enabled server is a long-lived subprocess for the life of `forge.exe`; lazy start mitigates idle sprawl but a server that misbehaves on `tools/call` still consumes a task's attempt budget like any other failure. Remote-server credential handling is out of scope for v1 — every configured server runs as a local subprocess Reticle itself spawns. No HTTP/SSE transport in v1. MCP server processes are not sandboxed beyond the OS process boundary already applied to worker subprocesses; a compromised MCP server has the same reach as a compromised worker.
+`env` maps child variable names to existing host environment-variable names. Plaintext secret values are forbidden in persistence and REST responses. Variables are resolved only at spawn; a missing variable fails the connection test without disclosing values.
+
+Registration is explicit through the authenticated API. Reticle never executes a server merely because a package or file exists. Changing process fields restarts a running server after validation.
+
+## 6. Runtime components and lifecycle
+
+- `runtime/mcp/client.go`: bounded newline-delimited stdio JSON-RPC, monotonic IDs, negotiation and response correlation.
+- `runtime/mcp/registry.go`: validated persistence, duplicate rejection and immutable snapshots.
+- `runtime/mcp/lifecycle.go`: start, initialize, refresh, cancel, restart and shutdown ownership.
+- `runtime/mcp/adapter.go`: RFC-050 adapter translating broker calls to `tools/call`.
+
+An enabled server starts lazily on test, discovery or first admitted call. V1 serializes calls per server unless concurrency has been explicitly validated. Unexpected exit marks the server unhealthy and fails in-flight calls. One automatic restart is allowed only before a call has been transmitted. After transmission, failure is uncertain unless an adapter-specific idempotency contract proves otherwise; Reticle must not blindly replay it.
+
+## 7. Permission and exposure model
+
+Agent definitions gain optional `mcp_servers: []string` and the static capability `mcp.call`. A tool is exposed only when the capability is granted, the server is allowlisted, the server is enabled and discovered, and the RFC-050 attempt credential is valid. Either grant alone exposes nothing, and a model cannot add either grant.
+
+Model-safe names use `mcp__<server-id>__<tool-name>` after deterministic normalization. Original identity is retained internally; collisions are rejected. Descriptions and schemas are untrusted server data, bounded and delimited before model use.
+
+The architect catalogue includes successfully discovered tools with their required capability and server allowlist. Generated definitions therefore remain explicit and least-privilege.
+
+## 8. Calls, limits and cancellation
+
+Workers fetch schemas and call MCP tools only through RFC-050; they do not spawn servers or receive server credentials. The broker revalidates every call against the attempt's immutable effective tool set.
+
+Inputs, outputs and diagnostics are independently capped. Text is bounded UTF-8. Supported oversized/binary output becomes an artifact reference; otherwise the call fails explicitly. Server stderr is redacted diagnostic data, never JSON-RPC.
+
+Task cancellation revokes broker access and requests MCP cancellation where supported. Late results from cancelled or superseded attempts are discarded. Calls are not generically retry-safe: only a proven pre-transmission failure is `no_effect`; post-transmission failure is `uncertain` unless the adapter proves idempotency.
+
+## 9. Events and observability
+
+Upon acceptance, the Event Taxonomy gains `McpServerConnected`, `McpServerDisconnected`, `McpServerError`, `McpToolsChanged` and `McpToolInvoked`. Events contain bounded server status. Tool events add execution, task, attempt, broker call, normalized tool, duration and outcome. Arguments, results, environment values and credentials are excluded by default.
+
+## 10. Control API and Studio
+
+The authenticated loopback service provides `GET/POST /api/mcp/servers`, `PUT/DELETE /api/mcp/servers/{id}`, enable/disable, test and tools endpoints. Studio's MCP Servers page is a client of this runtime source of truth. It displays lifecycle, last error, discovered tools and missing variable names, but never values.
+
+## 11. Acceptance criteria
+
+Tests must prove secret-free restart persistence; safe handling of malformed, oversized and out-of-order messages; capability and allowlist denial; credential revocation and late-result rejection; no blind replay of uncertain calls; shared Studio/REST state; a real worker-to-fixture-server call; and architect-catalogue visibility only for enabled, successfully discovered tools.
+
+## 12. Drawbacks
+
+MCP server code runs with the Reticle user's OS authority; stdio is not a sandbox. Long-lived processes add lifecycle cost, dynamic schemas consume context, serialized calls limit throughput, and uncertain effects constrain retries. Explicit registration and capabilities reduce exposure but do not make untrusted code safe.
+
+## 13. Related documents
+
+RFC-045, RFC-047, RFC-050, Worker Protocol v1, Agent Definition v1 and Event Taxonomy v1.

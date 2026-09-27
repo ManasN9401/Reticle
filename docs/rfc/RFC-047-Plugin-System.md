@@ -1,7 +1,7 @@
 ---
 status: draft
 owner: Reticle Project
-updated: 2026-09-23
+updated: 2026-09-27
 ---
 
 # RFC-047: Plugin System
@@ -12,17 +12,26 @@ updated: 2026-09-23
 
 ## Design
 
-**Schema (structural rewrite, not additive).** Because `additionalProperties: false` on the current schema rejects any new field outright, extending it is a breaking change to the schema itself — acceptable here since the schema has never had a consumer. New fields: `agents: []`, `skills: []`, `mcpServers: []` (referencing RFC-046's server-config shape for plugins that bundle their own MCP servers), `dependencies: [{plugin, versionRange}]`, `compatibility: {reticleVersion: versionRange}`.
+**Schema (structural rewrite, not additive).** Because `additionalProperties: false` on the current schema rejects any new field outright, extending it is a breaking change to the schema itself — acceptable here since the schema has never had a consumer. New fields: `agents: []`, `skills: []`, `tools: []`, `mcpServers: []` (referencing RFC-046's server-config shape for plugins that bundle their own MCP servers), `dependencies: [{plugin, versionRange}]`, `compatibility: {reticleVersion: versionRange}`.
 
 **Bundle convention.** A plugin is a directory under `.reticle/plugins/<id>/` containing a manifest conforming to the schema above plus its payload (agent YAML, skill YAML, worker scripts).
 
 **Loader.** `runtime/plugin/loader.go` validates a bundle against the schema and checks `compatibility.reticleVersion` against the running build before registering anything — an incompatible plugin is rejected with a reason surfaced to Studio, not silently skipped.
 
-**Registry.** `runtime/plugin/registry.go` registers a bundle's agents and skills into the existing `runtime/agent/registry.go` `Registry`, and any bundled MCP server declarations into `runtime/mcp/registry.go` (RFC-046) — this RFC depends on RFC-046 landing first for that path.
+**Registry.** `runtime/plugin/registry.go` registers a bundle's agents and skills into the existing `runtime/agent/registry.go` `Registry`. Plugin tools are descriptors and adapters in RFC-050's runtime-owned broker registry; plugins may not create a second invocation path or bypass its attempt credentials, capability checks, limits, cancellation, effect certainty or telemetry. Bundled MCP declarations register through `runtime/mcp/registry.go` only after RFC-046 is implemented. This RFC therefore depends on RFC-050, and its `mcpServers` field additionally depends on RFC-046.
+
+**Load order and atomicity.** The loader validates compatibility, dependencies, identities, schemas, tool-name collisions, requested capabilities and MCP references before publishing any registration. A bundle becomes visible atomically; a partial load is rolled back. Disabling a plugin first prevents new dispatches and broker calls, then drains or cancels active work according to runtime policy before unregistering its entries.
 
 **Hot loading.** A plugin that only declares YAML agents/skills/capabilities can be enabled or disabled without restarting `forge.exe` — the loader unregisters it cleanly from the `Registry`. A plugin that bundles a new Python virtual environment or worker runtime cannot: it is surfaced with `restartRequired: true` on its state, and enabling it takes effect only after the next `forge.exe` launch. This is a documented limitation, not a defect to be silently worked around.
 
-**Studio surface.** `GET/POST /api/plugins`, `DELETE /api/plugins/{id}`, `POST /api/plugins/{id}/enable`, `POST .../disable` on `runtime/telemetry/server.go`. `PluginsSection.tsx` mirrors the MCP Servers CRUD pattern, with a restart-required indicator per plugin and a "Restart Forge" shortcut reusing Studio's existing stop/start actions.
+**Studio surface.** `GET/POST /api/plugins`, `DELETE /api/plugins/{id}`, `POST /api/plugins/{id}/enable`, `POST .../disable` on `runtime/telemetry/server.go`. `PluginsSection.tsx` shows compatibility, dependencies, contributed agents, skills, tools and MCP declarations, with a restart-required indicator per plugin and a "Restart Forge" shortcut reusing Studio's existing stop/start actions. Studio is a client of runtime state and cannot mark an invalid or partially loaded bundle active.
+
+## Implementation order
+
+1. Implement RFC-050's broker registry and attempt-scoped invocation path.
+2. Implement RFC-046 before accepting plugin `mcpServers` declarations.
+3. Extend and version the plugin schema, then add validation and atomic registration.
+4. Add lifecycle APIs and Studio management after runtime state is authoritative.
 
 ## Drawbacks
 
