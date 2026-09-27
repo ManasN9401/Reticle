@@ -12,3 +12,9 @@ Use schemas/agent.schema.json. Both .yaml and .yml are accepted. Inputs, outputs
 Unknown skill IDs are logged and skipped for v1 startup compatibility. This is a degraded worker configuration, not proof that the requested instructions loaded; generated execution definitions should use only skills present in the registry.
 
 Generated definitions are scoped to one execution; public node agent IDs resolve to that execution's binding before built-ins. Coder, scaffolder and generator aliases are compiler services, not general task specialists.
+
+## Architect discovery contract
+
+Forge generates `architect_catalog` from the fully loaded runtime registry after project and compiler manifests have been parsed. The catalogue contains every dispatchable maintained agent with its description, runtime, inputs, outputs, skills and capabilities; every registered skill under its manifest `id` with description and dependency metadata; and the supported capability-to-worker-tool mapping. Architect, coder, scaffolder, writer and stress-test services are omitted because they are compiler implementation details rather than task specialists.
+
+The architect must use this catalogue as its sole discovery source. It must not infer availability from filenames or scan `skills/` independently. A generated agent declares a non-empty, least-privilege `capabilities` list which the scaffolder preserves in its execution-scoped manifest. A reused maintained agent emits an empty list in the generated DAG because its checked-in manifest remains authoritative. RAG indexing/query tools are a maintained `rag-agent` specialization; granting `rag.local` to a generic generated coding worker does not change that worker into the RAG tool harness.
