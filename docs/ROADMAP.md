@@ -263,21 +263,24 @@ Includes:
 
 Defines how the framework grows over time.
 
+Implementation order is broker first, then MCP, then plugins. The broker is the
+shared permission and invocation boundary; MCP is its first external adapter;
+plugins consume both without introducing another worker protocol or tool path.
+
 ---
 
-## RFC-013 — Plugin System
+## RFC-015 — Attempt-Scoped Tool Broker and Tool System
 
 Defines:
 
-- Plugin lifecycle
-- Discovery
-- Registration
-- Hot loading
-- Hot unloading
-- Dependencies
-- Version compatibility
+- Runtime-owned tool registration
+- Attempt-scoped access
+- Capability enforcement
+- Cancellation and effect certainty
+- Shared limits and telemetry
+- Built-in, MCP and plugin adapters
 
-> Filed as [`docs/rfc/RFC-047-Plugin-System.md`](rfc/RFC-047-Plugin-System.md) (`status: draft`) — "RFC-013" here is this roadmap's placeholder label, not the number the actual document was filed under.
+> Filed as [`docs/rfc/RFC-050-Attempt-Scoped-Tool-Broker.md`](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md) (`status: draft`) — "RFC-015" here is this roadmap's placeholder label, not the number the actual document was filed under.
 
 ---
 
@@ -298,25 +301,17 @@ Topics include:
 
 ---
 
-## RFC-015 — Tool System
+## RFC-013 — Plugin System
 
-Defines framework tools.
+Defines:
 
-Examples include:
+- Plugin lifecycle
+- Discovery and atomic registration
+- Hot loading and unloading
+- Dependencies and version compatibility
+- Agent, skill, tool and MCP contributions
 
-- Filesystem
-- Git
-- Browser
-- Terminal
-- Docker
-- External APIs
-- Custom tools
-
-Also covers:
-
-- Permissions
-- Security
-- Tool registration
+> Filed as [`docs/rfc/RFC-047-Plugin-System.md`](rfc/RFC-047-Plugin-System.md) (`status: draft`) — "RFC-013" here is this roadmap's placeholder label, not the number the actual document was filed under.
 
 ---
 
