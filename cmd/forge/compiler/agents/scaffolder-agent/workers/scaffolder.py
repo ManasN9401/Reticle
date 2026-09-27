@@ -23,7 +23,7 @@ def main():
             continue
         agent_id = identifier(agent["id"])
         definition = {"id":agent_id,"name":agent.get("name",agent_id),"description":agent.get("description",""),"version":"1.0.0","runtime":"python","entrypoint":f"workers/{agent_id}.py"}
-        for key in ("inputs","outputs","memory","skills"):
+        for key in ("inputs","outputs","memory","skills","capabilities"):
             values = agent.get(key, [])
             if not isinstance(values,list) or not all(isinstance(v,str) for v in values):
                 raise ValueError(f"{key} must be an array of strings")

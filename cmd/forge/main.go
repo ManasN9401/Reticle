@@ -232,8 +232,6 @@ func main() {
 		return
 	}
 
-	// Build Available Agents prompt dynamically
-
 	// Load Compiler Agents
 	if err := registry.LoadSkills(filepath.Join(compilerDir, "skills")); err != nil {
 		orch.Logger.Error("Compiler skills failed", "error", err)
@@ -247,15 +245,11 @@ func main() {
 		orch.Logger.Error("Compiler workflows failed", "error", err)
 		return
 	}
-	var sb strings.Builder
-	for id, agentDef := range registry.Definitions {
-		if id == "architect-agent" || id == "coder-agent" || id == "scaffolder-agent" || id == "writer-agent" || id == "hermes-coder-agent" || id == "quant-agent" || id == "osint-agent" || id == "browser-agent" || id == "mock_stress_tester" {
-			continue
-		}
-		sb.WriteString(fmt.Sprintf("- %s (%s)\n", id, agentDef.Description))
+	architectCatalog, err := buildArchitectCatalog(registry)
+	if err != nil {
+		orch.Logger.Error("Architect catalog failed", "error", err)
+		return
 	}
-
-	availableAgents := sb.String()
 
 	// Load .env keys securely
 	loadEnv(rootDir)
@@ -296,8 +290,8 @@ func main() {
 	orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
 		Scope:   memory.ScopeGlobal,
 		ScopeID: "global",
-		Key:     "available_agents",
-		Value:   availableAgents,
+		Key:     "architect_catalog",
+		Value:   architectCatalog,
 		Owner:   "forge",
 	})
 	orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{

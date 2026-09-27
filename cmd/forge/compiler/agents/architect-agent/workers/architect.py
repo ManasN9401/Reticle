@@ -49,6 +49,24 @@ def _emit_llm(kind, text):
 def _list_text(values):
     return ", ".join(values) if values else "none declared"
 
+def load_architect_catalog(raw):
+    """Parse the authoritative catalogue produced by the live Go registry."""
+    try:
+        catalog = json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Invalid architect_catalog: {exc}") from exc
+    if not isinstance(catalog, dict):
+        raise ValueError("architect_catalog must be an object")
+    for key in ("agents", "skills", "capabilities", "tools"):
+        if not isinstance(catalog.get(key), list):
+            raise ValueError(f"architect_catalog.{key} must be an array")
+    agent_ids = {item.get("id") for item in catalog["agents"] if isinstance(item, dict) and item.get("id")}
+    skill_ids = {item.get("id") for item in catalog["skills"] if isinstance(item, dict) and item.get("id")}
+    capability_ids = {item for item in catalog["capabilities"] if isinstance(item, str) and item}
+    if len(agent_ids) != len(catalog["agents"]) or len(skill_ids) != len(catalog["skills"]):
+        raise ValueError("architect_catalog contains malformed or duplicate agents/skills")
+    return catalog, agent_ids, skill_ids, capability_ids
+
 def build_agent_prompt(agent, data, user_prompt):
     """Build a bounded worker prompt without another fallible model request."""
     agent_id = agent["id"]
@@ -91,7 +109,8 @@ def build_agent_prompt(agent, data, user_prompt):
         "tools, then call mark_task_complete with a concise summary."
     )
 
-def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexity=5):
+def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexity=5,
+                 available_capability_ids=None):
     if not isinstance(data, dict):
         raise ValueError("DAG must be a JSON object")
     agents = data.get("agents")
@@ -122,6 +141,15 @@ def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexit
         for skill in agent.get("skills", []):
             if skill not in available_skill_ids:
                 raise ValueError(f"Agent {agent_id} references unavailable skill: {skill}")
+        capabilities = agent.get("capabilities", [])
+        if not isinstance(capabilities, list) or not all(isinstance(value, str) for value in capabilities):
+            raise ValueError(f"Agent {agent_id} capabilities must be an array of strings")
+        if agent["is_new"] and not capabilities:
+            raise ValueError(f"Generated agent {agent_id} requires explicit least-privilege capabilities")
+        if available_capability_ids is not None:
+            unknown = sorted(set(capabilities) - set(available_capability_ids))
+            if unknown:
+                raise ValueError(f"Agent {agent_id} references unavailable capabilities: {', '.join(unknown)}")
         agent_ids.add(agent_id)
 
     node_by_id = {}
@@ -202,14 +230,16 @@ def main():
     req_id = req.get("id")
     mem = req.get("memory", {})
     user_prompt = mem.get("user_prompt", "")
-    available_agents = mem.get("available_agents", "None")
+    catalog, available_agent_ids, available_skill_ids, available_capability_ids = load_architect_catalog(
+        mem.get("architect_catalog", "")
+    )
 
     try:
         print(f"[{req_id}] Architecting DAG...", file=sys.stderr)
         print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr)
         log_file.flush()
 
-        available_agents_prompt = available_agents if available_agents and available_agents.strip() != "None" else "None. You MUST create all new specialized agents (set is_new: true for ALL agents)."
+        catalog_prompt = json.dumps(catalog, indent=2, ensure_ascii=False)
 
         agent_complexity = int(mem.get("agent_complexity", 5))
         if agent_complexity == 1:
@@ -232,14 +262,6 @@ def main():
             print("[ARCHITECT] Fatal Error: No llm_model provided by dispatcher!", file=sys.stderr)
             sys.exit(1)
             
-        skills_dir = os.path.join(base_dir, "skills")
-        available_skills = []
-        if os.path.exists(skills_dir):
-            for item in os.listdir(skills_dir):
-                if item.endswith(".yaml"):
-                    available_skills.append(item[:-5])
-        available_skills_prompt = ", ".join(available_skills) if available_skills else "None"
-
         try:
             with open(os.path.join(base_dir, "docs", "rfc", "RFC-008-Agent-Architecture.md"), "r", encoding="utf-8") as f:
                 rfc_008 = f.read()
@@ -260,13 +282,13 @@ If you need new specialized agents (which you almost certainly will), design the
 
 CRITICAL DAG RULE: Your graph MUST be a Directed Acyclic Graph. Edges must flow strictly in one direction (e.g., from early setup tasks to later integration tasks). NEVER create bi-directional edges (e.g., A -> B and B -> A) and NEVER create loops (e.g., A -> B -> C -> A).
 
-AVAILABLE AGENTS:
-{available_agents_prompt}
+AUTHORITATIVE RUNTIME CATALOGUE:
+{catalog_prompt}
 
-AVAILABLE SKILLS:
-{available_skills_prompt}
-CRITICAL INSTRUCTION: When assigning `skills` to an agent, you MUST ONLY use skill IDs from the AVAILABLE SKILLS list above. NEVER invent or hallucinate new skills.
+The catalogue comes from the live runtime registry. Its agents are every dispatchable maintained specialist; compiler-only services are intentionally omitted. Skills use their real manifest IDs and include descriptions. Tools identify their required capability and any runtime constraint.
+CRITICAL INSTRUCTION: When assigning `skills` to an agent, you MUST ONLY use skill IDs from the catalogue. NEVER invent or hallucinate new skills.
 CRITICAL INSTRUCTION: ONLY assign skills that are ABSOLUTELY ESSENTIAL for the specific agent's exact task! Do NOT assign massive ML or DevOps skills (like 'ml-engineering' or 'devops-infrastructure') to simple frontend or backend agents. If no skill perfectly fits, assign an empty list: [].
+CRITICAL INSTRUCTION: Every new agent MUST declare the smallest explicit `capabilities` set needed for its tools. Do not grant network, native execution, image, RAG, delegation, cloud, security-active, or GPU capability unless its exact task requires it. Reused maintained agents keep their registered capability profile, so emit an empty capabilities list for `is_new: false` agents.
 
 {complexity_prompt}
 {hitl_rule}
@@ -306,7 +328,8 @@ Return the DAG strictly as JSON with the following schema, and NOTHING else (no 
       "system_prompt": "LEAVE THIS BLANK. Output exactly 'TBD' for now to save tokens.",
       "inputs": ["expected_artifact_id"], // List of artifact IDs this agent depends on
       "memory": ["expected_memory_key"], // List of memory keys this agent needs
-      "skills": ["required_skill_id"] // List of global skills this agent needs
+      "skills": ["required_skill_id"], // List of registered skills this agent needs
+      "capabilities": ["workspace.read", "workspace.write"] // Least-privilege capabilities for new agents; [] for maintained agents
     }}
   ],
   "nodes": [
@@ -461,13 +484,10 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 raw_content = raw_content.strip()
                 data = json.loads(raw_content)
 
-                # Gather the registry IDs separately so an invented agent cannot
-                # claim to be an existing specialist.
-                available_agent_ids = set()
-                if available_agents and available_agents != "None":
-                    import re
-                    available_agent_ids.update(re.findall(r'^- ([^\s]+)', available_agents, re.MULTILINE))
-                validate_dag(data, available_agent_ids, set(available_skills), agent_complexity)
+                validate_dag(
+                    data, available_agent_ids, available_skill_ids, agent_complexity,
+                    available_capability_ids,
+                )
 
             except Exception as e:
                 err_msg = f"Validation failed: {str(e)}"

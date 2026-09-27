@@ -78,9 +78,10 @@ class CompilerContractsTest(unittest.TestCase):
             "workflow_name": "fixture",
             "agents": [
                 {"id": "existing", "description": "maintained", "is_new": False,
-                 "system_prompt": "TBD", "inputs": [], "outputs": [], "memory": [], "skills": []},
+                 "system_prompt": "TBD", "inputs": [], "outputs": [], "memory": [], "skills": [], "capabilities": []},
                 {"id": "generated", "description": "write the result", "is_new": True,
-                 "system_prompt": "TBD", "inputs": [], "outputs": [], "memory": [], "skills": []},
+                 "system_prompt": "TBD", "inputs": [], "outputs": [], "memory": [], "skills": [],
+                 "capabilities": ["workspace.read", "workspace.write"]},
             ],
             "nodes": [
                 {"id": "first", "agent_id": "existing", "input_files": [], "output_files": ["plan.md"]},
@@ -96,6 +97,22 @@ class CompilerContractsTest(unittest.TestCase):
         self.assertIn("plan.md", prompt)
         self.assertIn("result.txt", prompt)
         self.assertLess(len(prompt), 2000)
+
+    def test_catalog_uses_manifest_ids_and_validates_capabilities(self):
+        raw = json.dumps({
+            "agents": [{"id": "browser-agent", "description": "browse"}],
+            "skills": [{"id": "llm-worker", "description": "model client"}],
+            "capabilities": ["workspace.read", "workspace.write"],
+            "tools": [{"id": "read_file", "capability": "workspace.read"}],
+        })
+        _, agents, skills, capabilities = self.architect.load_architect_catalog(raw)
+        self.assertEqual(agents, {"browser-agent"})
+        self.assertEqual(skills, {"llm-worker"})
+        self.assertEqual(capabilities, {"workspace.read", "workspace.write"})
+        dag = self.fixture()
+        dag["agents"][1]["capabilities"].append("network.imaginary")
+        with self.assertRaisesRegex(ValueError, "unavailable capabilities"):
+            self.architect.validate_dag(dag, {"existing"}, set(), 5, capabilities)
 
     def test_build_agent_prompt_resolves_registered_agents_too(self):
         # The architect is told to leave every agent's system_prompt as "TBD"
@@ -144,6 +161,8 @@ class CompilerContractsTest(unittest.TestCase):
             self.assertFalse((root / "agents" / "existing").exists())
             self.assertTrue((root / "agents" / "generated" / "workers" / "generated.py").is_file())
             self.assertTrue((root / "agents" / "generated" / "generated.yaml").is_file())
+            generated = json.loads((root / "agents" / "generated" / "generated.yaml").read_text())
+            self.assertEqual(generated["capabilities"], ["workspace.read", "workspace.write"])
 
     def test_context_window_option_is_only_sent_to_ollama(self):
         memory = {

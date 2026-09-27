@@ -6,6 +6,6 @@ runtime: python
 entrypoint: workers/architect.py
 memory:
   - "user_prompt"
-  - "available_agents"
+  - "architect_catalog"
 outputs:
   - "dag_json"
