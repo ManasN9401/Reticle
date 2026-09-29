@@ -69,6 +69,13 @@
       "items": {
         "$ref": "#/$defs/capability"
       }
+    },
+    "mcp_servers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
     }
   },
   "$defs": {
@@ -103,7 +110,8 @@
         "cloud.plan",
         "cloud.apply",
         "security.active",
-        "gpu.use"
+        "gpu.use",
+        "mcp.call"
       ]
     }
   },

@@ -27,8 +27,10 @@ import type { NodeStyle, SettingsPatch, ThemePreference } from '@shared/ipc'
 import { ColorSchemesSection } from './ColorSchemesSection'
 import { KeysSection } from './KeysSection'
 import { ModelsSection } from './ModelsSection'
+import { McpServersSection } from './McpServersSection'
 import { NodeAppearanceSection } from './NodeAppearanceSection'
 import { ProfileSection } from './ProfileSection'
+import { PluginsSection } from './PluginsSection'
 import { TabLayoutsSection } from './TabLayoutsSection'
 import { SETTINGS_SECTIONS, useSettingsUi } from './state'
 
@@ -56,17 +58,17 @@ export function SettingsView() {
   }
 
   const meta = SETTINGS_SECTIONS.find((s) => s.id === section)
-  const wide = section === 'models' || section === 'keys' || section === 'appearance'
+  const wide = ['models', 'keys', 'appearance', 'mcp', 'plugins'].includes(section)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg-0">
-      <header className="shrink-0 border-b border-line-1 px-6 py-4">
+      <header className="shrink-0 border-b border-line-1 px-4 py-4 sm:px-6">
         <h1 className="balance text-lg font-medium text-fg-1">{meta?.label}</h1>
         <p className="pretty mt-0.5 max-w-[70ch] text-xs text-fg-3">{meta?.description}</p>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-        <div className={wide ? 'max-w-[1100px]' : 'max-w-[640px]'}>
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+        <div className={wide ? 'min-w-0 max-w-[1100px]' : 'min-w-0 max-w-[640px]'}>
           {section === 'appearance' ? <AppearanceSection patch={patch} /> : null}
           {section === 'nodeAppearance' ? <NodeAppearanceSection patch={patch} /> : null}
           {section === 'profile' ? <ProfileSection patch={patch} /> : null}
@@ -75,6 +77,8 @@ export function SettingsView() {
           {section === 'forge' ? <ForgeSection patch={patch} /> : null}
           {section === 'keys' ? <KeysSection /> : null}
           {section === 'models' ? <ModelsSection /> : null}
+          {section === 'mcp' ? <McpServersSection /> : null}
+          {section === 'plugins' ? <PluginsSection /> : null}
           {section === 'logs' ? <LogsSection patch={patch} /> : null}
           {section === 'about' ? <AboutSection /> : null}
         </div>
@@ -473,14 +477,14 @@ export function Row({
   children: ReactNode
 }) {
   return (
-    <div className="flex items-start gap-6 border-b border-line-1 py-3.5">
-      <div className="min-w-0 flex-1">
+    <div className="flex flex-wrap items-start gap-x-6 gap-y-2 border-b border-line-1 py-3.5">
+      <div className="min-w-[14rem] flex-1">
         <div className="text-sm text-fg-1">{label}</div>
         {description ? (
           <p className="pretty mt-0.5 text-2xs leading-relaxed text-fg-4">{description}</p>
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center justify-end">{children}</div>
+      <div className="flex min-w-0 max-w-full shrink items-center justify-end [&>*]:max-w-full">{children}</div>
     </div>
   )
 }

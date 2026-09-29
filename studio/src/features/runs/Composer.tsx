@@ -120,70 +120,73 @@ export function Composer() {
           className="w-full resize-none bg-transparent px-2.5 py-2 text-sm text-fg-1 outline-none placeholder:text-fg-4 disabled:opacity-60"
         />
 
-        <div className="flex items-center gap-1 border-t border-line-1 px-1.5 py-1">
-          <Select
-            aria-label="Execution mode"
-            value={mode}
-            disabled={!connected}
-            onChange={(event) => setMode(event.target.value as 'parallel' | 'sequential')}
-            className="h-6 w-auto border-none bg-transparent px-1 text-2xs"
-          >
-            <option value="parallel">parallel</option>
-            <option value="sequential">sequential</option>
-          </Select>
-
-          <Select
-            aria-label="Effort"
-            value={effort}
-            disabled={!connected}
-            onChange={(event) => setEffort(event.target.value)}
-            className="h-6 w-auto border-none bg-transparent px-1 text-2xs"
-          >
-            {EFFORT.map((tier) => (
-              <option key={tier} value={tier}>
-                {tier}
-              </option>
-            ))}
-          </Select>
-
-          <Select
-            aria-label="Workflow depth"
-            value={agentComplexity}
-            disabled={!connected}
-            onChange={(event) => setAgentComplexity(Number(event.target.value))}
-            className="h-6 w-auto border-none bg-transparent px-1 text-2xs"
-          >
-            <option value={1}>single agent</option>
-            <option value={3}>balanced</option>
-            <option value={5}>deep</option>
-          </Select>
-
-          <Tooltip content="Attach files to the prompt">
-            <IconButton
-              label="Attach files"
-              size="sm"
-              disabled={!connected || uploading}
-              onClick={attach}
+        <div className="flex flex-wrap items-center gap-1 border-t border-line-1 px-1.5 py-1">
+          <div className="flex min-w-0 flex-[1_1_210px] items-center gap-1">
+            <Select
+              aria-label="Execution mode"
+              value={mode}
+              disabled={!connected}
+              onChange={(event) => setMode(event.target.value as 'parallel' | 'sequential')}
+              className="h-6 min-w-0 flex-1 border-none bg-transparent px-1 pr-3 text-2xs"
             >
-              {uploading ? (
-                <Spinner size={11} />
-              ) : (
-                <Paperclip size={13} strokeWidth={1.7} />
-              )}
-            </IconButton>
-          </Tooltip>
+              <option value="parallel">parallel</option>
+              <option value="sequential">sequential</option>
+            </Select>
 
-          <Button
-            size="sm"
-            variant="primary"
-            className="ml-auto"
-            disabled={!connected || !prompt.trim()}
-            title={connected ? 'Enqueue this prompt' : 'Not connected to an orchestrator'}
-            icon={<SendHorizontal size={12} strokeWidth={2} />}
-            onClick={submit}
-          >
-            Run
-          </Button>
+            <Select
+              aria-label="Effort"
+              value={effort}
+              disabled={!connected}
+              onChange={(event) => setEffort(event.target.value)}
+              className="h-6 min-w-0 flex-1 border-none bg-transparent px-1 pr-3 text-2xs"
+            >
+              {EFFORT.map((tier) => (
+                <option key={tier} value={tier}>
+                  {tier}
+                </option>
+              ))}
+            </Select>
+
+            <Select
+              aria-label="Workflow depth"
+              value={agentComplexity}
+              disabled={!connected}
+              onChange={(event) => setAgentComplexity(Number(event.target.value))}
+              className="h-6 min-w-0 flex-1 border-none bg-transparent px-1 pr-3 text-2xs"
+            >
+              <option value={1}>single agent</option>
+              <option value={3}>balanced</option>
+              <option value={5}>deep</option>
+            </Select>
+          </div>
+
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <Tooltip content="Attach files to the prompt">
+              <IconButton
+                label="Attach files"
+                size="sm"
+                disabled={!connected || uploading}
+                onClick={attach}
+              >
+                {uploading ? (
+                  <Spinner size={11} />
+                ) : (
+                  <Paperclip size={13} strokeWidth={1.7} />
+                )}
+              </IconButton>
+            </Tooltip>
+
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={!connected || !prompt.trim()}
+              title={connected ? 'Enqueue this prompt' : 'Not connected to an orchestrator'}
+              icon={<SendHorizontal size={12} strokeWidth={2} />}
+              onClick={submit}
+            >
+              Run
+            </Button>
+          </div>
         </div>
       </div>
 

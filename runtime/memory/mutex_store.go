@@ -40,11 +40,11 @@ func (ms *MutexStore) RequestLock(sessionID string, filePath string) error {
 
 	// Block until acquired
 	lock.mu.Lock()
-	
+
 	ms.mu.Lock()
 	lock.SessionID = sessionID
 	ms.mu.Unlock()
-	
+
 	return nil
 }
 

@@ -79,6 +79,14 @@ func (d *Dispatcher) RegisterWorker(w *Worker) {
 	d.Workers[w.ID] = w
 }
 
+// UnregisterWorker prevents new dispatches while already-running attempts keep
+// their worker pointer and drain under the normal attempt lifecycle.
+func (d *Dispatcher) UnregisterWorker(id WorkerID) {
+	d.workersMu.Lock()
+	delete(d.Workers, id)
+	d.workersMu.Unlock()
+}
+
 func (d *Dispatcher) HasWorker(execution, worker string) bool {
 	d.workersMu.RLock()
 	defer d.workersMu.RUnlock()
@@ -180,6 +188,8 @@ func (d *Dispatcher) Start() {
 		task.Memory = copyParameters(task.Memory)
 		task.MemoryMetadata = make(map[string]MemoryReference)
 		task.Capabilities = append([]Capability(nil), worker.Capabilities...)
+		task.MCPServers = append([]string(nil), worker.MCPServers...)
+		task.BrokerPolicies = append([]string(nil), worker.BrokerPolicies...)
 		// Inject instructions dynamically
 		if d.Instructions != nil {
 			task.Instructions = d.Instructions.GetForTask(task.AgentID, task.Workflow)
@@ -372,7 +382,11 @@ func (d *Dispatcher) Start() {
 					for i, capability := range t.Capabilities {
 						capabilities[i] = string(capability)
 					}
-					credentials, brokerErr := d.ToolBroker.BeginAttempt(t.AttemptID, t.ExecutionID, string(t.ID), capabilities)
+					policies := append([]string(nil), t.BrokerPolicies...)
+					for _, serverID := range t.MCPServers {
+						policies = append(policies, "mcp.server:"+serverID)
+					}
+					credentials, brokerErr := d.ToolBroker.BeginAttemptWithPolicies(t.AttemptID, t.ExecutionID, string(t.ID), capabilities, policies)
 					if brokerErr != nil {
 						d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": "tool_broker_start_failed"})
 						lastFailure = &WorkerFailure{Reason: WorkerStartFailed, ExitCode: -1, Stderr: brokerErr.Error()}

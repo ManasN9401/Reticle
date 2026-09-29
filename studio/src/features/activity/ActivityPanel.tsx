@@ -43,20 +43,22 @@ export function ActivityPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-inset">
-      <div className="flex h-8 shrink-0 items-stretch border-b border-line-1 bg-bg-1 px-1">
-        {tabs.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setTab(item.id)}
-            className={cn('relative flex items-center gap-1.5 px-3 text-xs','focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2',tab === item.id ? 'text-fg-1' : 'text-fg-3 hover:text-fg-2')}
-          >
-            <span className={cn('absolute inset-x-2 bottom-0 h-0.5 rounded-t-full bg-accent',tab === item.id ? 'opacity-100' : 'opacity-0')} />
-            {item.label}
-            {item.count ? <span className="num text-2xs text-fg-4">{item.count}</span> : null}
-          </button>
-        ))}
-        <div className="mono ml-auto flex items-center px-3 text-2xs text-fg-4">
+      <div className="flex h-8 min-w-0 shrink-0 items-stretch border-b border-line-1 bg-bg-1 px-1">
+        <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+          {tabs.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id)}
+              className={cn('relative flex items-center gap-1.5 px-3 text-xs','focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2',tab === item.id ? 'text-fg-1' : 'text-fg-3 hover:text-fg-2')}
+            >
+              <span className={cn('absolute inset-x-2 bottom-0 h-0.5 rounded-t-full bg-accent',tab === item.id ? 'opacity-100' : 'opacity-0')} />
+              {item.label}
+              {item.count ? <span className="num text-2xs text-fg-4">{item.count}</span> : null}
+            </button>
+          ))}
+        </div>
+        <div className="mono flex max-w-[40%] shrink-0 items-center truncate-1 border-l border-line-1 px-3 text-2xs text-fg-4">
           {selectedNodeId ? `node: ${selectedNodeId}` : run?.execId ?? 'no active run'}
         </div>
       </div>
@@ -81,8 +83,8 @@ function ProgressView({ records }: { records: LogRecord[] }) {
   const failed = nodes.filter((node) => node.status === 'failed').length
 
   return (
-    <div className="grid min-h-full grid-cols-[minmax(240px,0.8fr)_minmax(360px,1.2fr)] divide-x divide-line-1">
-      <div className="min-w-0 p-3">
+    <div className="grid min-h-full grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))]">
+      <div className="min-w-0 border-r border-line-1 p-3">
         <div className="mb-2 flex items-center gap-2">
           <StatusPip color={run.status === 'failed' ? 'var(--color-st-failed)' : run.status === 'completed' ? 'var(--color-st-done)' : 'var(--color-st-running)'} pulse={run.status === 'running'} />
           <span className="text-sm font-medium text-fg-1">{run.workflowId ?? run.execId}</span>
@@ -155,7 +157,7 @@ function DependenciesView({ operations }: { operations: DependencyOperation[] })
     return <EmptyState icon={<PackageOpen size={20} />} title="No dependency activity" description="Environment creation, cached package sets, installs and failures will be shown here." />
   }
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-2 p-3">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))] gap-2 p-3">
       {operations.map((operation) => {
         const Icon = operation.status === 'ready' ? PackageCheck : operation.status === 'failed' ? TriangleAlert : CircleEllipsis
         const color = operation.status === 'ready' ? 'text-st-done' : operation.status === 'failed' ? 'text-st-failed' : 'text-st-running'

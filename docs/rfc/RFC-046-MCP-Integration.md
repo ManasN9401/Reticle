@@ -1,7 +1,7 @@
 ---
-status: draft
+status: accepted
 owner: Reticle Project
-updated: 2026-09-27
+updated: 2026-09-29
 ---
 
 # RFC-046: MCP Integration
@@ -16,7 +16,7 @@ Reticle has capability-filtered SDK tools, durable attempt identities and an aut
 
 ## 3. Scope
 
-Version 1 includes local stdio JSON-RPC servers; explicit CRUD and enable/disable; `initialize`, `notifications/initialized`, `tools/list` and `tools/call`; lazy start, health testing, bounded restart and shutdown; persistent non-secret configuration; per-attempt capability filtering; telemetry, authenticated REST management, Studio settings and a deterministic fixture-server integration test.
+Version 1 includes local stdio JSON-RPC servers; explicit CRUD and enable/disable; current `server/discover` negotiation with a legacy `initialize`/`notifications/initialized` fallback; `tools/list` and `tools/call`; lazy start, health testing, bounded restart and shutdown; persistent non-secret configuration; per-attempt capability filtering; telemetry, authenticated REST management, Studio settings and a deterministic fixture-server integration test.
 
 It excludes Streamable HTTP/SSE, remote servers, OAuth, marketplace or filesystem discovery, prompts/resources and plugin installation. These are deliberate exclusions, not implied partial support.
 
@@ -36,8 +36,7 @@ Registration is explicit through the authenticated API. Reticle never executes a
 
 - `runtime/mcp/client.go`: bounded newline-delimited stdio JSON-RPC, monotonic IDs, negotiation and response correlation.
 - `runtime/mcp/registry.go`: validated persistence, duplicate rejection and immutable snapshots.
-- `runtime/mcp/lifecycle.go`: start, initialize, refresh, cancel, restart and shutdown ownership.
-- `runtime/mcp/adapter.go`: RFC-050 adapter translating broker calls to `tools/call`.
+- `runtime/mcp/manager.go`: start, refresh, cancel, restart, shutdown and RFC-050 adapter ownership.
 
 An enabled server starts lazily on test, discovery or first admitted call. V1 serializes calls per server unless concurrency has been explicitly validated. Unexpected exit marks the server unhealthy and fails in-flight calls. One automatic restart is allowed only before a call has been transmitted. After transmission, failure is uncertain unless an adapter-specific idempotency contract proves otherwise; Reticle must not blindly replay it.
 
@@ -76,3 +75,9 @@ MCP server code runs with the Reticle user's OS authority; stdio is not a sandbo
 ## 13. Related documents
 
 RFC-045, RFC-047, RFC-050, Worker Protocol v1, Agent Definition v1 and Event Taxonomy v1.
+
+## 14. Implementation status
+
+Accepted and implemented on 29 September 2026. `runtime/mcp` owns validated persistence, supervised stdio JSON-RPC clients and the broker adapter. It probes `server/discover`, supplies the namespaced 2026-07-28 per-request `_meta` fields, and falls back to the 2025-11-25 initialization lifecycle for deployed legacy servers. The dispatcher derives immutable `mcp.server:<id>` grants from trusted agent manifests, while `mcp.call` remains the independent capability grant. Forge publishes only successfully discovered tools into the live architect catalogue. The authenticated control API and Studio's **Settings → Extensions → MCP Servers** page share the runtime registry as their source of truth.
+
+V1 intentionally supports tools only. Streamable HTTP, OAuth, prompts, resources, generic binary artifact conversion and untrusted-process sandboxing remain follow-up work. An oversized unsupported result fails explicitly instead of entering model context.

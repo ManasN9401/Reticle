@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/mcp"
+	runtimeplugin "github.com/reticle/runtime/plugin"
 	"github.com/reticle/runtime/routing"
 )
 
@@ -37,6 +40,13 @@ type Server struct {
 	mu        sync.Mutex
 	connected chan struct{}
 	once      sync.Once
+	mcp       *mcp.Manager
+	plugins   *runtimeplugin.Manager
+}
+
+func (s *Server) SetExtensionManagers(mcpManager *mcp.Manager, pluginManager *runtimeplugin.Manager) {
+	s.mcp = mcpManager
+	s.plugins = pluginManager
 }
 
 func NewServer(bus *events.Bus, addr string, rootDir string) *Server {
@@ -263,6 +273,11 @@ func (s *Server) Start() error {
 		http.Error(w, "Model not found", http.StatusNotFound)
 	})
 
+	mux.HandleFunc("/api/mcp/servers", s.handleMCPServers)
+	mux.HandleFunc("/api/mcp/servers/", s.handleMCPServer)
+	mux.HandleFunc("/api/plugins", s.handlePlugins)
+	mux.HandleFunc("/api/plugins/", s.handlePlugin)
+
 	mux.HandleFunc("/ws", s.wsHandler)
 
 	// Subscribe to all events and broadcast
@@ -283,7 +298,7 @@ func (s *Server) Start() error {
 			return
 		}
 		mux.ServeHTTP(w, r)
-	})), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
+	})), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 130 * time.Second, IdleTimeout: 60 * time.Second}
 	s.bus.Subscribe("RuntimeShutdown", func(events.RuntimeEvent) {
 		dispose()
 		_ = server.Close()
@@ -298,6 +313,204 @@ func (s *Server) Start() error {
 	go server.Serve(listener)
 
 	return nil
+}
+
+func (s *Server) handleMCPServers(w http.ResponseWriter, r *http.Request) {
+	if s.mcp == nil {
+		http.Error(w, "MCP manager unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeControlJSON(w, http.StatusOK, s.mcp.List())
+	case http.MethodPost:
+		var config mcp.ServerConfig
+		if err := decodeControlJSON(w, r, &config); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		defer cancel()
+		status, err := s.mcp.Put(ctx, config)
+		if err != nil {
+			writeControlError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeControlJSON(w, http.StatusCreated, status)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleMCPServer(w http.ResponseWriter, r *http.Request) {
+	if s.mcp == nil {
+		http.Error(w, "MCP manager unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	relative := strings.TrimPrefix(r.URL.Path, "/api/mcp/servers/")
+	parts := strings.Split(relative, "/")
+	if len(parts) == 0 || parts[0] == "" || strings.ContainsAny(parts[0], "\\:") {
+		http.Error(w, "Invalid server id", http.StatusBadRequest)
+		return
+	}
+	id := parts[0]
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodPut:
+			var config mcp.ServerConfig
+			if err := decodeControlJSON(w, r, &config); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			config.ID = id
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+			defer cancel()
+			status, err := s.mcp.Put(ctx, config)
+			if err != nil {
+				writeControlError(w, http.StatusBadRequest, err)
+				return
+			}
+			writeControlJSON(w, http.StatusOK, status)
+		case http.MethodDelete:
+			if err := s.mcp.Delete(id); err != nil {
+				writeControlError(w, http.StatusNotFound, err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+	if len(parts) != 2 || (parts[1] == "tools" && r.Method != http.MethodGet) || (parts[1] != "tools" && r.Method != http.MethodPost) {
+		http.NotFound(w, r)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	var status mcp.ServerStatus
+	var err error
+	switch parts[1] {
+	case "enable":
+		status, err = s.mcp.SetEnabled(ctx, id, true)
+	case "disable":
+		status, err = s.mcp.SetEnabled(ctx, id, false)
+	case "test":
+		status, err = s.mcp.Test(ctx, id)
+	case "tools":
+		tools, toolsErr := s.mcp.Tools(id)
+		if toolsErr != nil {
+			writeControlError(w, http.StatusNotFound, toolsErr)
+			return
+		}
+		writeControlJSON(w, http.StatusOK, tools)
+		return
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeControlError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeControlJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
+	if s.plugins == nil {
+		http.Error(w, "Plugin manager unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeControlJSON(w, http.StatusOK, s.plugins.List())
+	case http.MethodPost:
+		var request struct {
+			Path string `json:"path"`
+		}
+		if err := decodeControlJSON(w, r, &request); err != nil || request.Path == "" {
+			http.Error(w, "A plugin directory path is required", http.StatusBadRequest)
+			return
+		}
+		view, err := s.plugins.Install(request.Path)
+		if err != nil {
+			writeControlError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeControlJSON(w, http.StatusCreated, view)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handlePlugin(w http.ResponseWriter, r *http.Request) {
+	if s.plugins == nil {
+		http.Error(w, "Plugin manager unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	relative := strings.TrimPrefix(r.URL.Path, "/api/plugins/")
+	parts := strings.Split(relative, "/")
+	if len(parts) == 0 || parts[0] == "" || strings.ContainsAny(parts[0], "\\:") {
+		http.Error(w, "Invalid plugin id", http.StatusBadRequest)
+		return
+	}
+	id := parts[0]
+	if len(parts) == 1 && r.Method == http.MethodDelete {
+		if err := s.plugins.Delete(id); err != nil {
+			writeControlError(w, http.StatusBadRequest, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if len(parts) != 2 || r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	var view runtimeplugin.View
+	var err error
+	switch parts[1] {
+	case "enable":
+		view, err = s.plugins.Enable(r.Context(), id)
+	case "disable":
+		view, err = s.plugins.Disable(id)
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeControlError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeControlJSON(w, http.StatusOK, view)
+}
+
+func decodeControlJSON(w http.ResponseWriter, r *http.Request, value any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, 1024*1024)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(value); err != nil {
+		return fmt.Errorf("invalid JSON request")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return fmt.Errorf("request contains trailing JSON")
+	}
+	return nil
+}
+
+func writeControlJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeControlError(w http.ResponseWriter, status int, err error) {
+	message := strings.TrimSpace(err.Error())
+	if len(message) > 1024 {
+		message = message[:1024]
+	}
+	writeControlJSON(w, status, map[string]string{"error": message})
 }
 
 func (s *Server) WaitForClient() {

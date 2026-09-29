@@ -22,12 +22,14 @@ RFCs marked `historical` preserve design context and do not override an accepted
 - [Custom agent guide](custom_agent_guide.md).
 - [Core agents](core_agents.md).
 - [Environment configuration](environment.md).
+- [MCP servers and plugins](extensions.md).
 - [Studio workspace and activity views](studio-workspaces.md).
 - [Roadmap and complete RFC register](ROADMAP.md).
 - [Memory lifecycle RFC](rfc/RFC-044-Memory-Lifecycle-Recovery-Evaluation.md).
 - [Durable execution, capabilities and effects RFC](rfc/RFC-045-Durable-Execution-Capabilities-Effects.md).
 - [MCP integration RFC](rfc/RFC-046-MCP-Integration.md).
 - [Plugin system RFC](rfc/RFC-047-Plugin-System.md).
+- [Plugin manifest v1](specifications/plugin-manifest-v1.md).
 - [Attempt-scoped tool broker RFC](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md).
 - [Current project state and extensibility sequence](planning/PROJECT_STATE_27-09-26.md).
 - [Planning document index](planning/README.md).

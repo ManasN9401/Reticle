@@ -1,7 +1,5 @@
 package agent
 
-
-
 // Subscription binds a worker to a specific trigger condition via structured filters.
 type Subscription struct {
 	ID        string

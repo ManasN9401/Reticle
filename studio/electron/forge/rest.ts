@@ -2,7 +2,15 @@ import { controlHeaders, requireLocalHost } from './auth'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { RoutingModel } from '../../src/shared/events'
-import type { ApiResult, OutputFile } from '../../src/shared/ipc'
+import type {
+  ApiResult,
+  McpAction,
+  McpServerConfig,
+  McpServerStatus,
+  OutputFile,
+  PluginAction,
+  PluginView,
+} from '../../src/shared/ipc'
 import type { Attachment } from '../../src/shared/events'
 
 /**
@@ -26,9 +34,10 @@ async function request<T>(
   pathname: string,
   init?: RequestInit,
   parse: 'json' | 'void' = 'json',
+  timeoutMs = TIMEOUT_MS,
 ): Promise<ApiResult<T>> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await fetch(`${baseUrl}${pathname}`, {
       ...init,
@@ -111,5 +120,41 @@ export class ForgeRest {
       method: 'POST',
       body: form,
     })
+  }
+
+  mcpServers(): Promise<ApiResult<McpServerStatus[]>> {
+    return request<McpServerStatus[]>(this.baseUrl, '/api/mcp/servers')
+  }
+
+  saveMcpServer(config: McpServerConfig): Promise<ApiResult<McpServerStatus>> {
+    return request<McpServerStatus>(this.baseUrl, '/api/mcp/servers', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(config),
+    }, 'json', 125_000)
+  }
+
+  deleteMcpServer(id: string): Promise<ApiResult<void>> {
+    return request<void>(this.baseUrl, `/api/mcp/servers/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'void')
+  }
+
+  actOnMcpServer(id: string, action: McpAction): Promise<ApiResult<McpServerStatus>> {
+    return request<McpServerStatus>(this.baseUrl, `/api/mcp/servers/${encodeURIComponent(id)}/${action}`, { method: 'POST' }, 'json', 125_000)
+  }
+
+  plugins(): Promise<ApiResult<PluginView[]>> {
+    return request<PluginView[]>(this.baseUrl, '/api/plugins')
+  }
+
+  installPlugin(sourcePath: string): Promise<ApiResult<PluginView>> {
+    return request<PluginView>(this.baseUrl, '/api/plugins', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: sourcePath }),
+    })
+  }
+
+  deletePlugin(id: string): Promise<ApiResult<void>> {
+    return request<void>(this.baseUrl, `/api/plugins/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'void')
+  }
+
+  actOnPlugin(id: string, action: PluginAction): Promise<ApiResult<PluginView>> {
+    return request<PluginView>(this.baseUrl, `/api/plugins/${encodeURIComponent(id)}/${action}`, { method: 'POST' })
   }
 }

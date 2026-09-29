@@ -104,11 +104,13 @@ class CompilerContractsTest(unittest.TestCase):
             "skills": [{"id": "llm-worker", "description": "model client"}],
             "capabilities": ["workspace.read", "workspace.write"],
             "tools": [{"id": "read_file", "capability": "workspace.read"}],
+            "mcp_servers": [],
         })
-        _, agents, skills, capabilities = self.architect.load_architect_catalog(raw)
+        _, agents, skills, capabilities, mcp_servers = self.architect.load_architect_catalog(raw)
         self.assertEqual(agents, {"browser-agent"})
         self.assertEqual(skills, {"llm-worker"})
         self.assertEqual(capabilities, {"workspace.read", "workspace.write"})
+        self.assertEqual(mcp_servers, set())
         dag = self.fixture()
         dag["agents"][1]["capabilities"].append("network.imaginary")
         with self.assertRaisesRegex(ValueError, "unavailable capabilities"):

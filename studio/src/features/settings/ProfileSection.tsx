@@ -92,9 +92,9 @@ export function ProfileSection({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs font-medium text-fg-2">Your profiles</div>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           <Button size="sm" icon={<Upload size={12} strokeWidth={1.8} />} onClick={importProfile}>
             Import…
           </Button>
@@ -126,7 +126,7 @@ export function ProfileSection({
             <div
               key={profile.id}
               className={cn(
-                'flex items-center gap-2 rounded-[var(--radius-control)] border px-2 py-1.5',
+                'flex min-w-0 flex-wrap items-center gap-2 rounded-[var(--radius-control)] border px-2 py-1.5',
                 profiles.activeId === profile.id
                   ? 'border-accent-line bg-accent-weak'
                   : 'border-line-2',
@@ -135,9 +135,9 @@ export function ProfileSection({
               <Input
                 value={profile.name}
                 onChange={(event) => renameProfile(profile.id, event.target.value)}
-                className="h-6 w-48 text-xs"
+                className="h-6 min-w-[8rem] flex-1 text-xs"
               />
-              <div className="ml-auto flex shrink-0 items-center gap-1">
+              <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
                 {profiles.activeId === profile.id ? (
                   <span className="px-1.5 text-2xs font-medium text-accent">Active</span>
                 ) : (

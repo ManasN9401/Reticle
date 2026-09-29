@@ -2,16 +2,17 @@ import { create } from 'zustand'
 
 /**
  * Groups exist only once a section needs one — an empty group header helps no
- * one. `context` (Shared Context) and `extensions` (MCP Servers, Plugins) join
- * this list when those sections land.
+ * one. `extensions` is present because MCP Servers and Plugins are now backed
+ * by the runtime; `context` joins this list when Shared Context lands.
  */
-export type SettingsGroup = 'general' | 'profile' | 'connection' | 'credentials' | 'diagnostics'
+export type SettingsGroup = 'general' | 'profile' | 'connection' | 'credentials' | 'extensions' | 'diagnostics'
 
 export const SETTINGS_GROUPS: { id: SettingsGroup; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'profile', label: 'Profile' },
   { id: 'connection', label: 'Connection' },
   { id: 'credentials', label: 'Credentials & Models' },
+  { id: 'extensions', label: 'Extensions' },
   { id: 'diagnostics', label: 'Diagnostics' },
 ]
 
@@ -24,6 +25,8 @@ export type SettingsSection =
   | 'forge'
   | 'keys'
   | 'models'
+  | 'mcp'
+  | 'plugins'
   | 'logs'
   | 'about'
 
@@ -98,6 +101,22 @@ export const SETTINGS_SECTIONS: {
     hint: 'Routing catalog',
     description:
       'Every model the router discovered, which key each one is bound to, and whether it is currently usable.',
+  },
+  {
+    id: 'mcp',
+    group: 'extensions',
+    label: 'MCP Servers',
+    hint: 'Local tool servers',
+    description:
+      'Register and supervise local stdio MCP servers. Reticle exposes only discovered tools explicitly allowed by an agent definition.',
+  },
+  {
+    id: 'plugins',
+    group: 'extensions',
+    label: 'Plugins',
+    hint: 'Agents, skills and tools',
+    description:
+      'Install validated local bundles that contribute agents, skills, brokered tools and optional MCP servers.',
   },
   {
     id: 'logs',

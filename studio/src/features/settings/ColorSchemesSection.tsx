@@ -135,7 +135,7 @@ export function ColorSchemesSection({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-2xs text-fg-4">Start from a preset:</span>
         {PRESET_COLOR_SCHEMES.map((preset) => (
           <Button
@@ -149,9 +149,9 @@ export function ColorSchemesSection({
         ))}
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs font-medium text-fg-2">Your schemes</div>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           <Button size="sm" icon={<Upload size={12} strokeWidth={1.8} />} onClick={importScheme}>
             Import…
           </Button>
@@ -202,7 +202,7 @@ export function ColorSchemesSection({
               <div className="mb-1.5 text-2xs font-semibold tracking-[0.08em] text-fg-3 uppercase">
                 {group.label}
               </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-x-4 gap-y-1.5">
                 {group.tokens.map((token) => (
                   <ColorRow
                     key={token}
@@ -243,7 +243,7 @@ function SchemeRow({
   return (
     <div
       className={cn(
-        'flex items-center gap-2 rounded-[var(--radius-control)] border px-2 py-1.5',
+        'flex min-w-0 flex-wrap items-center gap-2 rounded-[var(--radius-control)] border px-2 py-1.5',
         active ? 'border-accent-line bg-accent-weak' : 'border-line-2',
       )}
     >
@@ -251,10 +251,10 @@ function SchemeRow({
       <Input
         value={scheme.name}
         onChange={(event) => onRename(event.target.value)}
-        className="h-6 w-44 text-xs"
+        className="h-6 min-w-[8rem] flex-1 text-xs"
       />
       <span className="text-2xs text-fg-4 capitalize">{scheme.base}</span>
-      <div className="ml-auto flex shrink-0 items-center gap-1">
+      <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
         {active ? (
           <span className="px-1.5 text-2xs font-medium text-accent">Active</span>
         ) : (

@@ -423,8 +423,8 @@ export function ModelsSection() {
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-[var(--radius-card)] border border-line-2">
-          <div className="flex items-center gap-3 border-b border-line-1 bg-bg-2 px-3 py-1.5 text-2xs tracking-wide text-fg-4 uppercase">
+        <div className="overflow-x-auto rounded-[var(--radius-card)] border border-line-2">
+          <div className="flex min-w-[34rem] items-center gap-3 border-b border-line-1 bg-bg-2 px-3 py-1.5 text-2xs tracking-wide text-fg-4 uppercase">
             <span className="min-w-0 flex-1">Model</span>
             <span className="w-40 shrink-0">Key</span>
             <span className="w-16 shrink-0 text-right">$/1M avg</span>
@@ -438,7 +438,7 @@ export function ModelsSection() {
               <div
                 key={`${modelKey(model)}-${index}`}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-1.5',
+                  'flex min-w-[34rem] items-center gap-3 px-3 py-1.5',
                   index > 0 && 'border-t border-line-1',
                   model.enabled ? 'bg-bg-1' : 'bg-bg-0',
                 )}

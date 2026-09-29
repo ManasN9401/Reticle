@@ -34,11 +34,13 @@ type AgentDefinition struct {
 	Runtime    RuntimeType `yaml:"runtime"`
 	Entrypoint string      `yaml:"entrypoint"`
 
-	Inputs       []string     `yaml:"inputs"`  // ArtifactTypes
-	Outputs      []string     `yaml:"outputs"` // ArtifactTypes
-	Skills       []string     `yaml:"skills"`  // Skill IDs
-	Memory       []string     `yaml:"memory"`  // Required shared memory keys
-	Capabilities []Capability `yaml:"capabilities"`
+	Inputs         []string     `yaml:"inputs"`  // ArtifactTypes
+	Outputs        []string     `yaml:"outputs"` // ArtifactTypes
+	Skills         []string     `yaml:"skills"`  // Skill IDs
+	Memory         []string     `yaml:"memory"`  // Required shared memory keys
+	Capabilities   []Capability `yaml:"capabilities"`
+	MCPServers     []string     `yaml:"mcp_servers"`
+	BrokerPolicies []string     `yaml:"-"`
 
 	Subscriptions []SubscriptionYAML `yaml:"subscriptions"`
 }
@@ -63,11 +65,36 @@ type SubscriptionYAML struct {
 
 // Registry manages the collection of all loaded agents, workflows, and skills.
 type Registry struct {
-	mu          sync.Mutex
+	mu          sync.RWMutex
 	Definitions map[WorkerID]AgentDefinition
 	Workflows   map[string]*WorkflowDefinition
 	Skills      map[string]SkillDefinition
 }
+
+// CatalogSnapshot returns detached maps for readers that must build an
+// authoritative catalogue while plugins may be enabled or disabled.
+func (r *Registry) CatalogSnapshot() (map[WorkerID]AgentDefinition, map[string]SkillDefinition) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	agents := make(map[WorkerID]AgentDefinition, len(r.Definitions))
+	for id, definition := range r.Definitions {
+		definition.Inputs = append([]string(nil), definition.Inputs...)
+		definition.Outputs = append([]string(nil), definition.Outputs...)
+		definition.Skills = append([]string(nil), definition.Skills...)
+		definition.Capabilities = append([]Capability(nil), definition.Capabilities...)
+		definition.MCPServers = append([]string(nil), definition.MCPServers...)
+		agents[id] = definition
+	}
+	skills := make(map[string]SkillDefinition, len(r.Skills))
+	for id, definition := range r.Skills {
+		definition.Dependencies = append([]string(nil), definition.Dependencies...)
+		definition.EnvVars = append([]string(nil), definition.EnvVars...)
+		skills[id] = definition
+	}
+	return agents, skills
+}
+
+var agentIDPattern = regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$")
 
 // NewRegistry initializes and returns a new empty Registry.
 func NewRegistry() *Registry {
@@ -89,42 +116,13 @@ func (r *Registry) LoadAgents(directory string) error {
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
+		def, err := ReadAgentDefinition(path)
 		if err != nil {
-			return fmt.Errorf("failed to read %s: %w", path, err)
+			return err
 		}
-
-		var def AgentDefinition
-		if err := decodeDefinition(data, &def); err != nil {
-			return fmt.Errorf("failed to parse %s: %w", path, err)
-		}
-
-		if !regexp.MustCompile("^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$").MatchString(string(def.ID)) {
-			return fmt.Errorf("agent definition in %s has an invalid ID", path)
-		}
-		if strings.TrimSpace(def.Name) == "" || strings.TrimSpace(def.Version) == "" {
-			return fmt.Errorf("agent definition in %s requires name and version", path)
-		}
-
-		if def.Entrypoint == "" || (def.Runtime != RuntimePython && def.Runtime != RuntimeBinary && def.Runtime != RuntimeGo) {
-			return fmt.Errorf("%s: valid runtime and entrypoint required", path)
-		}
-		if len(def.Capabilities) == 0 {
-			def.Capabilities = defaultWorkerCapabilities()
-		}
-		if err := validateCapabilities(def.Capabilities); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		if def.Entrypoint != "" && !filepath.IsAbs(def.Entrypoint) {
-			// Resolve relative to the directory containing the YAML file
-			yamlDir := filepath.Dir(path)
-			def.Entrypoint = filepath.Join(yamlDir, def.Entrypoint)
-		}
-
-		if info, err := os.Stat(def.Entrypoint); err != nil || info.IsDir() {
-			return fmt.Errorf("%s: entrypoint does not exist", path)
-		}
+		r.mu.Lock()
 		r.Definitions[def.ID] = def
+		r.mu.Unlock()
 		return nil
 	})
 }
@@ -145,27 +143,120 @@ func (r *Registry) LoadSkills(directory string) error {
 		}
 
 		path := filepath.Join(directory, entry.Name())
-		data, err := os.ReadFile(path)
+		def, err := ReadSkillDefinition(path)
 		if err != nil {
-			return fmt.Errorf("failed to read %s: %w", path, err)
+			return err
 		}
-
-		var def SkillDefinition
-		if err := decodeDefinition(data, &def); err != nil {
-			return fmt.Errorf("failed to parse %s: %w", path, err)
-		}
-
-		if def.ID == "" {
-			return fmt.Errorf("skill definition in %s is missing ID", path)
-		}
-		if err := validateSkillDependencies(&def); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-
+		r.mu.Lock()
 		r.Skills[def.ID] = def
+		r.mu.Unlock()
 	}
 
 	return nil
+}
+
+func ReadAgentDefinition(path string) (AgentDefinition, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return AgentDefinition{}, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	var def AgentDefinition
+	if err := decodeDefinition(data, &def); err != nil {
+		return AgentDefinition{}, fmt.Errorf("failed to parse %s: %w", path, err)
+	}
+	if !agentIDPattern.MatchString(string(def.ID)) {
+		return AgentDefinition{}, fmt.Errorf("agent definition in %s has an invalid ID", path)
+	}
+	if strings.TrimSpace(def.Name) == "" || strings.TrimSpace(def.Version) == "" {
+		return AgentDefinition{}, fmt.Errorf("agent definition in %s requires name and version", path)
+	}
+	if def.Entrypoint == "" || (def.Runtime != RuntimePython && def.Runtime != RuntimeBinary && def.Runtime != RuntimeGo) {
+		return AgentDefinition{}, fmt.Errorf("%s: valid runtime and entrypoint required", path)
+	}
+	if len(def.Capabilities) == 0 {
+		def.Capabilities = defaultWorkerCapabilities()
+	}
+	if err := validateCapabilities(def.Capabilities); err != nil {
+		return AgentDefinition{}, fmt.Errorf("%s: %w", path, err)
+	}
+	seenMCP := make(map[string]bool, len(def.MCPServers))
+	for _, serverID := range def.MCPServers {
+		if !agentIDPattern.MatchString(serverID) || seenMCP[serverID] {
+			return AgentDefinition{}, fmt.Errorf("%s: invalid or duplicate MCP server %q", path, serverID)
+		}
+		seenMCP[serverID] = true
+	}
+	if len(def.MCPServers) > 0 && !hasCapability(def.Capabilities, CapabilityMCPCall) {
+		return AgentDefinition{}, fmt.Errorf("%s: mcp_servers requires capability %s", path, CapabilityMCPCall)
+	}
+	if !filepath.IsAbs(def.Entrypoint) {
+		def.Entrypoint = filepath.Join(filepath.Dir(path), def.Entrypoint)
+	}
+	if info, err := os.Stat(def.Entrypoint); err != nil || info.IsDir() {
+		return AgentDefinition{}, fmt.Errorf("%s: entrypoint does not exist", path)
+	}
+	return def, nil
+}
+
+func ReadSkillDefinition(path string) (SkillDefinition, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return SkillDefinition{}, fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	var def SkillDefinition
+	if err := decodeDefinition(data, &def); err != nil {
+		return SkillDefinition{}, fmt.Errorf("failed to parse %s: %w", path, err)
+	}
+	if !agentIDPattern.MatchString(def.ID) {
+		return SkillDefinition{}, fmt.Errorf("skill definition in %s has an invalid ID", path)
+	}
+	if err := validateSkillDependencies(&def); err != nil {
+		return SkillDefinition{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return def, nil
+}
+
+// RegisterBundle publishes a fully validated plugin contribution atomically.
+func (r *Registry) RegisterBundle(agents map[WorkerID]AgentDefinition, skills map[string]SkillDefinition) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id := range agents {
+		if _, exists := r.Definitions[id]; exists {
+			return fmt.Errorf("agent %s is already registered", id)
+		}
+	}
+	for id := range skills {
+		if _, exists := r.Skills[id]; exists {
+			return fmt.Errorf("skill %s is already registered", id)
+		}
+	}
+	for id, def := range agents {
+		for _, skillID := range def.Skills {
+			if _, exists := r.Skills[skillID]; !exists {
+				if _, bundled := skills[skillID]; !bundled {
+					return fmt.Errorf("agent %s references unknown skill %s", id, skillID)
+				}
+			}
+		}
+	}
+	for id, skill := range skills {
+		r.Skills[id] = skill
+	}
+	for id, def := range agents {
+		r.Definitions[id] = def
+	}
+	return nil
+}
+
+func (r *Registry) UnregisterBundle(agentIDs []WorkerID, skillIDs []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range agentIDs {
+		delete(r.Definitions, id)
+	}
+	for _, id := range skillIDs {
+		delete(r.Skills, id)
+	}
 }
 
 var pinnedPythonDependency = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9_,.-]+\])?==[A-Za-z0-9][A-Za-z0-9.!+_-]*$`)
@@ -369,6 +460,8 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 		w := NewWorker(id, executable, args, envVars, l, b)
 		w.RequiredMemory = def.Memory
 		w.Capabilities = append([]Capability(nil), def.Capabilities...)
+		w.MCPServers = append([]string(nil), def.MCPServers...)
+		w.BrokerPolicies = append([]string(nil), def.BrokerPolicies...)
 		w.Prepare = prepare
 		workers[id] = w
 	}
@@ -444,6 +537,21 @@ func (r *Registry) BuildWorkersForExecution(execution string, l *logger.Logger, 
 	local := NewRegistry()
 	for id, def := range r.Definitions {
 		if strings.HasPrefix(string(id), execution+"__") {
+			local.Definitions[id] = def
+		}
+	}
+	for id, skill := range r.Skills {
+		local.Skills[id] = skill
+	}
+	r.mu.Unlock()
+	return local.BuildWorkers(l, b, em)
+}
+
+func (r *Registry) BuildWorkersByID(ids []WorkerID, l *logger.Logger, b *events.Bus, em *EnvironmentManager) map[WorkerID]*Worker {
+	r.mu.Lock()
+	local := NewRegistry()
+	for _, id := range ids {
+		if def, exists := r.Definitions[id]; exists {
 			local.Definitions[id] = def
 		}
 	}

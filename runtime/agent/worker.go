@@ -61,6 +61,8 @@ type Task struct {
 	Instructions   []string                   `json:"instructions,omitempty"`
 	Modality       string                     `json:"modality,omitempty"`
 	Capabilities   []Capability               `json:"capabilities,omitempty"`
+	MCPServers     []string                   `json:"mcp_servers,omitempty"`
+	BrokerPolicies []string                   `json:"-"`
 }
 
 // MemoryReference defines the scope, entity, and required version of a shared memory dependency.
@@ -111,6 +113,8 @@ type Worker struct {
 	EnvVars        []string
 	RequiredMemory []string
 	Capabilities   []Capability
+	MCPServers     []string
+	BrokerPolicies []string
 	Logger         *logger.Logger
 	Bus            *events.Bus
 }

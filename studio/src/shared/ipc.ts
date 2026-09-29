@@ -52,6 +52,14 @@ export const IPC = {
   apiModelToggle: 'api:model-toggle',
   apiOutputs: 'api:outputs',
   apiUpload: 'api:upload',
+  apiMcpList: 'api:mcp-list',
+  apiMcpSave: 'api:mcp-save',
+  apiMcpDelete: 'api:mcp-delete',
+  apiMcpAction: 'api:mcp-action',
+  apiPluginsList: 'api:plugins-list',
+  apiPluginInstall: 'api:plugin-install',
+  apiPluginDelete: 'api:plugin-delete',
+  apiPluginAction: 'api:plugin-action',
 
   // --- workspace / filesystem ----------------------------------------------
   workspaceAgents: 'workspace:agents',
@@ -290,6 +298,65 @@ export interface OutputFile {
   path: string
   content: string
 }
+
+export interface McpServerConfig {
+  id: string
+  command: string
+  args: string[]
+  cwd?: string
+  /** Child variable name -> existing host variable name. Never a secret value. */
+  env: Record<string, string>
+  enabled: boolean
+  transport: 'stdio'
+  startupTimeoutSeconds: number
+  callTimeoutSeconds: number
+}
+
+export interface McpTool {
+  name: string
+  description?: string
+  inputSchema: Record<string, unknown>
+}
+
+export interface McpServerStatus {
+  id: string
+  config: McpServerConfig
+  source: 'standalone' | 'plugin'
+  plugin?: string
+  state: 'disabled' | 'stopped' | 'starting' | 'connected' | 'error'
+  protocolVersion?: string
+  serverName?: string
+  serverVersion?: string
+  lastError?: string
+  missingVariables?: string[]
+  tools: McpTool[]
+  updatedAt: string
+}
+
+export interface PluginDependency {
+  plugin: string
+  versionRange: string
+}
+
+export interface PluginView {
+  id: string
+  version: string
+  description?: string
+  enabled: boolean
+  valid: boolean
+  error?: string
+  restartRequired: boolean
+  dependencies: PluginDependency[]
+  agents: string[]
+  skills: string[]
+  tools: string[]
+  mcpServers: string[]
+  path: string
+  updatedAt: string
+}
+
+export type McpAction = 'enable' | 'disable' | 'test'
+export type PluginAction = 'enable' | 'disable'
 
 export interface AgentCard {
   id: string
@@ -723,6 +790,14 @@ export interface ReticleBridge {
     toggleModel(modelKey: string): Promise<ApiResult<void>>
     outputs(execId: string): Promise<ApiResult<OutputFile[]>>
     upload(paths: string[]): Promise<ApiResult<WaitlistItem['attachments']>>
+    mcpServers(): Promise<ApiResult<McpServerStatus[]>>
+    saveMcpServer(config: McpServerConfig): Promise<ApiResult<McpServerStatus>>
+    deleteMcpServer(id: string): Promise<ApiResult<void>>
+    actOnMcpServer(id: string, action: McpAction): Promise<ApiResult<McpServerStatus>>
+    plugins(): Promise<ApiResult<PluginView[]>>
+    installPlugin(path: string): Promise<ApiResult<PluginView>>
+    deletePlugin(id: string): Promise<ApiResult<void>>
+    actOnPlugin(id: string, action: PluginAction): Promise<ApiResult<PluginView>>
   }
 
   workspace: {

@@ -47,6 +47,20 @@ adapter and attempt concurrency, blocks new calls while paused, and revokes the
 credential on completion, failure, cancellation or shutdown. Runtime-owned
 adapters cannot use Worker Protocol stdout as a second request channel.
 
+MCP is the first external adapter. Go supervises explicitly registered local
+stdio servers, bounds newline-delimited JSON-RPC, discovers their tools and
+publishes descriptors into the same broker. Every call requires both `mcp.call`
+and a trusted `mcp.server:<id>` policy. A pre-transmission write failure may
+restart once; a failure after transmission is `uncertain` and is never blindly
+replayed.
+
+Plugins are installed local bundles, not a second runtime. Enabling a bundle
+transactionally contributes definitions to the agent/skill registry, direct
+subprocess tools to the broker, and bundled MCP declarations to the MCP
+registry. Plugin code is trusted local code with the user's OS authority; v1
+provides containment through validation, least-privilege broker grants, limits
+and cancellation, not an OS sandbox.
+
 ## 3. Dynamic Execution & Hot-Swapping
 
-When a supervisor requests delegation, the `WorkflowEngine` validates and commits new execution-scoped nodes and edges. Graph changes do not hot-reload global agent definitions. See [RFC-045](../rfc/RFC-045-Durable-Execution-Capabilities-Effects.md) for restart and external-effect semantics.
+When a supervisor requests delegation, the `WorkflowEngine` validates and commits new execution-scoped nodes and edges. Graph changes do not hot-reload global agent definitions. The separately managed plugin registry can publish or remove definitions for future dispatches; active attempts retain their immutable grants. See [RFC-045](../rfc/RFC-045-Durable-Execution-Capabilities-Effects.md) for restart and external-effect semantics.

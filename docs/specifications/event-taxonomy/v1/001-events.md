@@ -21,4 +21,11 @@ outcome and effect certainty. Broker credentials, arguments and results are
 excluded. A result arriving after attempt revocation is reported as discarded
 and cannot be committed to the attempt.
 
+`McpServerConnected`, `McpServerDisconnected`, `McpServerError` and
+`McpToolsChanged` describe bounded server lifecycle state. `McpToolInvoked`
+contains server, canonical tool, broker call identity, duration and outcome,
+but never arguments, results or environment values. `PluginInstalled`,
+`PluginEnabled`, `PluginDisabled`, `PluginDeleted` and `PluginError` describe
+bundle lifecycle without embedding plugin file contents.
+
 WorkflowSnapshot restores current node and execution states, attempt history and graph revision on reconnect. Event history is a bounded client diagnostic view; the durable execution snapshot is authoritative for current state but is not a complete event outbox. Durable distributed replay is outside this local v1 contract.

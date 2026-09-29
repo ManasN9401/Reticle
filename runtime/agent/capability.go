@@ -21,6 +21,7 @@ const (
 	CapabilityCloudApply       Capability = "cloud.apply"
 	CapabilitySecurityActive   Capability = "security.active"
 	CapabilityGPUUse           Capability = "gpu.use"
+	CapabilityMCPCall          Capability = "mcp.call"
 )
 
 var knownCapabilities = map[Capability]struct{}{
@@ -28,6 +29,7 @@ var knownCapabilities = map[Capability]struct{}{
 	CapabilityProcessContainer: {}, CapabilityProcessNative: {}, CapabilityMemoryExecution: {},
 	CapabilityGraphDelegate: {}, CapabilityImageLocal: {}, CapabilityRAGLocal: {},
 	CapabilityCloudPlan: {}, CapabilityCloudApply: {}, CapabilitySecurityActive: {}, CapabilityGPUUse: {},
+	CapabilityMCPCall: {},
 }
 
 func validateCapabilities(capabilities []Capability) error {
@@ -37,6 +39,11 @@ func validateCapabilities(capabilities []Capability) error {
 		}
 	}
 	return nil
+}
+
+func IsKnownCapability(capability Capability) bool {
+	_, ok := knownCapabilities[capability]
+	return ok
 }
 
 func defaultWorkerCapabilities() []Capability {

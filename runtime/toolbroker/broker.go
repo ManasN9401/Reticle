@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -45,6 +46,7 @@ type Descriptor struct {
 	Description        string          `json:"description"`
 	Schema             json.RawMessage `json:"schema"`
 	RequiredCapability string          `json:"required_capability"`
+	RequiredPolicy     string          `json:"required_policy,omitempty"`
 	Adapter            string          `json:"adapter"`
 	TimeoutMS          int64           `json:"timeout_ms"`
 	OutputLimit        int             `json:"output_limit"`
@@ -104,6 +106,7 @@ type attemptSession struct {
 	taskID       string
 	token        string
 	capabilities map[string]struct{}
+	policies     map[string]struct{}
 	paused       bool
 	revoked      bool
 	calls        map[string]*callRecord
@@ -148,6 +151,13 @@ func New(bus *events.Bus) (*Broker, error) {
 func (b *Broker) URL() string { return "http://" + b.listener.Addr().String() }
 
 func (b *Broker) Register(adapterID string, adapter Adapter, descriptors []Descriptor) error {
+	return b.ReplaceAdapterTools(adapterID, adapter, descriptors, false)
+}
+
+// ReplaceAdapterTools atomically replaces one adapter's visible descriptor
+// set. Dynamic adapters (MCP and plugins) use this after a validated refresh;
+// static callers use Register, which rejects an existing adapter identity.
+func (b *Broker) ReplaceAdapterTools(adapterID string, adapter Adapter, descriptors []Descriptor, replace bool) error {
 	if !safeIdentity.MatchString(adapterID) || adapter == nil {
 		return errors.New("valid adapter identity and implementation are required")
 	}
@@ -188,19 +198,33 @@ func (b *Broker) Register(adapterID string, adapter Adapter, descriptors []Descr
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, exists := b.adapters[adapterID]; exists {
+	existingAdapter, exists := b.adapters[adapterID]
+	if exists && !replace {
 		return fmt.Errorf("adapter %s already registered", adapterID)
 	}
+	if exists && !sameAdapter(existingAdapter, adapter) {
+		return fmt.Errorf("adapter %s implementation cannot be replaced", adapterID)
+	}
 	for _, descriptor := range validated {
-		if _, exists := b.tools[descriptor.ID]; exists {
+		if existing, exists := b.tools[descriptor.ID]; exists && existing.descriptor.Adapter != adapterID {
 			return fmt.Errorf("tool ID %s already registered", descriptor.ID)
 		}
-		if existing, exists := b.names[descriptor.Name]; exists {
+		if existing, exists := b.names[descriptor.Name]; exists && b.tools[existing].descriptor.Adapter != adapterID {
 			return fmt.Errorf("tool name %s collides with %s", descriptor.Name, existing)
 		}
 	}
+	if exists {
+		for id, tool := range b.tools {
+			if tool.descriptor.Adapter == adapterID {
+				delete(b.names, tool.descriptor.Name)
+				delete(b.tools, id)
+			}
+		}
+	}
 	b.adapters[adapterID] = adapter
-	b.adapterSlots[adapterID] = make(chan struct{}, 8)
+	if !exists {
+		b.adapterSlots[adapterID] = make(chan struct{}, 8)
+	}
 	for _, descriptor := range validated {
 		b.tools[descriptor.ID] = registeredTool{descriptor: descriptor, adapter: adapter}
 		b.names[descriptor.Name] = descriptor.ID
@@ -208,7 +232,17 @@ func (b *Broker) Register(adapterID string, adapter Adapter, descriptors []Descr
 	return nil
 }
 
+func sameAdapter(left, right Adapter) bool {
+	leftValue, rightValue := reflect.ValueOf(left), reflect.ValueOf(right)
+	return leftValue.IsValid() && rightValue.IsValid() && leftValue.Type() == rightValue.Type() &&
+		leftValue.Kind() == reflect.Pointer && leftValue.Pointer() == rightValue.Pointer()
+}
+
 func (b *Broker) BeginAttempt(attemptID, executionID, taskID string, capabilities []string) (Credentials, error) {
+	return b.BeginAttemptWithPolicies(attemptID, executionID, taskID, capabilities, nil)
+}
+
+func (b *Broker) BeginAttemptWithPolicies(attemptID, executionID, taskID string, capabilities, policies []string) (Credentials, error) {
 	if attemptID == "" || executionID == "" || taskID == "" {
 		return Credentials{}, errors.New("attempt, execution and task identities are required")
 	}
@@ -221,6 +255,10 @@ func (b *Broker) BeginAttempt(attemptID, executionID, taskID string, capabilitie
 	for _, capability := range capabilities {
 		grants[capability] = struct{}{}
 	}
+	policyGrants := make(map[string]struct{}, len(policies))
+	for _, policy := range policies {
+		policyGrants[policy] = struct{}{}
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if _, exists := b.sessions[attemptID]; exists {
@@ -228,7 +266,7 @@ func (b *Broker) BeginAttempt(attemptID, executionID, taskID string, capabilitie
 	}
 	b.sessions[attemptID] = &attemptSession{
 		attemptID: attemptID, executionID: executionID, taskID: taskID, token: token,
-		capabilities: grants, calls: make(map[string]*callRecord), slots: make(chan struct{}, 4),
+		capabilities: grants, policies: policyGrants, calls: make(map[string]*callRecord), slots: make(chan struct{}, 4),
 	}
 	b.tokens[token] = attemptID
 	return Credentials{URL: b.URL(), Token: token, AttemptID: attemptID}, nil
@@ -340,7 +378,12 @@ func (b *Broker) handleTools(w http.ResponseWriter, r *http.Request) {
 	b.mu.RLock()
 	tools := make([]Descriptor, 0)
 	for _, tool := range b.tools {
-		if _, allowed := session.capabilities[tool.descriptor.RequiredCapability]; allowed && tool.descriptor.Available {
+		_, capabilityAllowed := session.capabilities[tool.descriptor.RequiredCapability]
+		_, policyAllowed := session.policies[tool.descriptor.RequiredPolicy]
+		if tool.descriptor.RequiredPolicy == "" {
+			policyAllowed = true
+		}
+		if capabilityAllowed && policyAllowed && tool.descriptor.Available {
 			copyDescriptor := tool.descriptor
 			copyDescriptor.Schema = append(json.RawMessage(nil), tool.descriptor.Schema...)
 			tools = append(tools, copyDescriptor)
@@ -433,6 +476,13 @@ func (b *Broker) handleCall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "capability_denied")
 		return
 	}
+	if registered.descriptor.RequiredPolicy != "" {
+		if _, allowed := session.policies[registered.descriptor.RequiredPolicy]; !allowed {
+			b.mu.Unlock()
+			writeError(w, http.StatusForbidden, "policy_denied")
+			return
+		}
+	}
 	if err := validateArguments(registered.descriptor.Schema, args); err != nil {
 		b.mu.Unlock()
 		writeError(w, http.StatusBadRequest, "schema_validation_failed")
@@ -505,6 +555,21 @@ func (b *Broker) handleCall(w http.ResponseWriter, r *http.Request) {
 	}
 	b.publish("BrokerToolCallFinished", session, request.CallID, registered.descriptor, outcome, response.Effect, time.Since(started))
 	writeJSON(w, http.StatusOK, response)
+}
+
+// Descriptors returns an immutable, deterministic registry snapshot for
+// architect discovery and control-plane diagnostics.
+func (b *Broker) Descriptors() []Descriptor {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	result := make([]Descriptor, 0, len(b.tools))
+	for _, tool := range b.tools {
+		descriptor := tool.descriptor
+		descriptor.Schema = append(json.RawMessage(nil), descriptor.Schema...)
+		result = append(result, descriptor)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
 }
 
 func (b *Broker) finishCall(session *attemptSession, callID string, response CallResponse) {

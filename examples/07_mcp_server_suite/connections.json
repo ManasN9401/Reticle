@@ -1,0 +1,48 @@
+{
+  "servers": [
+    {
+      "id": "text-tools",
+      "command": "python",
+      "args": ["C:\\Users\\nathm\\code\\Reticle\\examples\\07_mcp_server_suite\\text_server.py"],
+      "cwd": "C:\\Users\\nathm\\code\\Reticle",
+      "env": {},
+      "enabled": true,
+      "transport": "stdio",
+      "startupTimeoutSeconds": 10,
+      "callTimeoutSeconds": 15
+    },
+    {
+      "id": "math-tools",
+      "command": "python",
+      "args": ["C:\\Users\\nathm\\code\\Reticle\\examples\\07_mcp_server_suite\\math_server.py"],
+      "cwd": "C:\\Users\\nathm\\code\\Reticle",
+      "env": {},
+      "enabled": true,
+      "transport": "stdio",
+      "startupTimeoutSeconds": 10,
+      "callTimeoutSeconds": 15
+    },
+    {
+      "id": "planning-tools",
+      "command": "python",
+      "args": ["C:\\Users\\nathm\\code\\Reticle\\examples\\07_mcp_server_suite\\planning_server.py"],
+      "cwd": "C:\\Users\\nathm\\code\\Reticle",
+      "env": {},
+      "enabled": true,
+      "transport": "stdio",
+      "startupTimeoutSeconds": 10,
+      "callTimeoutSeconds": 15
+    },
+    {
+      "id": "workspace-reader",
+      "command": "python",
+      "args": ["C:\\Users\\nathm\\code\\Reticle\\examples\\07_mcp_server_suite\\workspace_server.py"],
+      "cwd": "C:\\Users\\nathm\\code\\Reticle",
+      "env": {},
+      "enabled": true,
+      "transport": "stdio",
+      "startupTimeoutSeconds": 10,
+      "callTimeoutSeconds": 15
+    }
+  ]
+}

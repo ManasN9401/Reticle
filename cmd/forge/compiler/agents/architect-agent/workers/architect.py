@@ -57,15 +57,16 @@ def load_architect_catalog(raw):
         raise ValueError(f"Invalid architect_catalog: {exc}") from exc
     if not isinstance(catalog, dict):
         raise ValueError("architect_catalog must be an object")
-    for key in ("agents", "skills", "capabilities", "tools"):
+    for key in ("agents", "skills", "capabilities", "tools", "mcp_servers"):
         if not isinstance(catalog.get(key), list):
             raise ValueError(f"architect_catalog.{key} must be an array")
     agent_ids = {item.get("id") for item in catalog["agents"] if isinstance(item, dict) and item.get("id")}
     skill_ids = {item.get("id") for item in catalog["skills"] if isinstance(item, dict) and item.get("id")}
     capability_ids = {item for item in catalog["capabilities"] if isinstance(item, str) and item}
+    mcp_server_ids = {item for item in catalog["mcp_servers"] if isinstance(item, str) and item}
     if len(agent_ids) != len(catalog["agents"]) or len(skill_ids) != len(catalog["skills"]):
         raise ValueError("architect_catalog contains malformed or duplicate agents/skills")
-    return catalog, agent_ids, skill_ids, capability_ids
+    return catalog, agent_ids, skill_ids, capability_ids, mcp_server_ids
 
 def build_agent_prompt(agent, data, user_prompt):
     """Build a bounded worker prompt without another fallible model request."""
@@ -110,7 +111,7 @@ def build_agent_prompt(agent, data, user_prompt):
     )
 
 def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexity=5,
-                 available_capability_ids=None):
+                 available_capability_ids=None, available_mcp_server_ids=None):
     if not isinstance(data, dict):
         raise ValueError("DAG must be a JSON object")
     agents = data.get("agents")
@@ -150,6 +151,15 @@ def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexit
             unknown = sorted(set(capabilities) - set(available_capability_ids))
             if unknown:
                 raise ValueError(f"Agent {agent_id} references unavailable capabilities: {', '.join(unknown)}")
+        mcp_servers = agent.get("mcp_servers", [])
+        if not isinstance(mcp_servers, list) or not all(isinstance(value, str) for value in mcp_servers):
+            raise ValueError(f"Agent {agent_id} mcp_servers must be an array of strings")
+        if mcp_servers and "mcp.call" not in capabilities:
+            raise ValueError(f"Agent {agent_id} must declare mcp.call when mcp_servers is non-empty")
+        if available_mcp_server_ids is not None:
+            unknown_servers = sorted(set(mcp_servers) - set(available_mcp_server_ids))
+            if unknown_servers:
+                raise ValueError(f"Agent {agent_id} references unavailable MCP servers: {', '.join(unknown_servers)}")
         agent_ids.add(agent_id)
 
     node_by_id = {}
@@ -230,7 +240,7 @@ def main():
     req_id = req.get("id")
     mem = req.get("memory", {})
     user_prompt = mem.get("user_prompt", "")
-    catalog, available_agent_ids, available_skill_ids, available_capability_ids = load_architect_catalog(
+    catalog, available_agent_ids, available_skill_ids, available_capability_ids, available_mcp_server_ids = load_architect_catalog(
         mem.get("architect_catalog", "")
     )
 
@@ -289,6 +299,7 @@ The catalogue comes from the live runtime registry. Its agents are every dispatc
 CRITICAL INSTRUCTION: When assigning `skills` to an agent, you MUST ONLY use skill IDs from the catalogue. NEVER invent or hallucinate new skills.
 CRITICAL INSTRUCTION: ONLY assign skills that are ABSOLUTELY ESSENTIAL for the specific agent's exact task! Do NOT assign massive ML or DevOps skills (like 'ml-engineering' or 'devops-infrastructure') to simple frontend or backend agents. If no skill perfectly fits, assign an empty list: [].
 CRITICAL INSTRUCTION: Every new agent MUST declare the smallest explicit `capabilities` set needed for its tools. Do not grant network, native execution, image, RAG, delegation, cloud, security-active, or GPU capability unless its exact task requires it. Reused maintained agents keep their registered capability profile, so emit an empty capabilities list for `is_new: false` agents.
+CRITICAL INSTRUCTION: A catalogue tool constrained by `mcp.server:<id>` requires both `mcp.call` and that exact id in a new agent's `mcp_servers`. A tool constrained by `plugin:<id>` is available only to a reused catalogue agent whose `tool_policies` includes that constraint; new agents cannot request plugin policy grants.
 
 {complexity_prompt}
 {hitl_rule}
@@ -329,7 +340,8 @@ Return the DAG strictly as JSON with the following schema, and NOTHING else (no 
       "inputs": ["expected_artifact_id"], // List of artifact IDs this agent depends on
       "memory": ["expected_memory_key"], // List of memory keys this agent needs
       "skills": ["required_skill_id"], // List of registered skills this agent needs
-      "capabilities": ["workspace.read", "workspace.write"] // Least-privilege capabilities for new agents; [] for maintained agents
+      "capabilities": ["workspace.read", "workspace.write"], // Least-privilege capabilities for new agents; [] for maintained agents
+      "mcp_servers": [] // Explicit enabled MCP server IDs; requires mcp.call
     }}
   ],
   "nodes": [
@@ -486,7 +498,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 
                 validate_dag(
                     data, available_agent_ids, available_skill_ids, agent_complexity,
-                    available_capability_ids,
+                    available_capability_ids, available_mcp_server_ids,
                 )
 
             except Exception as e:

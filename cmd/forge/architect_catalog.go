@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 
 	"github.com/reticle/runtime/agent"
+	"github.com/reticle/runtime/toolbroker"
 )
 
 type architectAgentCatalogEntry struct {
@@ -16,6 +18,8 @@ type architectAgentCatalogEntry struct {
 	Outputs      []string           `json:"outputs"`
 	Skills       []string           `json:"skills"`
 	Capabilities []agent.Capability `json:"capabilities"`
+	MCPServers   []string           `json:"mcp_servers,omitempty"`
+	ToolPolicies []string           `json:"tool_policies,omitempty"`
 }
 
 type architectSkillCatalogEntry struct {
@@ -39,6 +43,7 @@ type architectCatalog struct {
 	Skills       []architectSkillCatalogEntry `json:"skills"`
 	Capabilities []string                     `json:"capabilities"`
 	Tools        []architectToolCatalogEntry  `json:"tools"`
+	MCPServers   []string                     `json:"mcp_servers"`
 }
 
 var compilerServiceAgents = map[agent.WorkerID]struct{}{
@@ -49,12 +54,12 @@ var compilerServiceAgents = map[agent.WorkerID]struct{}{
 // buildArchitectCatalog serializes the registry the runtime actually loaded.
 // The architect must not maintain a second, filesystem-derived view of agents
 // and skills because that view inevitably drifts from dispatch reality.
-func buildArchitectCatalog(reg *agent.Registry) (string, error) {
+func buildArchitectCatalog(reg *agent.Registry, brokerTools ...[]toolbroker.Descriptor) (string, error) {
 	catalog := architectCatalog{
 		Capabilities: []string{
 			"workspace.read", "workspace.write", "network.public", "process.container",
 			"process.native", "memory.execution", "graph.delegate", "image.local",
-			"rag.local", "cloud.plan", "cloud.apply", "security.active", "gpu.use",
+			"rag.local", "cloud.plan", "cloud.apply", "security.active", "gpu.use", "mcp.call",
 		},
 		Tools: []architectToolCatalogEntry{
 			{ID: "read_file", Capability: "workspace.read", Description: "Read a workspace text file."},
@@ -75,16 +80,29 @@ func buildArchitectCatalog(reg *agent.Registry) (string, error) {
 		},
 	}
 
-	for id, def := range reg.Definitions {
+	agentDefinitions, skillDefinitions := reg.CatalogSnapshot()
+	for id, def := range agentDefinitions {
 		if _, internal := compilerServiceAgents[id]; internal {
 			continue
 		}
 		catalog.Agents = append(catalog.Agents, architectAgentCatalogEntry{
 			ID: string(id), Name: def.Name, Description: def.Description, Runtime: def.Runtime,
 			Inputs: def.Inputs, Outputs: def.Outputs, Skills: def.Skills, Capabilities: def.Capabilities,
+			MCPServers: def.MCPServers, ToolPolicies: def.BrokerPolicies,
 		})
 	}
-	for _, def := range reg.Skills {
+	if len(brokerTools) > 0 {
+		for _, descriptor := range brokerTools[0] {
+			catalog.Tools = append(catalog.Tools, architectToolCatalogEntry{
+				ID: descriptor.Name, Capability: descriptor.RequiredCapability,
+				Description: descriptor.Description, Constraint: descriptor.RequiredPolicy,
+			})
+			if strings.HasPrefix(descriptor.RequiredPolicy, "mcp.server:") {
+				catalog.MCPServers = append(catalog.MCPServers, strings.TrimPrefix(descriptor.RequiredPolicy, "mcp.server:"))
+			}
+		}
+	}
+	for _, def := range skillDefinitions {
 		catalog.Skills = append(catalog.Skills, architectSkillCatalogEntry{
 			ID: def.ID, Name: def.Name, Description: def.Description,
 			DependencyPolicy: def.DependencyPolicy, Dependencies: def.Dependencies, EnvVars: def.EnvVars,
@@ -94,6 +112,16 @@ func buildArchitectCatalog(reg *agent.Registry) (string, error) {
 	sort.Slice(catalog.Skills, func(i, j int) bool { return catalog.Skills[i].ID < catalog.Skills[j].ID })
 	sort.Strings(catalog.Capabilities)
 	sort.Slice(catalog.Tools, func(i, j int) bool { return catalog.Tools[i].ID < catalog.Tools[j].ID })
+	sort.Strings(catalog.MCPServers)
+	if len(catalog.MCPServers) > 0 {
+		unique := catalog.MCPServers[:1]
+		for _, value := range catalog.MCPServers[1:] {
+			if value != unique[len(unique)-1] {
+				unique = append(unique, value)
+			}
+		}
+		catalog.MCPServers = unique
+	}
 	data, err := json.Marshal(catalog)
 	return string(data), err
 }

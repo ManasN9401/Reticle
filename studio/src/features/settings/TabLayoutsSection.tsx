@@ -79,12 +79,12 @@ export function TabLayoutsSection({
         with just the explorer and editor).
       </p>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <Input
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Name this arrangement…"
-          className="h-8 w-56 text-xs"
+          className="h-8 min-w-[10rem] flex-1 text-xs"
         />
         <Button
           size="sm"
@@ -107,16 +107,16 @@ export function TabLayoutsSection({
             <div
               key={layout.id}
               className={cn(
-                'flex items-center gap-2 rounded-[var(--radius-control)] border border-line-2 px-2 py-1.5',
+                'flex min-w-0 flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-line-2 px-2 py-1.5',
               )}
             >
               <Input
                 value={layout.name}
                 onChange={(event) => renameLayout(layout.id, event.target.value)}
-                className="h-6 w-48 text-xs"
+                className="h-6 min-w-[8rem] flex-1 text-xs"
               />
               <span className="text-2xs text-fg-4">{layout.snapshot.tabs.length} tab(s)</span>
-              <div className="ml-auto flex shrink-0 items-center gap-1">
+              <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
                 <Button size="sm" onClick={() => useUi.getState().restoreLayout(layout.snapshot)}>
                   Apply
                 </Button>

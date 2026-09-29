@@ -1,21 +1,75 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Reticle plugin metadata (reserved, no runtime loader)",
+  "title": "Reticle plugin manifest v1",
   "type": "object",
-  "required": [
-    "id",
-    "version"
-  ],
+  "required": ["id", "version", "compatibility"],
+  "additionalProperties": false,
   "properties": {
-    "id": {
-      "type": "string"
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:[-+][A-Za-z0-9.-]+)?$" },
+    "description": { "type": "string", "maxLength": 4096 },
+    "agents": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
+    "skills": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/relativePath" } },
+    "tools": { "type": "array", "items": { "$ref": "#/$defs/tool" } },
+    "mcpServers": { "type": "array", "items": { "$ref": "#/$defs/mcpServer" } },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["plugin", "versionRange"],
+        "additionalProperties": false,
+        "properties": {
+          "plugin": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$" },
+          "versionRange": { "type": "string", "maxLength": 100 }
+        }
+      }
     },
-    "version": {
-      "type": "string"
-    },
-    "description": {
-      "type": "string"
+    "compatibility": {
+      "type": "object",
+      "required": ["reticleVersion"],
+      "additionalProperties": false,
+      "properties": { "reticleVersion": { "type": "string", "maxLength": 100 } }
     }
   },
-  "additionalProperties": false
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^(?![A-Za-z]:)(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)).+$"
+    },
+    "tool": {
+      "type": "object",
+      "required": ["id", "name", "description", "schema", "requiredCapability", "command", "effect"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$" },
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$" },
+        "description": { "type": "string", "maxLength": 4096 },
+        "schema": { "type": "object" },
+        "requiredCapability": { "type": "string" },
+        "command": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "args": { "type": "array", "maxItems": 128, "items": { "type": "string", "maxLength": 4096 } },
+        "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 7200000 },
+        "outputLimit": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+        "effect": { "enum": ["no_effect", "effect_started", "uncertain"] }
+      }
+    },
+    "mcpServer": {
+      "type": "object",
+      "required": ["id", "command"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,119}$" },
+        "command": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "maxItems": 128, "items": { "type": "string" } },
+        "cwd": { "type": "string" },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } },
+        "enabled": { "type": "boolean" },
+        "transport": { "const": "stdio" },
+        "startupTimeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 120 },
+        "callTimeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 7200 }
+      }
+    }
+  }
 }

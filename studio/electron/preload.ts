@@ -31,9 +31,14 @@ import type {
   LogExportResult,
   LogQuery,
   ModelsResult,
+  McpAction,
+  McpServerConfig,
+  McpServerStatus,
   NativeAction,
   OutboundCommand,
   OutputFile,
+  PluginAction,
+  PluginView,
   ProjectionPush,
   ReadFileResult,
   ResolvedTheme,
@@ -127,6 +132,22 @@ const bridge: ReticleBridge = {
       ipcRenderer.invoke(IPC.apiUpload, paths) as Promise<
         ApiResult<WaitlistItem['attachments']>
       >,
+    mcpServers: () =>
+      ipcRenderer.invoke(IPC.apiMcpList) as Promise<ApiResult<McpServerStatus[]>>,
+    saveMcpServer: (config: McpServerConfig) =>
+      ipcRenderer.invoke(IPC.apiMcpSave, config) as Promise<ApiResult<McpServerStatus>>,
+    deleteMcpServer: (id: string) =>
+      ipcRenderer.invoke(IPC.apiMcpDelete, id) as Promise<ApiResult<void>>,
+    actOnMcpServer: (id: string, action: McpAction) =>
+      ipcRenderer.invoke(IPC.apiMcpAction, id, action) as Promise<ApiResult<McpServerStatus>>,
+    plugins: () =>
+      ipcRenderer.invoke(IPC.apiPluginsList) as Promise<ApiResult<PluginView[]>>,
+    installPlugin: (path: string) =>
+      ipcRenderer.invoke(IPC.apiPluginInstall, path) as Promise<ApiResult<PluginView>>,
+    deletePlugin: (id: string) =>
+      ipcRenderer.invoke(IPC.apiPluginDelete, id) as Promise<ApiResult<void>>,
+    actOnPlugin: (id: string, action: PluginAction) =>
+      ipcRenderer.invoke(IPC.apiPluginAction, id, action) as Promise<ApiResult<PluginView>>,
   },
 
   workspace: {

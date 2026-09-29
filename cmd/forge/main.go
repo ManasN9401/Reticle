@@ -15,8 +15,10 @@ import (
 
 	"github.com/reticle/runtime/agent"
 	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/mcp"
 	"github.com/reticle/runtime/memory"
 	"github.com/reticle/runtime/orchestrator"
+	"github.com/reticle/runtime/plugin"
 	"github.com/reticle/runtime/routing"
 	"github.com/reticle/runtime/telemetry"
 )
@@ -196,16 +198,6 @@ func main() {
 	defer orch.Shutdown()
 
 	telemetryServer := telemetry.NewServer(orch.Bus, fmt.Sprintf(":%d", *portFlag), rootDir)
-	if err := telemetryServer.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
-	}
-
-	if !*legacyFlag {
-		fmt.Printf("[UI] Telemetry running on http://localhost:%d\n", *portFlag)
-	} else {
-		fmt.Printf("[UI] Legacy Telemetry running on http://localhost:%d\n", *portFlag)
-	}
 
 	graphPath := filepath.Join(rootDir, ".reticle", "executions", "state.json")
 	graphEngine, err := agent.NewPersistentGraphEngine(orch.Logger, orch.Bus, graphPath)
@@ -246,12 +238,6 @@ func main() {
 		orch.Logger.Error("Compiler workflows failed", "error", err)
 		return
 	}
-	architectCatalog, err := buildArchitectCatalog(registry)
-	if err != nil {
-		orch.Logger.Error("Architect catalog failed", "error", err)
-		return
-	}
-
 	// Load .env keys securely
 	loadEnv(rootDir)
 
@@ -269,6 +255,52 @@ func main() {
 		return
 	}
 	defer dispatcher.CloseToolBroker(context.Background())
+	mcpRegistry, err := mcp.NewRegistry(rootDir, filepath.Join(rootDir, ".reticle", "mcp", "servers.json"))
+	if err != nil {
+		orch.Logger.Error("MCP registry failed", "error", err)
+		return
+	}
+	mcpManager, err := mcp.NewManager(mcpRegistry, dispatcher.ToolBroker, orch.Bus, orch.Logger)
+	if err != nil {
+		orch.Logger.Error("MCP manager failed", "error", err)
+		return
+	}
+	pluginManager, err := plugin.NewManager(rootDir, registry, dispatcher, envManager, subManager, mcpManager, dispatcher.ToolBroker, orch.Bus, orch.Logger)
+	if err != nil {
+		orch.Logger.Error("Plugin manager failed", "error", err)
+		return
+	}
+	extensionContext, cancelExtensions := context.WithTimeout(context.Background(), 60*time.Second)
+	pluginManager.LoadEnabled(extensionContext)
+	mcpManager.RefreshEnabled(extensionContext)
+	cancelExtensions()
+	architectCatalog, err := buildArchitectCatalog(registry, dispatcher.ToolBroker.Descriptors())
+	if err != nil {
+		orch.Logger.Error("Architect catalog failed", "error", err)
+		return
+	}
+	refreshArchitectCatalog := func() {
+		catalog, catalogErr := buildArchitectCatalog(registry, dispatcher.ToolBroker.Descriptors())
+		if catalogErr != nil {
+			orch.Logger.Error("Architect catalog refresh failed", "error", catalogErr)
+			return
+		}
+		orch.Bus.Publish(events.EventType("MemoryWriteRequested"), events.Component("forge"), memory.MemoryEntry{
+			Scope: memory.ScopeGlobal, ScopeID: "global", Key: "architect_catalog", Value: catalog, Owner: "forge",
+		})
+	}
+	mcpManager.SetChangedHandler(refreshArchitectCatalog)
+	pluginManager.SetChangedHandler(refreshArchitectCatalog)
+	telemetryServer.SetExtensionManagers(mcpManager, pluginManager)
+	if err := telemetryServer.Start(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+	if !*legacyFlag {
+		fmt.Printf("[UI] Telemetry running on http://localhost:%d\n", *portFlag)
+	} else {
+		fmt.Printf("[UI] Legacy Telemetry running on http://localhost:%d\n", *portFlag)
+	}
 	graphEngine.SetWorkerValidator(dispatcher.HasWorker)
 	graphEngine.Start()
 

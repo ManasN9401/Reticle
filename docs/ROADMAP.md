@@ -20,16 +20,21 @@ labels were placeholders and are not retained as a second numbering system.
 
 ## Current course of action
 
-The current extensibility sequence is:
+The extensibility sequence is now implemented:
 
-1. [RFC-046](rfc/RFC-046-MCP-Integration.md): implement local stdio MCP as the
-   first external broker adapter, then add the authenticated runtime API and
-   Studio management surface.
-2. [RFC-047](rfc/RFC-047-Plugin-System.md): add validated, atomic plugin loading
-   for agents, skills and broker adapters. MCP declarations depend on RFC-046.
+1. [RFC-046](rfc/RFC-046-MCP-Integration.md): local stdio MCP is the first
+   external broker adapter, with authenticated runtime APIs and Studio management.
+2. [RFC-047](rfc/RFC-047-Plugin-System.md): validated local bundles contribute
+   agents, skills, brokered tools and MCP declarations through existing registries.
 
 [RFC-050](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md) is accepted and its broker,
 dispatcher/worker integration and fixture adapter contract are implemented.
+
+The recommended next step is an acceptance and hardening cycle: exercise signed
+or checksummed provenance options, crash recovery, invalid bundle upgrades and a
+broader MCP fixture matrix before proposing remote transports or a marketplace.
+After that, RFC-049 can add memory inspection without expanding execution
+authority. RFC-048 remains blocked on genuine process isolation.
 
 [RFC-049](rfc/RFC-049-Memory-Query-Management.md) is an independent proposed
 Studio/runtime surface and may be scheduled separately after review.
@@ -78,8 +83,8 @@ additional claim about implementation completeness.
 | [RFC-043](rfc/RFC-043-Audit-Contract-Repairs.md) | Repair Existing Runtime Contracts | `accepted` |
 | [RFC-044](rfc/RFC-044-Memory-Lifecycle-Recovery-Evaluation.md) | Memory Lifecycle, Recovery and Evaluation | `accepted` |
 | [RFC-045](rfc/RFC-045-Durable-Execution-Capabilities-Effects.md) | Durable Execution, Capabilities and External Effects | `accepted` |
-| [RFC-046](rfc/RFC-046-MCP-Integration.md) | MCP Integration | `draft` |
-| [RFC-047](rfc/RFC-047-Plugin-System.md) | Plugin System | `draft` |
+| [RFC-046](rfc/RFC-046-MCP-Integration.md) | MCP Integration | `accepted` |
+| [RFC-047](rfc/RFC-047-Plugin-System.md) | Plugin System | `accepted` |
 | [RFC-048](rfc/RFC-048-Meta-Scaffolder-Revised.md) | Meta-Scaffolder, Revised | `draft` |
 | [RFC-049](rfc/RFC-049-Memory-Query-Management.md) | Memory Query and Management Surface | `draft` |
 | [RFC-050](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md) | Attempt-Scoped Tool Broker | `accepted` |

@@ -37,44 +37,46 @@ export function DockPanel() {
       aria-label="Panel"
       className="flex min-h-0 flex-1 flex-col border-t border-line-1 bg-bg-0"
     >
-      <div className="flex h-[var(--h-tabstrip)] shrink-0 items-stretch bg-bg-1">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={panelTab === tab.id}
-            onClick={() => setPanelTab(tab.id)}
-            className={cn(
-              'relative flex items-center gap-1.5 px-3 text-xs whitespace-nowrap',
-              '[transition-property:color,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out-quint)]',
-              'focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2',
-              panelTab === tab.id ? 'text-fg-1' : 'text-fg-3 hover:text-fg-2',
-            )}
-          >
-            <span
+      <div className="flex h-[var(--h-tabstrip)] min-w-0 shrink-0 items-stretch bg-bg-1">
+        <div role="tablist" className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={panelTab === tab.id}
+              onClick={() => setPanelTab(tab.id)}
               className={cn(
-                'absolute inset-x-2 bottom-0 h-0.5 rounded-t-full bg-accent',
-                '[transition-property:opacity] duration-[var(--dur-base)]',
-                panelTab === tab.id ? 'opacity-100' : 'opacity-0',
+                'relative flex shrink-0 items-center gap-1.5 px-3 text-xs whitespace-nowrap',
+                '[transition-property:color,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out-quint)]',
+                'focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2',
+                panelTab === tab.id ? 'text-fg-1' : 'text-fg-3 hover:text-fg-2',
               )}
-            />
-            {tab.label}
-            {tab.id === 'problems' && failureCount > 0 ? (
-              <span className="num rounded-full bg-st-failed-weak px-1.5 text-2xs text-st-failed">
-                {failureCount}
-              </span>
-            ) : null}
-            {tab.id === 'logs' && logCount > 0 ? (
-              <span className="num text-2xs text-fg-4">{compact(logCount)}</span>
-            ) : null}
-            {tab.id === 'activity' && dependencyCount > 0 ? (
-              <span className="num text-2xs text-fg-4">{dependencyCount}</span>
-            ) : null}
-          </button>
-        ))}
+            >
+              <span
+                className={cn(
+                  'absolute inset-x-2 bottom-0 h-0.5 rounded-t-full bg-accent',
+                  '[transition-property:opacity] duration-[var(--dur-base)]',
+                  panelTab === tab.id ? 'opacity-100' : 'opacity-0',
+                )}
+              />
+              {tab.label}
+              {tab.id === 'problems' && failureCount > 0 ? (
+                <span className="num rounded-full bg-st-failed-weak px-1.5 text-2xs text-st-failed">
+                  {failureCount}
+                </span>
+              ) : null}
+              {tab.id === 'logs' && logCount > 0 ? (
+                <span className="num text-2xs text-fg-4">{compact(logCount)}</span>
+              ) : null}
+              {tab.id === 'activity' && dependencyCount > 0 ? (
+                <span className="num text-2xs text-fg-4">{dependencyCount}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
 
-        <div className="ml-auto flex items-center gap-0.5 px-1">
+        <div className="flex shrink-0 items-center gap-0.5 border-l border-line-1 bg-bg-1 px-1">
           <IconButton
             label={maximized ? 'Restore panel' : 'Maximize panel'}
             size="sm"

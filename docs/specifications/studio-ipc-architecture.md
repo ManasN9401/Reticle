@@ -30,6 +30,7 @@ The preload bridge exposes narrow typed groups rather than generic channel names
 - connection/process control and current projection;
 - coalesced logs and log queries;
 - models, artifacts, uploads, and approvals;
+- MCP server and plugin lifecycle through authenticated runtime REST calls;
 - guarded workspace summary/tree/file operations;
 - settings and theme.
 - pseudo-terminal lifecycle, text input/output and resize operations.
@@ -45,5 +46,6 @@ Channel constants and request/response types live in `studio/src/shared/ipc.ts`.
 - Scheduled Explorer refreshes wait for the previous scan to finish. Results carry an in-renderer generation and stale responses are discarded.
 - Environment Activity keys operations by `operation_id`; selected-run log scope uses the event's execution identity.
 - Shared memory is not mirrored as a generic renderer-accessible blackboard. Studio learns about artifacts and lifecycle state through typed events and APIs.
+- MCP and plugin settings are runtime state, not Electron preferences. The main process authenticates requests; the renderer receives status and environment-variable names but never control tokens, attempt credentials or resolved secret values.
 
 Contract tests live in `studio/tests/`, while the runtime envelope and event behavior are tested under `runtime/`.

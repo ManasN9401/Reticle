@@ -18,8 +18,11 @@ import type {
   LogExportResult,
   LogRecord,
   LogQuery,
+  McpAction,
+  McpServerConfig,
   NativeAction,
   OutboundCommand,
+  PluginAction,
   ProfileImportResult,
   ProjectionPush,
   ResolvedTheme,
@@ -369,6 +372,14 @@ function registerIpc(): void {
   handle(IPC.apiModelToggle, (_e, modelKey: string) => rest.toggleModel(modelKey))
   handle(IPC.apiOutputs, (_e, execId: string) => rest.outputs(execId))
   handle(IPC.apiUpload, (_e, paths: string[]) => rest.upload(paths ?? []))
+  handle(IPC.apiMcpList, () => rest.mcpServers())
+  handle(IPC.apiMcpSave, (_e, config: McpServerConfig) => rest.saveMcpServer(config))
+  handle(IPC.apiMcpDelete, (_e, id: string) => rest.deleteMcpServer(id))
+  handle(IPC.apiMcpAction, (_e, id: string, action: McpAction) => rest.actOnMcpServer(id, action))
+  handle(IPC.apiPluginsList, () => rest.plugins())
+  handle(IPC.apiPluginInstall, (_e, sourcePath: string) => rest.installPlugin(sourcePath))
+  handle(IPC.apiPluginDelete, (_e, id: string) => rest.deletePlugin(id))
+  handle(IPC.apiPluginAction, (_e, id: string, action: PluginAction) => rest.actOnPlugin(id, action))
 
   handle(IPC.workspaceAgents, (_e, execId?: string) => workspace.agents(execId))
   handle(IPC.workspaceSummary, (_e, execId?: string) => workspace.summary(execId))
