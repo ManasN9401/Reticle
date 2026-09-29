@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-09-19
+updated: 2026-09-29
 ---
 
 # Runtime Orchestration Architecture
@@ -38,6 +38,14 @@ Provider fallback requires the worker's `[RETICLE_RETRY_SAFE: NO_EFFECTS]` proof
 Waitlist admission creates the isolated workspace and commits required run/compiler memory as one acknowledged batch before submitting a workflow. A workspace or memory failure terminalizes that item without starting compilation.
 
 Workers receive resolved capabilities from their manifest. The shared SDK filters its tool definitions from those grants. Native execution also requires the user's native setting.
+
+Forge owns one loopback attempt-scoped tool broker. Before spawning a concrete
+retry, the dispatcher creates a random credential bound to the attempt's
+immutable capability grant and passes it only through the child environment.
+The broker filters descriptors, bounds and correlates calls, enforces global,
+adapter and attempt concurrency, blocks new calls while paused, and revokes the
+credential on completion, failure, cancellation or shutdown. Runtime-owned
+adapters cannot use Worker Protocol stdout as a second request channel.
 
 ## 3. Dynamic Execution & Hot-Swapping
 

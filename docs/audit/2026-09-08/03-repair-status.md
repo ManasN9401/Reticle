@@ -4,7 +4,7 @@ The original [findings](01-findings.md) and [recommendations](02-recommendations
 
 ## Result and limits
 
-Follow-up: [shared-memory effectiveness review](04-shared-memory-review.md) records additional fixes and measured lookup improvements, plus unresolved lifecycle limits. [ML environment selection](../../../ml-environments.md) distinguishes proposed hardware profiles from current behavior; [environment configuration](../../../environment.md) now documents AWS identity options and the missing deployment adapter.
+Follow-up: [shared-memory effectiveness review](04-shared-memory-review.md) records additional fixes and measured lookup improvements, plus unresolved lifecycle limits. [ML environment selection](../../ml-environments.md) distinguishes proposed hardware profiles from current behavior; [environment configuration](../../environment.md) now documents AWS identity options and the missing deployment adapter.
 
 The repair implements authenticated local control, contained file tools and attachments, a common worker protocol/SDK, specialist registration, ordered result handling, cancellation across compilation/execution, scoped generated workers, lazy dependency provisioning, Studio lifecycle recovery, schemas, documentation and offline regression gates.
 

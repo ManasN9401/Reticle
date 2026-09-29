@@ -1,4 +1,13 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-29
+---
+
 # Development Handover
+
+> Historical foundation-era handover. It does not describe the current
+> repository state; use `PROJECT_STATE_27-09-26.md` and `../ROADMAP.md`.
 
 ## Purpose
 

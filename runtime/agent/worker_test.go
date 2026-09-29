@@ -221,6 +221,9 @@ func TestWorkerChild(t *testing.T) {
 		fmt.Println(`{"id":"wrong","result":"x"}`)
 	case "large":
 		fmt.Print(string(make([]byte, 11*1024*1024)))
+	case "broker-secret":
+		fmt.Fprintln(os.Stderr, os.Getenv("RETICLE_TOOL_BROKER_TOKEN"))
+		os.Exit(3)
 	default:
 		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "ok"})
 	}
@@ -277,7 +280,7 @@ func TestBuiltinAndExampleManifests(t *testing.T) {
 	}
 }
 func TestWorkerContract(t *testing.T) {
-	for _, mode := range []string{"optional", "wrong", "large"} {
+	for _, mode := range []string{"optional", "wrong", "large", "broker-secret"} {
 		t.Run(mode, func(t *testing.T) {
 			bus := events.NewBus("test")
 			defer bus.Close()
@@ -286,13 +289,20 @@ func TestWorkerContract(t *testing.T) {
 			w := NewWorker("test", exe, []string{"-test.run=^TestWorkerChild$"}, []string{"RETICLE_TEST_CHILD=" + mode}, &logger.Logger{}, bus)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			result, failure := w.Execute(ctx, Task{ID: "test|node", ExecutionID: "test"})
+			attemptEnv := []string(nil)
+			if mode == "broker-secret" {
+				attemptEnv = []string{"RETICLE_TOOL_BROKER_TOKEN=private-broker-token"}
+			}
+			result, failure := w.ExecuteWithEnvironment(ctx, Task{ID: "test|node", ExecutionID: "test"}, attemptEnv)
 			if mode == "optional" {
 				if failure != nil || result.Result != "ok" {
 					t.Fatalf("EOF/optional response: %v", failure)
 				}
 			} else if failure == nil {
 				t.Fatal("invalid output accepted")
+			}
+			if mode == "broker-secret" && (strings.Contains(failure.Stderr, "private-broker-token") || !strings.Contains(failure.Stderr, "[REDACTED]")) {
+				t.Fatalf("attempt credential leaked in worker failure: %q", failure.Stderr)
 			}
 			if ctx.Err() != nil {
 				t.Fatal("pipe handling hung")

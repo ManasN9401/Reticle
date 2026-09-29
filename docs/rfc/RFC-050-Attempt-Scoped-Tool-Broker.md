@@ -1,7 +1,7 @@
 ---
-status: draft
+status: accepted
 owner: Reticle Project
-updated: 2026-09-27
+updated: 2026-09-29
 ---
 
 # RFC-050: Attempt-Scoped Tool Broker
@@ -63,3 +63,18 @@ The broker adds a local server, credentials and another failure boundary. It doe
 ## 10. Related documents
 
 RFC-045, RFC-046, RFC-047, Worker Protocol v1 and Agent Definition v1.
+
+## 11. Implementation
+
+Implemented on 29 September 2026 in `runtime/toolbroker`, the dispatcher and
+`cmd/forge/compiler/lib/worker_sdk.py`. Forge starts one loopback broker; each
+concrete retry receives a random credential through its child-process
+environment and loses access before its terminal attempt event is published.
+
+The implementation includes immutable descriptor registration, model-name and
+schema admission, capability-filtered discovery, bounded requests/results,
+global, adapter and attempt concurrency limits, deadlines, pause/revoke/cancel,
+duplicate call handling, late-result rejection, effect certainty and redacted
+telemetry. Built-in Python tools remain local but use the same descriptor shape.
+Contract tests include a real spawned worker calling a brokered fixture while
+preserving the single-response stdout protocol.

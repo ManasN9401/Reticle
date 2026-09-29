@@ -130,8 +130,25 @@ func NewWorker(id WorkerID, executable string, args []string, envVars []string, 
 // Execute spawns the OS process for the worker, streams standard output/error, and captures the final TaskResponse.
 // It implements one EOF-terminated request on stdin and expects one final JSON response on stdout.
 func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerFailure) {
+	return w.ExecuteWithEnvironment(ctx, req, nil)
+}
+
+// ExecuteWithEnvironment adds runtime-owned, attempt-scoped environment values
+// without serializing them into the task payload. Callers must only pass
+// ephemeral values whose lifecycle is bounded by this invocation.
+func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEnv []string) (*TaskResponse, *WorkerFailure) {
+	secretValues := environmentValues(attemptEnv, "RETICLE_TOOL_BROKER_TOKEN")
+	redactAttemptSecrets := func(value string) string {
+		value = logger.Redact(value)
+		for _, secret := range secretValues {
+			if secret != "" {
+				value = strings.ReplaceAll(value, secret, "[REDACTED]")
+			}
+		}
+		return value
+	}
 	fail := func(reason WorkerFailureReason, err error) (*TaskResponse, *WorkerFailure) {
-		return nil, &WorkerFailure{Reason: reason, ExitCode: -1, Stderr: err.Error()}
+		return nil, &WorkerFailure{Reason: reason, ExitCode: -1, Stderr: redactAttemptSecrets(err.Error())}
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
@@ -160,7 +177,7 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 	configureProcess(cmd)
 	cmd.Stdin = bytes.NewReader(append(data, '\n'))
 	cmd.WaitDelay = 2 * time.Second
-	cmd.Env = workerEnvironment(req, explicit)
+	cmd.Env = workerEnvironment(req, append(explicit, attemptEnv...))
 	out := &limitedOutput{limit: 10 * 1024 * 1024}
 	errout := &limitedOutput{
 		limit: 256 * 1024,
@@ -168,7 +185,7 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 			line = strings.TrimSuffix(line, "\n")
 			line = strings.TrimSuffix(line, "\r")
 			if line != "" {
-				w.Bus.Publish("WorkerLog", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "log": logger.Redact(line)})
+				w.Bus.Publish("WorkerLog", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "log": redactAttemptSecrets(line)})
 			}
 			return !isLLMStreamLine(line)
 		},
@@ -192,7 +209,7 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 			code = exit.ExitCode()
 			reason = WorkerExitedNonZero
 		}
-		return nil, &WorkerFailure{Reason: reason, ExitCode: code, Stderr: logger.Redact(errout.String())}
+		return nil, &WorkerFailure{Reason: reason, ExitCode: code, Stderr: redactAttemptSecrets(errout.String())}
 	}
 	if out.exceeded {
 		return fail(WorkerProtocolError, fmt.Errorf("worker output exceeds 10 MiB"))
@@ -277,6 +294,21 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 		w.Bus.Publish("WorkerVerificationRecorded", "worker", map[string]any{"task_id": req.ID, "worker_id": w.ID, "execution": req.ExecutionID, "attempt_id": req.AttemptID, "evidence": resp.Verification})
 	}
 	return &resp, nil
+}
+
+func environmentValues(environment []string, names ...string) []string {
+	wanted := make(map[string]bool, len(names))
+	for _, name := range names {
+		wanted[strings.ToUpper(name)] = true
+	}
+	values := make([]string, 0, len(names))
+	for _, item := range environment {
+		key, value, found := strings.Cut(item, "=")
+		if found && wanted[strings.ToUpper(key)] {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 func isLLMStreamLine(line string) bool {

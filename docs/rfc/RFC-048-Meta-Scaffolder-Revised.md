@@ -1,14 +1,14 @@
 ---
 status: draft
 owner: Reticle Project
-updated: 2026-09-23
+updated: 2026-09-29
 ---
 
 # RFC-048: Meta-Scaffolder, Revised
 
 ## Motivation
 
-`docs/rfc/RFC-035-Agent-Evolution-Meta-Scaffolder.md` proposes a background "Evolution" orchestrator lifecycle: a Meta-Scaffolder agent that monitors other agents' success/failure ratios, rewrites a failing agent's `worker.py` or `agent.yaml` in response, and hot-reloads the result. Its own `Consequences` section already names the risk plainly: "High risk of 'bad mutations' where an agent accidentally corrupts its own fundamental execution loop, requiring rollback mechanisms or strict sandboxing." That RFC's status remains `Proposed (Future Roadmap)` — it was never accepted, and nothing in this repository implements it.
+`docs/rfc/RFC-035-Agent-Evolution-Meta-Scaffolder.md` proposed a background "Evolution" orchestrator lifecycle: a Meta-Scaffolder agent that monitors other agents' success/failure ratios, rewrites a failing agent's `worker.py` or `agent.yaml` in response, and hot-reloads the result. Its own `Consequences` section already names the risk plainly: "High risk of 'bad mutations' where an agent accidentally corrupts its own fundamental execution loop, requiring rollback mechanisms or strict sandboxing." RFC-035 was originally marked `Proposed (Future Roadmap)` and is now `historical`; it was never accepted, and nothing in this repository implements it.
 
 This document is a deliberately narrow, documentation-only deliverable. It does not propose implementing the Meta-Scaffolder. It restates the concept for continuity, carries RFC-035's own risk assessment forward without softening it, and states explicitly what would have to be true before an implementation RFC could responsibly be written. **Accepting this RFC authorizes nothing beyond the gates below being on record — it is not itself a green light to build the Meta-Scaffolder.**
 

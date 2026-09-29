@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-09-19
+updated: 2026-09-29
 ---
 
 # Request for Comments (RFC) Process
@@ -34,8 +34,12 @@ updated: YYYY-MM-DD
 The larger repository metadata standard is still Draft. Its additional fields are optional until that standard is accepted. A historical RFC is design evidence, not an active contract; current versioned specifications and schemas take precedence.
 
 ## How to Submit an RFC
-1. Create a markdown file in `docs/rfc/` named `XXXX-brief-title.md`.
+1. Allocate the next unused identifier and create `docs/rfc/RFC-NNN-brief-title.md`.
+   Identifiers are never aliases, renumbered after filing, or backfilled merely
+   because an earlier number is unused.
 2. Set `status: draft` in the frontmatter.
 3. Provide a clear motivation, detailed design, and a section for drawbacks.
 4. Solicit feedback from maintainers.
-5. Upon approval, change status to `Accepted`, and implement the changes into the official `docs/specifications/` folders.
+5. Upon approval, change status to lowercase `accepted`, and update the
+   authoritative documents under `docs/specifications/` when a frozen contract
+   is affected.

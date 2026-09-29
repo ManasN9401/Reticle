@@ -1,12 +1,12 @@
 ---
 status: historical
 owner: Reticle Project
-updated: 2026-09-19
+updated: 2026-09-29
 ---
 
 > Historical design record. Current versioned specifications and schemas take precedence.
 
-# RFC 038: Human-in-the-Loop (HitL) Checkpoints
+# RFC-038: Human-in-the-Loop (HitL) Checkpoints
 
 ## 1. Overview
 As Reticle scales to handle massively parallel agent workflows, blindly executing a large Directed Acyclic Graph (DAG) for destructive tasks (e.g., deployments, dropping databases, major refactors) introduces unacceptable risk.

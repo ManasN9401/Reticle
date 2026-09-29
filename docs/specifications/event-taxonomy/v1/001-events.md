@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-09-08
+updated: 2026-09-29
 ---
 # Event delivery and lifecycle
 
@@ -14,5 +14,11 @@ An execution uses running, paused, interrupted, cancelled, completed or failed s
 `RuntimePersistenceFailed` is fatal to active admission. Its payload identifies the failed phase and affected execution IDs. The dispatcher cancels owned work, the graph projection becomes interrupted, matching running waitlist items fail, pending items remain queued for a restart, and no more work is admitted by that process. Restart/reconciliation is required. ExternalEffectBeginRequested and ExternalEffectFinishRequested persist adapter-owned side effects; interrupted effects cannot return to running without a new operation identity.
 
 `EnvironmentProvisioningStarted`, `EnvironmentProvisioningCompleted` and `EnvironmentProvisioningFailed` carry an operation ID plus execution, task and attempt identity when provisioning was requested by a task. `WorkerVerificationRecorded` carries the structured checks accepted from a worker result.
+
+`BrokerToolCallStarted` and `BrokerToolCallFinished` identify the execution,
+task, attempt, call, canonical tool and adapter. Finished events add duration,
+outcome and effect certainty. Broker credentials, arguments and results are
+excluded. A result arriving after attempt revocation is reported as discarded
+and cannot be committed to the attempt.
 
 WorkflowSnapshot restores current node and execution states, attempt history and graph revision on reconnect. Event history is a bounded client diagnostic view; the durable execution snapshot is authoritative for current state but is not a complete event outbox. Durable distributed replay is outside this local v1 contract.

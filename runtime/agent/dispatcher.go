@@ -10,6 +10,7 @@ import (
 	"github.com/reticle/runtime/logger"
 	"github.com/reticle/runtime/memory"
 	"github.com/reticle/runtime/routing"
+	"github.com/reticle/runtime/toolbroker"
 	"os"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ type Dispatcher struct {
 	Router       *routing.ModelRouter
 	RuntimeState *memory.RuntimeState
 	Devices      *DeviceLeaseManager
+	ToolBroker   *toolbroker.Broker
 
 	workersMu     sync.RWMutex
 	cancelled     map[string]bool
@@ -47,6 +49,28 @@ func NewDispatcher(l *logger.Logger, b *events.Bus, is *InstructionStore, r *rou
 		cancelled:    make(map[string]bool),
 		Devices:      NewDeviceLeaseManager(),
 	}
+}
+
+// StartToolBroker creates the loopback broker used by subsequent attempts.
+// Startup is explicit so callers cannot silently run without the configured
+// extension boundary when listener creation fails.
+func (d *Dispatcher) StartToolBroker() error {
+	if d.ToolBroker != nil {
+		return nil
+	}
+	broker, err := toolbroker.New(d.Bus)
+	if err != nil {
+		return err
+	}
+	d.ToolBroker = broker
+	return nil
+}
+
+func (d *Dispatcher) CloseToolBroker(ctx context.Context) error {
+	if d.ToolBroker == nil {
+		return nil
+	}
+	return d.ToolBroker.Close(ctx)
 }
 
 func (d *Dispatcher) RegisterWorker(w *Worker) {
@@ -80,6 +104,11 @@ func (d *Dispatcher) Start() {
 	d.Bus.Subscribe("RuntimeOverloaded", stopOnRuntimeFailure)
 	d.Bus.Subscribe("RuntimePersistenceFailed", stopOnRuntimeFailure)
 	d.Bus.Subscribe("RuntimeShutdown", func(events.RuntimeEvent) {
+		if d.ToolBroker != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = d.ToolBroker.Close(ctx)
+			cancel()
+		}
 		d.activeTasksMu.Lock()
 		for id, tasks := range d.activeTasks {
 			d.cancelled[id] = true
@@ -98,6 +127,9 @@ func (d *Dispatcher) Start() {
 	d.Bus.Subscribe(events.EventType("ExecutionKilled"), func(e events.RuntimeEvent) {
 		if payload, ok := e.Payload.(map[string]string); ok {
 			if execID, ok := payload["execution"]; ok {
+				if d.ToolBroker != nil {
+					d.ToolBroker.RevokeExecution(execID)
+				}
 				d.activeTasksMu.Lock()
 				d.cancelled[execID] = true
 				d.cancelled["compile-"+execID] = true
@@ -112,6 +144,16 @@ func (d *Dispatcher) Start() {
 				}
 				d.activeTasksMu.Unlock()
 			}
+		}
+	})
+	d.Bus.Subscribe(events.EventType("ExecutionPaused"), func(e events.RuntimeEvent) {
+		if payload, ok := e.Payload.(map[string]string); ok && d.ToolBroker != nil {
+			d.ToolBroker.SetExecutionPaused(payload["execution"], true)
+		}
+	})
+	d.Bus.Subscribe(events.EventType("ExecutionResumed"), func(e events.RuntimeEvent) {
+		if payload, ok := e.Payload.(map[string]string); ok && d.ToolBroker != nil {
+			d.ToolBroker.SetExecutionPaused(payload["execution"], false)
 		}
 	})
 
@@ -324,16 +366,36 @@ func (d *Dispatcher) Start() {
 
 				d.Bus.Publish(events.EventType("AttemptStarted"), events.Component("dispatcher"), payload)
 				d.Bus.Publish(events.EventType("TaskDispatched"), events.Component("dispatcher"), payload)
+				attemptEnvironment := []string(nil)
+				if d.ToolBroker != nil {
+					capabilities := make([]string, len(t.Capabilities))
+					for i, capability := range t.Capabilities {
+						capabilities[i] = string(capability)
+					}
+					credentials, brokerErr := d.ToolBroker.BeginAttempt(t.AttemptID, t.ExecutionID, string(t.ID), capabilities)
+					if brokerErr != nil {
+						d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": "tool_broker_start_failed"})
+						lastFailure = &WorkerFailure{Reason: WorkerStartFailed, ExitCode: -1, Stderr: brokerErr.Error()}
+						break
+					}
+					attemptEnvironment = credentials.Environment()
+				}
 
 				select {
 				case d.slots <- struct{}{}:
 				case <-ctx.Done():
+					if d.ToolBroker != nil {
+						d.ToolBroker.RevokeAttempt(t.AttemptID)
+					}
 					d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": "timeout"})
 					d.Bus.Publish("WorkerFailed", "dispatcher", map[string]any{"task_id": string(t.ID), "worker_id": string(w.ID), "attempt_id": t.AttemptID, "reason": "timeout", "stderr": ctx.Err().Error()})
 					return
 				}
-				_, failure := w.Execute(ctx, t)
+				_, failure := w.ExecuteWithEnvironment(ctx, t, attemptEnvironment)
 				<-d.slots
+				if d.ToolBroker != nil {
+					d.ToolBroker.RevokeAttempt(t.AttemptID)
+				}
 
 				if ctx.Err() != nil {
 					d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": "cancelled"})

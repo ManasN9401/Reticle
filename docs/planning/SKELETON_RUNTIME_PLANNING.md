@@ -1,4 +1,13 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-29
+---
+
 # Skeleton Runtime Plan
+
+> Historical implementation plan. Current runtime behavior is defined by the
+> accepted specifications and current source, not this initial milestone.
 
 ## Purpose
 

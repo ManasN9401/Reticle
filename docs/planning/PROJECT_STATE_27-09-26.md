@@ -1,7 +1,7 @@
 ---
 status: active
 owner: Reticle Project
-updated: 2026-09-27
+updated: 2026-09-29
 ---
 
 # Project State — 27 September 2026
@@ -16,16 +16,15 @@ than the current implementation state.
 
 ## Current objective
 
-Establish one secure runtime path for dynamically supplied tools before adding
-MCP servers or loadable plugins. This avoids creating incompatible invocation,
-permission and cancellation mechanisms in three subsystems.
+Use the implemented attempt-scoped tool broker to add MCP as the first external
+adapter, without creating a second invocation, permission or cancellation path.
 
 ## Agreed implementation sequence
 
-1. **RFC-050 — Attempt-Scoped Tool Broker.** Add the loopback, per-attempt side
-   channel, immutable descriptors, capability filtering, cancellation, limits,
-   effect certainty and telemetry while preserving Worker Protocol v1.
-2. **RFC-046 — MCP Integration.** Implement explicit local stdio server
+1. **RFC-050 — Attempt-Scoped Tool Broker.** Accepted and implemented: loopback
+   per-attempt access, immutable descriptors, capability filtering,
+   cancellation, limits, effect certainty, telemetry and a real worker fixture.
+2. **RFC-046 — MCP Integration.** Next: implement explicit local stdio server
    registration and lifecycle as the first external broker adapter, followed by
    authenticated control APIs and Studio management.
 3. **RFC-047 — Plugin System.** Version the reserved manifest, validate complete

@@ -54,7 +54,7 @@ The repaired implementation is materially more useful and faster for scoped scra
 
 ## Implementation follow-up — 9 September 2026
 
-The four high-level gaps requested after this report were implemented under [RFC-044](../../../rfc/RFC-044-Memory-Lifecycle-Recovery-Evaluation.md): bounded execution expiry and terminal cleanup, entry/byte and artifact-version retention, compare-and-set revisions with worker acknowledgement, local restart snapshots with rollback on persistence failure, and a paired memory-quality evaluation harness. The original table remains as the record of what was observed before that follow-up.
+The four high-level gaps requested after this report were implemented under [RFC-044](../../rfc/RFC-044-Memory-Lifecycle-Recovery-Evaluation.md): bounded execution expiry and terminal cleanup, entry/byte and artifact-version retention, compare-and-set revisions with worker acknowledgement, local restart snapshots with rollback on persistence failure, and a paired memory-quality evaluation harness. The original table remains as the record of what was observed before that follow-up.
 
 The implementation does not turn local snapshots into multi-process or replicated storage. The quality harness supports real configured models, while the committed default is an offline contract evaluation so tests do not spend provider quota. Current verification results are recorded in the repair status and test output for the follow-up.
 

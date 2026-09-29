@@ -8,7 +8,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import io
+import hashlib
 import re
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,12 +20,52 @@ sys.path.insert(0, str(LIB))
 import forge_utils
 
 class WorkerContracts(unittest.TestCase):
+    def test_sdk_attempt_scoped_broker_protocol(self):
+        import worker_sdk
+        observed=[]
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):
+                pass
+            def _send(self,payload):
+                body=json.dumps(payload).encode()
+                self.send_response(200)
+                self.send_header("Content-Type","application/json")
+                self.send_header("Content-Length",str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def do_GET(self):
+                observed.append((self.command,self.path,self.headers.get("Authorization"),self.headers.get("X-Reticle-Attempt-ID"),None))
+                self._send({"tools":[{"id":"fixture.echo","name":"fixture__echo","description":"fixture","schema":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":False},"effect":"no_effect"}]})
+            def do_POST(self):
+                body=json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                observed.append((self.command,self.path,self.headers.get("Authorization"),self.headers.get("X-Reticle-Attempt-ID"),body))
+                self._send({"ok":True,"result":{"echo":body["arguments"]["value"]},"effect":"no_effect"})
+        server=ThreadingHTTPServer(("127.0.0.1",0),Handler)
+        thread=threading.Thread(target=server.serve_forever,daemon=True)
+        thread.start()
+        environment={"RETICLE_TOOL_BROKER_URL":f"http://127.0.0.1:{server.server_port}","RETICLE_TOOL_BROKER_TOKEN":"private-token","RETICLE_ATTEMPT_ID":"attempt-1"}
+        try:
+            with patch.dict("os.environ",environment,clear=True):
+                catalog=worker_sdk._broker_catalog()
+                result,effect=worker_sdk._broker_call(catalog["fixture__echo"],"call-1",{"value":"hello"})
+                worker_sdk._broker_call(catalog["fixture__echo"],"provider call/id",{"value":"again"})
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=1)
+        self.assertEqual(result,{"echo":"hello"})
+        self.assertEqual(effect,"no_effect")
+        self.assertEqual(observed[0][:4],("GET","/v1/tools","Bearer private-token","attempt-1"))
+        self.assertEqual(observed[1][4],{"callId":"call-1","tool":"fixture.echo","arguments":{"value":"hello"}})
+        normalized="provider-"+hashlib.sha256(b"provider call/id").hexdigest()
+        self.assertEqual(observed[2][4]["callId"],normalized)
+
     def test_no_literal_provider_credentials_in_source(self):
         credential=re.compile(r"(?:gsk_[A-Za-z0-9]{20,}|sk-or-v1-[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{20,})")
         hits=[]
         tracked=subprocess.run(["git","ls-files","-z"],cwd=ROOT,capture_output=True,check=True).stdout.decode().split("\0")
         for relative in filter(None,tracked):
             path=ROOT/relative
+            if not path.exists():
+                continue
             if path.suffix.lower() not in {".py",".go",".js",".ts",".tsx",".json",".yaml",".yml",".md"}:
                 continue
             try: text=path.read_text(encoding="utf-8")

@@ -2,8 +2,8 @@
 
 > [!IMPORTANT]
 > **MANDATORY READING:** Before creating or modifying any Agent, you MUST read and fully understand:
-> - **[RFC-008 — Agent Architecture](file:///d:/Reticle/docs/rfc/RFC-008-Agent-Architecture.md)**
-> - **[RFC-027 — Worker Runtime Contract](file:///d:/Reticle/docs/rfc/RFC-027-Worker-Runtime-Contract.md)**
+> - **[Agent Definition v1](../specifications/agent-definition/v1/001-schema.md)**
+> - **[Worker Protocol v1](../specifications/worker-protocol/v1/001-protocol.md)**
 
 ## 1. Directory Structure
 Each agent must be self-contained in a directory matching its ID, e.g. `agents/my-worker/`:
@@ -28,8 +28,10 @@ skills:
 ```
 
 ## 3. Worker Protocol Implementation
-The executable defined in `entrypoint` MUST strictly adhere to the `stdin`/`stdout` JSON protocol defined in **RFC-027**. 
+The executable defined in `entrypoint` MUST adhere to
+**[Worker Protocol v1](../specifications/worker-protocol/v1/001-protocol.md)**.
 
 - **Input:** It will receive a single `Task` JSON object on `stdin`.
 - **Output:** It must print a single `TaskResponse` JSON object to `stdout` upon completion.
-- **Failures:** It must fallback to deterministic mock outputs if external dependencies fail (e.g. LLM timeouts) to prevent breaking DAG topologies. Any crash must write to `stderr` and exit with non-zero code.
+- **Failures:** It must report a structured failure or exit non-zero. It must not
+  fabricate a successful artifact or deterministic mock result for failed work.

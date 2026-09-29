@@ -1,563 +1,112 @@
-# AI Orchestrator Framework Roadmap
-
-> **Status:** Planning
->
-> This document outlines the planned architecture documentation for the AI Orchestrator Framework. It serves as a high-level roadmap only and intentionally avoids implementation details. Each phase consists of one or more RFCs (Request for Comments) that will become the authoritative specifications for the framework.
-
+---
+status: active
+owner: Reticle Project
+updated: 2026-09-29
 ---
 
-# Documentation Philosophy
-
-The framework is documented using RFCs.
-
-Each RFC represents a single architectural topic and is intended to become the source of truth for that subsystem.
-
-RFCs are designed to:
-
-- Explain *why* a design decision exists.
-- Define *what* the subsystem must accomplish.
-- Establish architectural constraints.
-- Provide implementation guidance without dictating specific technologies.
-- Remain version controlled throughout the lifetime of the project.
-
-The roadmap progresses from foundational concepts toward implementation-specific architecture.
-
----
-
-# Phase 1 — Foundation
-
-The foundation establishes the principles upon which every other subsystem will be built.
-
-No implementation details are defined during this phase.
-
-## RFC-000 — Philosophy
-
-Defines:
-
-- Project vision
-- Long-term goals
-- Core architectural principles
-- Design philosophy
-- Guiding constraints
-- Non-goals
-- Project values
-- Framework identity
-
----
-
-## RFC-001 — Terminology
-
-Creates a shared language for the framework.
-
-Defines every major concept including (but not limited to):
-
-- Agent
-- Skill
-- Plugin
-- Tool
-- Supervisor
-- Worker
-- Task
-- Job
-- Event
-- Memory
-- Knowledge
-- Context
-- Runtime
-- Capability
-- Graph
-- Session
-
-Every future RFC references these definitions.
-
----
-
-## RFC-002 — System Overview
-
-Provides a high-level overview of the entire platform.
-
-Introduces:
-
-- Runtime architecture
-- Core components
-- High-level execution flow
-- Agent ecosystem
-- Plugin ecosystem
-- Memory architecture
-- Event-driven design
-- Supervisor graph
-- User interaction model
-
-This document acts as the architectural "map" of the framework.
-
----
-
-# Phase 2 — Core Runtime
-
-This phase defines the runtime responsible for executing, coordinating, and monitoring all agents.
-
-## RFC-003 — Runtime
-
-Defines the runtime environment responsible for:
-
-- Bootstrapping
-- Lifecycle management
-- Initialization
-- Shutdown
-- Runtime services
-- Component registration
-
----
-
-## RFC-004 — Event Bus
-
-Defines the framework's event-driven architecture.
-
-Includes:
-
-- Event lifecycle
-- Event routing
-- Event subscriptions
-- Event priorities
-- Event persistence
-- Event replay
-- Internal communication
-
----
-
-## RFC-005 — Scheduler
-
-Defines how work is scheduled.
-
-Topics include:
-
-- Task scheduling
-- Priorities
-- Dependencies
-- Resource allocation
-- Parallel execution
-- Fair scheduling
-- Queue management
-
----
-
-## RFC-006 — Task System
-
-Defines:
-
-- Task creation
-- Assignment
-- Ownership
-- Dependencies
-- Status
-- Retry behaviour
-- Cancellation
-- Completion
-
----
-
-## RFC-007 — Memory System
-
-Defines every layer of framework memory.
-
-Includes:
-
-- Knowledge
-- Context
-- Project memory
-- Runtime state
-- Shared memory
-- Long-term memory
-- Session memory
-- Retrieval
-- Synchronization
-
----
-
-# Phase 3 — Intelligence Layer
-
-Defines how intelligence is represented inside the framework.
-
----
-
-## RFC-008 — Agent Architecture
-
-Defines:
-
-- Agent lifecycle
-- Agent identity
-- Configuration
-- Loading
-- Registration
-- Discovery
-- Runtime behaviour
-- Agent capabilities
-
----
-
-## RFC-009 — Skills
-
-Defines reusable capabilities.
-
-Topics include:
-
-- Skill composition
-- Skill inheritance
-- Skill discovery
-- Skill versioning
-- Skill reuse
-- Skill dependencies
-
----
-
-## RFC-010 — Supervisor Graph
-
-Defines the graph-based orchestration model.
-
-Topics include:
-
-- Supervisor nodes
-- Worker nodes
-- Dynamic graph construction
-- Graph mutation
-- Temporary supervisors
-- Delegation
-- Team formation
-- Coordination strategies
-
----
-
-## RFC-011 — Runtime Instructions
-
-Defines runtime modification.
-
-Includes:
-
-- Human instructions
-- Universal directives
-- Agent-specific directives
-- Temporary overrides
-- Persistent overrides
-- Enable/disable functionality
-- Live configuration updates
-
----
-
-## RFC-012 — Model Routing
-
-Defines model management.
-
-Includes:
-
-- Model selection
-- Multi-model execution
-- Cost optimisation
-- Fallback behaviour
-- Local models
-- Cloud models
-- Capability matching
-
----
-
-# Phase 4 — Extensibility
-
-Defines how the framework grows over time.
-
-Implementation order is broker first, then MCP, then plugins. The broker is the
-shared permission and invocation boundary; MCP is its first external adapter;
-plugins consume both without introducing another worker protocol or tool path.
-
----
-
-## RFC-015 — Attempt-Scoped Tool Broker and Tool System
-
-Defines:
-
-- Runtime-owned tool registration
-- Attempt-scoped access
-- Capability enforcement
-- Cancellation and effect certainty
-- Shared limits and telemetry
-- Built-in, MCP and plugin adapters
-
-> Filed as [`docs/rfc/RFC-050-Attempt-Scoped-Tool-Broker.md`](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md) (`status: draft`) — "RFC-015" here is this roadmap's placeholder label, not the number the actual document was filed under.
-
----
-
-## RFC-014 — MCP Integration
-
-Defines interaction with Model Context Protocol servers.
-
-Topics include:
-
-- Discovery
-- Registration
-- Permissions
-- Context sharing
-- Tool exposure
-- Runtime management
-
-> Filed as [`docs/rfc/RFC-046-MCP-Integration.md`](rfc/RFC-046-MCP-Integration.md) (`status: draft`) — "RFC-014" here is this roadmap's placeholder label, not the number the actual document was filed under.
-
----
-
-## RFC-013 — Plugin System
-
-Defines:
-
-- Plugin lifecycle
-- Discovery and atomic registration
-- Hot loading and unloading
-- Dependencies and version compatibility
-- Agent, skill, tool and MCP contributions
-
-> Filed as [`docs/rfc/RFC-047-Plugin-System.md`](rfc/RFC-047-Plugin-System.md) (`status: draft`) — "RFC-013" here is this roadmap's placeholder label, not the number the actual document was filed under.
-
----
-
-# Phase 5 — Reliability
-
-Focuses on correctness, stability, and safe execution.
-
----
-
-## RFC-016 — Parallel Execution
-
-Defines:
-
-- Concurrent execution
-- Worker isolation
-- Synchronisation
-- Scheduling interactions
-- Resource sharing
-- Safe concurrency
-
----
-
-## RFC-017 — Workspace Ownership & Version Control
-
-Defines:
-
-- File ownership
-- Workspace isolation
-- Git integration
-- Branch strategy
-- Merge strategy
-- Conflict prevention
-- Locking
-
----
-
-## RFC-018 — Security
-
-Defines:
-
-- Permission model
-- Secrets
-- Authentication
-- Authorisation
-- Sandboxing
-- Trust boundaries
-
----
-
-## RFC-019 — Failure Recovery
-
-Defines:
-
-- Error handling
-- Rollbacks
-- Checkpoints
-- Recovery
-- Retries
-- Crash resilience
-
----
-
-## RFC-020 — Observability
-
-Defines:
-
-- Logging
-- Metrics
-- Tracing
-- Event history
-- Performance monitoring
-- Token monitoring
-- Cost tracking
-
----
-
-# Phase 6 — Human Experience
-
-Defines how users interact with the framework.
-
----
-
-## RFC-021 — Human Supervision
-
-Defines:
-
-- Human intervention
-- Approval workflows
-- Manual overrides
-- Agent supervision
-- Runtime interaction
-- Review pipelines
-
----
-
-## RFC-022 — Dashboard & Graph UI
-
-Defines:
-
-- Visual supervisor graph
-- Runtime monitoring
-- Agent management
-- Memory explorer
-- Event timeline
-- Task dashboard
-
-*(See `docs/rfc/RFC-022-Dashboard-Graph-UI.md` for official specification)*
-
----
-
-## RFC-023 — Configuration
-
-Defines:
-
-- Global configuration
-- Project configuration
-- Runtime configuration
-- Agent configuration
-- Plugin configuration
-- User preferences
-
----
-
-## RFC-024 — SDK & APIs
-
-Defines public interfaces.
-
-Includes:
-
-- Internal APIs
-- SDKs
-- Plugin APIs
-- Extension APIs
-- External integrations
-
----
-
-# Future RFCs
-
-The framework is intended to evolve over time.
-
-Potential future RFCs include:
-
-- Distributed execution
-- Remote workers
-- Cloud orchestration
-- Agent reputation systems
-- Learning agents
-- Autonomous optimisation
-- Simulation environments
-- Marketplace for agents, skills, and plugins
-- Visual workflow designer
-- Enterprise administration
-- Multi-project orchestration
-- Federated memory systems
-
-## RFC-025 — Dynamic Workflow Compilation
-Defines the "Zero-Boilerplate Orchestrator" where natural language dynamically compiles to executed DAGs without custom `main.go` entrypoints.
-*(See `docs/rfc/RFC-025-Dynamic-Workflow-Compilation.md` for official specification)*
-
-## RFC-026 — Worker Fault Tolerance & Stdout Protocol
-Defines the strict fault-tolerance constraints, mock fallback patterns, and line-by-line JSON payload extraction logic required for `Worker Protocol (v1)`.
-*(See `docs/rfc/RFC-026-Worker-Stdout-Protocol.md` for official specification)*
-
-## RFC-033 — Isolated Session Workspaces
-Defines the separation of Global Project Scope from isolated Session Sandboxes, allowing `forge.exe` to execute multiple concurrent DAG workflows (prompts) without state clashing.
-*(See `docs/rfc/RFC-033-Isolated-Session-Workspaces.md` for official specification)*
-
-## RFC-034 — Complex Agentic Workflows via ReAct
-Defines the upgrade of static Python workers into stateful ReAct agents capable of iterative tool execution and persistent memory tracking via the Go Event Bus.
-*(See `docs/rfc/RFC-034-Complex-Agentic-Workflows.md` for official specification)*
-
-## RFC-035 — Agent Evolution (The Meta-Scaffolder)
-Defines the background telemetry loop where brittle `.yaml` and `worker.py` agent scripts are autonomously rewritten and hot-reloaded by a top-level meta-agent based on empirical failure rates.
-*(See `docs/rfc/RFC-035-Agent-Evolution-Meta-Scaffolder.md` for official specification)*
-
-## RFC-036 — Smart Predictive Rate Limiting
-Defines the predictive token-bucket system in `router.go` to track RPM/TPM and gracefully pause requests before triggering provider 429 Quota Exceeded errors.
-
-## RFC-037 — Dynamic Context Compression (RAG)
-Defines the automatic indexing of workspaces into local vector DBs and context summarization loops for models with strict 8k window limits.
-
-## RFC-038 — Human-in-the-Loop (HitL) Checkpoints
-Defines the `hitl-agent` architecture for explicitly pausing DAG execution to request human approval for high-risk operations (e.g. deployments).
-
-## RFC-039 — Advanced Engineering Skills
-Defines the formal inclusion of `devops-infrastructure`, `vulnerability-assessment`, `ml-engineering`, and `modern-frontend-design` into the core Reticle skill ecosystem.
-
----
-
-# Roadmap Philosophy
-
-The roadmap is intentionally sequential.
-
-Each phase builds upon concepts introduced by previous phases.
-
-No RFC should duplicate concepts already defined elsewhere.
-
-Each RFC should instead extend the architectural specification while remaining consistent with all previously accepted RFCs.
-
-This roadmap is expected to evolve as the framework matures. New RFCs may be introduced, revised, superseded, or deprecated through the project's governance process.
-
-Foundation Phase
-
-✔ Repository Structure
-✔ Roadmap
-✔ Project State
-✔ Metadata Standard (Draft)
-
-↓
-Document Standards
-
-→ 001 DOCUMENT_WRITING_STANDARD
-→ Template Suite
-→ RFC Process
-
-↓
-
-Philosophy
-
-→ RFC-000 Planning
-→ RFC-000 Writing
-
-↓
-
-Architecture
-
-RFC-001 Runtime
-RFC-002 Events
-RFC-003 Scheduler
-...
-
-1. Finish the event-driven runtime skeleton
-   ✓ Event Bus
-   ✓ Dispatcher
-   ✓ Subscription Manager
-   ✓ Artifact Store
-
-2. Define the Worker Runtime Contract
-   ✓ (RFC-027-Worker-Runtime-Contract)
-
-3. Build a true Task Graph executor
-   ✓ (GraphEngine implemented)
-
-4. Introduce Shared Runtime Memory
-   ✓ (RuntimeState and SessionState via memory event bus)
-
-5. Write the first architectural RFCs
-   ✓ (Initial architectural RFCs have been written)
+# Reticle roadmap and RFC register
+
+## Authority
+
+This document records direction and indexes filed RFCs. It is not an
+implementation specification. Current versioned documents under
+`docs/specifications/` and their schemas take precedence, followed by accepted
+RFCs. A `historical` RFC is design evidence only; `draft` means proposed, not
+implemented or approved.
+
+RFC identifiers belong only to files actually filed under `docs/rfc/`. Earlier
+versions of this roadmap assigned RFC-like numbers to prospective topics. Those
+labels were placeholders and are not retained as a second numbering system.
+
+## Current course of action
+
+The current extensibility sequence is:
+
+1. [RFC-046](rfc/RFC-046-MCP-Integration.md): implement local stdio MCP as the
+   first external broker adapter, then add the authenticated runtime API and
+   Studio management surface.
+2. [RFC-047](rfc/RFC-047-Plugin-System.md): add validated, atomic plugin loading
+   for agents, skills and broker adapters. MCP declarations depend on RFC-046.
+
+[RFC-050](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md) is accepted and its broker,
+dispatcher/worker integration and fixture adapter contract are implemented.
+
+[RFC-049](rfc/RFC-049-Memory-Query-Management.md) is an independent proposed
+Studio/runtime surface and may be scheduled separately after review.
+[RFC-048](rfc/RFC-048-Meta-Scaffolder-Revised.md) records preconditions only;
+it does not authorize implementation of autonomous self-modification.
+
+The detailed current planning snapshot is
+[Project State — 27 September 2026](planning/PROJECT_STATE_27-09-26.md).
+
+## Filed RFC register
+
+Statuses below are copied from each file's YAML frontmatter. This table makes no
+additional claim about implementation completeness.
+
+| RFC | Title | Status |
+| --- | --- | --- |
+| [RFC-001](rfc/RFC-001-Terminology.md) | Terminology | `historical` |
+| [RFC-002](rfc/RFC-002-System-Overview.md) | System Overview | `historical` |
+| [RFC-003](rfc/RFC-003-Runtime.md) | Runtime | `historical` |
+| [RFC-004](rfc/RFC-004-Event-Bus.md) | Event Bus | `historical` |
+| [RFC-007](rfc/RFC-007-Memory-System.md) | Memory System | `historical` |
+| [RFC-008](rfc/RFC-008-Agent-Architecture.md) | Agent Architecture | `historical` |
+| [RFC-009](rfc/RFC-009-Skills.md) | Skills | `historical` |
+| [RFC-010](rfc/RFC-010-Supervisor-Graph.md) | Supervisor Graph | `historical` |
+| [RFC-011](rfc/RFC-011-Runtime-Instructions.md) | Runtime Instructions | `historical` |
+| [RFC-012](rfc/RFC-012-Model-Routing.md) | Model Routing | `historical` |
+| [RFC-022](rfc/RFC-022-Dashboard-Graph-UI.md) | Dashboard and Graph UI | `historical` |
+| [RFC-025](rfc/RFC-025-Dynamic-Workflow-Compilation.md) | Dynamic Workflow Compilation | `historical` |
+| [RFC-026](rfc/RFC-026-Worker-Stdout-Protocol.md) | Worker Fault Tolerance and Stdout Protocol | `historical` |
+| [RFC-027](rfc/RFC-027-Worker-Runtime-Contract.md) | Worker Runtime Contract v1 | `historical` |
+| [RFC-028](rfc/RFC-028-API-Rate-Limit-Load-Balancing.md) | API Rate Limit Load Balancing | `historical` |
+| [RFC-029](rfc/RFC-029-Python-Tenacity-Retry-Policy.md) | Python Tenacity Retry Policy and Logging Suppression | `historical` |
+| [RFC-030](rfc/RFC-030-Local-LLM-Integration-via-VPS.md) | Local LLM Integration via VPS | `historical` |
+| [RFC-031](rfc/RFC-031-Artifact-Outputs.md) | Artifact Outputs Standard | `historical` |
+| [RFC-032](rfc/RFC-032-Go-Memory-Bus-State-Transfer.md) | Go Memory Bus and State Transfer | `historical` |
+| [RFC-033](rfc/RFC-033-Isolated-Session-Workspaces.md) | Isolated Session Workspaces | `historical` |
+| [RFC-034](rfc/RFC-034-Complex-Agentic-Workflows.md) | Complex Agentic Workflows via ReAct | `historical` |
+| [RFC-035](rfc/RFC-035-Agent-Evolution-Meta-Scaffolder.md) | Agent Evolution and Meta-Scaffolder | `historical` |
+| [RFC-036](rfc/RFC-036-Human-in-the-Loop-Workflows.md) | Human-in-the-Loop and Concentrated Workflows | `historical` |
+| [RFC-037](rfc/RFC-037-Dynamic-Context-Compression.md) | Dynamic Context Compression and Local RAG | `historical` |
+| [RFC-038](rfc/RFC-038-HitL-Checkpoints.md) | Human-in-the-Loop Checkpoints | `historical` |
+| [RFC-039](rfc/RFC-039-Smart-Predictive-Rate-Limiting.md) | Smart Predictive Rate Limiting | `historical` |
+| [RFC-040](rfc/RFC-040-Bayesian-Model-Routing-Matrix.md) | Bayesian Model Routing Matrix and Fallback Logic | `historical` |
+| [RFC-041](rfc/RFC-041-Agent-Execution-Lifecycle-Control.md) | Agent Execution Lifecycle Control | `historical` |
+| [RFC-042](rfc/RFC-042-Native-ComfyUI-Integration.md) | Native ComfyUI Integration | `historical` |
+| [RFC-043](rfc/RFC-043-Audit-Contract-Repairs.md) | Repair Existing Runtime Contracts | `accepted` |
+| [RFC-044](rfc/RFC-044-Memory-Lifecycle-Recovery-Evaluation.md) | Memory Lifecycle, Recovery and Evaluation | `accepted` |
+| [RFC-045](rfc/RFC-045-Durable-Execution-Capabilities-Effects.md) | Durable Execution, Capabilities and External Effects | `accepted` |
+| [RFC-046](rfc/RFC-046-MCP-Integration.md) | MCP Integration | `draft` |
+| [RFC-047](rfc/RFC-047-Plugin-System.md) | Plugin System | `draft` |
+| [RFC-048](rfc/RFC-048-Meta-Scaffolder-Revised.md) | Meta-Scaffolder, Revised | `draft` |
+| [RFC-049](rfc/RFC-049-Memory-Query-Management.md) | Memory Query and Management Surface | `draft` |
+| [RFC-050](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md) | Attempt-Scoped Tool Broker | `accepted` |
+
+## Unfiled identifiers
+
+There are no RFC files numbered 000, 005–006, 013–021 or 023–024. Some of
+these numbers appeared as prospective labels in the old roadmap, but no RFC was
+filed under them. They are gaps in the historical sequence, not missing links
+and not aliases for later RFCs.
+
+New proposals use the next unused filed identifier rather than filling a gap or
+reusing an old placeholder. The process is defined in
+[RFC_PROCESS.md](governance/RFC_PROCESS.md).
+
+## Unnumbered future topics
+
+The following remain ideas until individual RFCs are filed and reviewed:
+
+- distributed execution and remote workers;
+- cloud orchestration and external effect adapters;
+- agent evaluation and reputation;
+- simulation environments;
+- a marketplace for agents, skills and plugins;
+- visual workflow authoring;
+- enterprise administration;
+- multi-project orchestration;
+- federated memory.
+
+Listing a topic here does not reserve an RFC number or imply acceptance.

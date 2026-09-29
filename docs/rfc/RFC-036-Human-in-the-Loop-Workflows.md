@@ -1,12 +1,12 @@
 ---
 status: historical
 owner: Reticle Project
-updated: 2026-09-19
+updated: 2026-09-29
 ---
 
 > Historical design record. Current versioned specifications and schemas take precedence.
 
-# RFC 036: Human-in-the-Loop & Concentrated Workflows
+# RFC-036: Human-in-the-Loop & Concentrated Workflows
 
 ## 1. Overview
 As Reticle scales to handle massively parallel agent workflows, the need for localized context ("concentrated workflows") and human intervention becomes critical. Blindly executing a 50-node Directed Acyclic Graph (DAG) limits user control and increases the risk of cascading hallucinations.

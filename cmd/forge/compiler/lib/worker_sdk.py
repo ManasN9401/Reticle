@@ -1,5 +1,6 @@
 """One worker protocol and tool loop for all generated/specialist workers."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import queue
@@ -8,8 +9,99 @@ import shlex
 import sys
 import threading
 import time
+import http.client
+import urllib.parse
 from contextlib import nullcontext
 import forge_utils as toolset
+
+def _broker_request(path, method="GET", payload=None, timeout=35):
+    """Call the attempt-scoped loopback broker without exposing credentials to the model."""
+    base = os.environ.get("RETICLE_TOOL_BROKER_URL", "")
+    token = os.environ.get("RETICLE_TOOL_BROKER_TOKEN", "")
+    attempt = os.environ.get("RETICLE_ATTEMPT_ID", "")
+    if not base or not token or not attempt:
+        return None
+    parsed = urllib.parse.urlparse(base)
+    if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "::1", "localhost"):
+        raise RuntimeError("Tool broker URL must be loopback HTTP")
+    data = None if payload is None else json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    headers = {
+        "Authorization": "Bearer " + token,
+        "X-Reticle-Attempt-ID": attempt,
+        "Content-Type": "application/json",
+    }
+    connection = http.client.HTTPConnection(parsed.hostname, parsed.port, timeout=timeout)
+    try:
+        connection.request(method, (parsed.path.rstrip("/") + path) or path, body=data, headers=headers)
+        response = connection.getresponse()
+        raw = response.read(1024 * 1024 + 1)
+        status = response.status
+        reason = response.reason
+    finally:
+        connection.close()
+    if status >= 400:
+        try:
+            detail = json.loads(raw).get("error", {}).get("message", reason)
+        except Exception:
+            detail = reason
+        raise RuntimeError(f"Tool broker rejected the request: {detail}") from None
+    if len(raw) > 1024 * 1024:
+        raise RuntimeError("Tool broker response exceeds the worker limit")
+    return json.loads(raw)
+
+def _broker_catalog():
+    response = _broker_request("/v1/tools")
+    if response is None:
+        return {}
+    tools = response.get("tools", [])
+    catalog = {}
+    for descriptor in tools:
+        name = descriptor.get("name")
+        schema = descriptor.get("schema")
+        if not isinstance(name, str) or not isinstance(schema, dict) or schema.get("type") != "object":
+            continue
+        catalog[name] = descriptor
+    return catalog
+
+def _broker_call(descriptor, call_id, arguments):
+    call_id = str(call_id or "")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,119}", call_id):
+        digest = hashlib.sha256(call_id.encode("utf-8", errors="replace")).hexdigest()
+        call_id = "provider-" + digest
+    timeout = min(7205, max(5, int(descriptor.get("timeout_ms", 30000)) / 1000 + 5))
+    response = _broker_request("/v1/calls", "POST", {
+        "callId": call_id,
+        "tool": descriptor["id"],
+        "arguments": arguments,
+    }, timeout=timeout)
+    if not response or not response.get("ok"):
+        error = (response or {}).get("error", {})
+        raise RuntimeError(error.get("message", "Brokered tool call failed"))
+    return response.get("result"), response.get("effect", "uncertain")
+
+def _local_tool_descriptor(name, description, properties, required_capability):
+    effectful = {
+        "write_file", "replace_file_content", "execute_terminal_command",
+        "generate_local_asset", "index_directory", "remove_path_from_index",
+    }
+    schema = {
+        "type": "object",
+        "properties": {key: {"type": kind} for key, kind in properties.items()},
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+    return {
+        "id": "builtin." + name,
+        "name": name,
+        "description": description,
+        "schema": schema,
+        "required_capability": required_capability or "builtin.unrestricted",
+        "adapter": "python-local",
+        "timeout_ms": 0,
+        "output_limit": 20000,
+        "effect": "effect_started" if name in effectful else "no_effect",
+        "available": True,
+    }
 
 def _llm_field(value, name, default=None):
     """Read a LiteLLM response field from either its object or dict form."""
@@ -266,14 +358,18 @@ def run(instructions, kind="coding"):
     if "memory.execution" in capabilities:
         definitions["remember"] = ("Save a JSON value in this execution's memory", {"key":"string", "value_json":"string"})
         definitions["remember_if_version"] = ("Update an execution-memory key only if its execution-scoped revision in memory_metadata still matches; use 0 to create an absent execution key", {"key":"string", "value_json":"string", "expected_version":"string"})
+        tool_capabilities["remember"] = "memory.execution"
+        tool_capabilities["remember_if_version"] = "memory.execution"
     if "graph.delegate" in capabilities:
         definitions["delegate"] = ("Request a registered agent and then return to this supervisor", {"target_agent":"string"})
+        tool_capabilities["delegate"] = "graph.delegate"
     implementations = {}
     if kind == "rag" and "rag.local" in capabilities:
         import rag_tools
         for name, key in (("index_directory","path"),("query_knowledge","query"),("remove_path_from_index","path")):
             definitions[name] = (name.replace("_"," "), {key:"string"})
             implementations[name] = getattr(rag_tools,name)
+            tool_capabilities[name] = "rag.local"
     import comfy_tools
     import urllib.request, urllib.parse
     comfy_checkpoints = ""
@@ -299,7 +395,21 @@ def run(instructions, kind="coding"):
             }
         )
         implementations["generate_local_asset"] = comfy_tools.generate_local_asset
-    tools=[{"type":"function","function":{"name":name,"description":desc,"parameters":{"type":"object","properties":{k:{"type":v} for k,v in props.items()},"required":list(props),"additionalProperties":False}}} for name,(desc,props) in definitions.items()]
+        tool_capabilities["generate_local_asset"] = "image.local"
+    local_descriptors = {
+        name: _local_tool_descriptor(name, desc, props, tool_capabilities.get(name))
+        for name, (desc, props) in definitions.items()
+    }
+    tools=[{"type":"function","function":{"name":descriptor["name"],"description":descriptor["description"],"parameters":descriptor["schema"]}} for descriptor in local_descriptors.values()]
+    broker_tools = _broker_catalog()
+    for name, descriptor in broker_tools.items():
+        if name in local_descriptors:
+            raise RuntimeError(f"Brokered tool name collides with built-in tool: {name}")
+        tools.append({"type":"function","function":{
+            "name": name,
+            "description": descriptor.get("description", ""),
+            "parameters": descriptor["schema"],
+        }})
     verified = False
     verification = []
     pending_modified_paths = set()
@@ -513,7 +623,8 @@ def run(instructions, kind="coding"):
             try:
                 args = json.loads(call.function.arguments)
                 expected = definitions.get(name)
-                if expected is None:
+                broker_descriptor = broker_tools.get(name)
+                if expected is None and broker_descriptor is None:
                     # A weak model can hallucinate a plausible-looking tool name
                     # (e.g. echoing a node/agent id from its own prompt) instead of
                     # picking from its actual tool schema. A bare "unsupported"
@@ -522,16 +633,26 @@ def run(instructions, kind="coding"):
                     # error messages already do for their own failure modes.
                     raise ValueError(
                         f"'{name}' is not a real tool. Choose one of the tools actually "
-                        f"available to you: {', '.join(sorted(definitions))}."
+                        f"available to you: {', '.join(sorted(set(definitions) | set(broker_tools)))}."
                     )
-                if set(args) != set(expected[1]) or not all(isinstance(v,str) for v in args.values()):
+                if broker_descriptor is None and (set(args) != set(expected[1]) or not all(isinstance(v,str) for v in args.values())):
                     raise ValueError(
                         f"Invalid arguments for '{name}'. It requires exactly these string "
                         f"arguments: {', '.join(sorted(expected[1])) or '(none)'}."
                     )
                 if name in ("write_file", "replace_file_content", "execute_terminal_command", "generate_local_asset", "index_directory", "remove_path_from_index"):
                     effects_started = True
-                if name == "mark_task_complete":
+                if broker_descriptor is not None:
+                    if not isinstance(args, dict):
+                        raise ValueError(f"Invalid arguments for '{name}': expected an object.")
+                    if broker_descriptor.get("effect") != "no_effect":
+                        effects_started = True
+                    result, broker_effect = _broker_call(broker_descriptor, call.id, args)
+                    if broker_effect != "no_effect":
+                        effects_started = True
+                    if not isinstance(result, str):
+                        result = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+                elif name == "mark_task_complete":
                     if not verified:
                         still_missing = missing_outputs()
                         if still_missing:
@@ -544,7 +665,7 @@ def run(instructions, kind="coding"):
                         raise ValueError("No successful verification has been recorded. Re-read every changed file with read_file, or run it/test it successfully with execute_terminal_command, before calling mark_task_complete again.")
                     sys.stdout.write(json.dumps({"id":req["id"],"memory":memory_updates,"graph_mutation":graph_mutation,"verification":verification,"artifact":{"id":req["id"]+"_output","name":kind+" output","type":"document/markdown","data":args["summary"]}})+"\n")
                     return
-                if name in ("remember", "remember_if_version"):
+                elif name in ("remember", "remember_if_version"):
                     if not args["key"] or len(args["key"]) > 120 or len(args["value_json"]) > 65536:
                         raise ValueError("Memory key/value exceeds the task limit")
                     update={"key":args["key"],"value":json.loads(args["value_json"]),"scope":"execution"}

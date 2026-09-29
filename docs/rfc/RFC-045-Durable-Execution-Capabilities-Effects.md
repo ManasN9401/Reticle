@@ -1,9 +1,9 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-09-17
+updated: 2026-09-29
 ---
-# Durable execution, capabilities and external effects
+# RFC-045: Durable execution, capabilities and external effects
 
 ## Decision
 

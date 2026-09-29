@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-09-08
+updated: 2026-09-29
 ---
 # Worker protocol v1
 
@@ -13,4 +13,21 @@ The runtime validates results before publishing their memory changes, graph chan
 
 The built-in HitL node runs in the trusted Go runtime and stores a separate hash-bound decision. Its Markdown preview is not an authorization parser. Older RFC-026/027 prose is historical where it conflicts with this document.
 
-Contract tests: runtime/agent/worker_test.go, runtime/memory/runtime_state_test.go, tests/test_workers.py and tests/test_memory_quality.py. A schema contract test checks that every serialized Go task field is declared in `schemas/task.schema.json`.
+Runtime-owned tools use a separate loopback side channel and do not alter stdin,
+stdout or stderr framing. For one active attempt, the runtime may inject
+`RETICLE_TOOL_BROKER_URL`, `RETICLE_TOOL_BROKER_TOKEN` and
+`RETICLE_ATTEMPT_ID` into the child environment. The token is bound to that
+attempt, is never serialized into the task or model context, and is revoked when
+the attempt ends. Workers send it only in the broker Authorization header and
+send the attempt ID in `X-Reticle-Attempt-ID`.
+
+The SDK discovers admitted descriptors with `GET /v1/tools` and invokes them
+with `POST /v1/calls`. Broker calls cannot expand the task's capability grant.
+Cancellation, bounded output and effect certainty belong to the broker; the
+worker still emits exactly one final TaskResponse on stdout.
+
+Contract tests: runtime/agent/worker_test.go,
+runtime/toolbroker/broker_test.go, runtime/memory/runtime_state_test.go,
+tests/test_workers.py and tests/test_memory_quality.py. A schema contract test
+checks that every serialized Go task field is declared in
+`schemas/task.schema.json`.

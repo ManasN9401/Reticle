@@ -1,14 +1,14 @@
 ---
 status: draft
 owner: Reticle Project
-updated: 2026-09-27
+updated: 2026-09-29
 ---
 
 # RFC-047: Plugin System
 
 ## Motivation
 
-`schemas/plugin.schema.json` exists today but is explicitly titled "reserved, no runtime loader" and accepts only `{id, version, description?}` with `additionalProperties: false`. `docs/rfc/RFC-001-Terminology.md` already defines a Plugin as "a bundle of capabilities that extends the core Framework... group[ing] together custom Skills, Subagents, and Tools into a distributable package," and `docs/ROADMAP.md`'s RFC-013 entry lists the intended scope — lifecycle, discovery, registration, hot loading/unloading, dependencies, version compatibility — but no such file was ever filed and no loader exists. This RFC is that filing.
+`schemas/plugin.schema.json` exists today but is explicitly titled "reserved, no runtime loader" and accepts only `{id, version, description?}` with `additionalProperties: false`. `docs/rfc/RFC-001-Terminology.md` already defines a Plugin as "a bundle of capabilities that extends the core Framework... group[ing] together custom Skills, Subagents, and Tools into a distributable package." An earlier roadmap used the placeholder label RFC-013 for this topic, but no RFC-013 file was filed and no loader exists. RFC-047 is the filed proposal; the old label is not an alias.
 
 ## Design
 

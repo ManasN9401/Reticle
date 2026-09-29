@@ -1,4 +1,13 @@
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-29
+---
+
 # Architectural Backlog
+
+> Historical planning record. Filed RFCs and the current roadmap supersede its
+> RFC-like labels and implementation claims.
 
 This document records architectural ideas that have broad agreement but have not
 yet been incorporated into permanent documentation.

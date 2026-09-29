@@ -1,10 +1,18 @@
-# Project State
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-29
+---
+
+# Project State — 29 July 2026
+
+> Historical snapshot superseded by `PROJECT_STATE_27-09-26.md`.
 
 **Current Phase:** Foundation
 
 **Last Updated:** 2026-07-29
 
-**Status:** Active
+**Status:** Historical snapshot
 
 ---
 

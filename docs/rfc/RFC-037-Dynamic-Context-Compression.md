@@ -1,12 +1,12 @@
 ---
 status: historical
 owner: Reticle Project
-updated: 2026-09-19
+updated: 2026-09-29
 ---
 
 > Historical design record. Current versioned specifications and schemas take precedence.
 
-# RFC 037: Dynamic Context Compression & Local RAG
+# RFC-037: Dynamic Context Compression & Local RAG
 
 ## 1. Overview
 As Reticle scales to handle massive codebases, agents frequently hit strict token context limits (often 8k or 32k for fast local models). Feeding an entire repository into a prompt to answer a simple question results in catastrophic token overflow, high latency, and severe hallucination rates.

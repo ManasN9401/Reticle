@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -263,6 +264,11 @@ func main() {
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)
+	if err := dispatcher.StartToolBroker(); err != nil {
+		orch.Logger.Error("Attempt-scoped tool broker failed to start", "error", err)
+		return
+	}
+	defer dispatcher.CloseToolBroker(context.Background())
 	graphEngine.SetWorkerValidator(dispatcher.HasWorker)
 	graphEngine.Start()
 

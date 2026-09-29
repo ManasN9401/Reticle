@@ -1,4 +1,12 @@
-# RFC: IDE Context Injection for Reticle Agents
+---
+status: historical
+owner: Reticle Project
+updated: 2026-09-29
+---
+
+# Proposal: IDE Context Injection for Reticle Agents
+
+> Historical planning proposal, not a filed RFC and not an accepted contract.
 
 ## 1. Motivation
 Currently, Reticle agents operate entirely headlessly. They know the user's textual prompt (e.g., "Fix the physics bug") but lack the implicit context a human pair-programmer has. When a human asks a pair-programmer to "fix the bug", the programmer knows exactly which bug they are referring to because they can see what file the human has open on their screen and where their cursor is pointing.

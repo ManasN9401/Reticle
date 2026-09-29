@@ -33,6 +33,37 @@ class DocumentationContracts(unittest.TestCase):
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertIsNone(obsolete.search(path.read_text(encoding="utf-8")))
 
+    def test_rfc_filename_heading_and_roadmap_register_agree(self):
+        roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
+        for path in sorted((ROOT / "docs/rfc").glob("RFC-*.md")):
+            with self.subTest(path=path.relative_to(ROOT)):
+                match = re.match(r"RFC-(\d{3})-", path.name)
+                self.assertIsNotNone(match, "RFC filename must use RFC-NNN-title.md")
+                number = match.group(1)
+                text = path.read_text(encoding="utf-8")
+                self.assertRegex(text, rf"(?m)^# RFC-{number}(?::|\b)")
+                link = f"rfc/{path.name}"
+                status = re.search(r"(?m)^status:\s*(\S+)\s*$", text)
+                self.assertIsNotNone(status)
+                rows = [line for line in roadmap.splitlines() if line.startswith("|") and f"]({link})" in line]
+                self.assertEqual(len(rows), 1, "RFC must appear once in roadmap register table")
+                row = rows[0]
+                self.assertTrue(row.rstrip().endswith(f"`{status.group(1)}` |"), "roadmap status must match RFC frontmatter")
+
+    def test_relative_markdown_links_resolve(self):
+        link_pattern = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+        scheme_pattern = re.compile(r"^[a-z][a-z0-9+.-]*:", re.IGNORECASE)
+        for path in (ROOT / "docs").rglob("*.md"):
+            text = path.read_text(encoding="utf-8")
+            for line_number, line in enumerate(text.splitlines(), 1):
+                for raw_target in link_pattern.findall(line):
+                    target = raw_target.strip().split("#", 1)[0]
+                    if not target or target.startswith("/") or scheme_pattern.match(target):
+                        continue
+                    resolved = path.parent / target.replace("%20", " ")
+                    with self.subTest(path=path.relative_to(ROOT), line=line_number, target=raw_target):
+                        self.assertTrue(resolved.exists(), "relative Markdown link target does not exist")
+
 
 if __name__ == "__main__":
     unittest.main()
