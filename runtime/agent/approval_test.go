@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/reticle/runtime/routing"
 )
 
 func TestApprovalDecisionBinding(t *testing.T) {
@@ -49,8 +51,21 @@ func TestApprovalDecisionBinding(t *testing.T) {
 }
 
 func TestWorkerEnvironmentOnlySelectedCredential(t *testing.T) {
+	routing.ModelsMutex.Lock()
+	previousModels := routing.AvailableModels
+	routing.AvailableModels = []routing.Model{
+		{ID: "fixture/model", APIKeyEnv: "GROQ_API_KEY", Enabled: true},
+		{ID: "custom/model", APIKeyEnv: "CUSTOM_LLM_KEY", Enabled: true},
+	}
+	routing.ModelsMutex.Unlock()
+	defer func() {
+		routing.ModelsMutex.Lock()
+		routing.AvailableModels = previousModels
+		routing.ModelsMutex.Unlock()
+	}()
 	t.Setenv("UNRELATED_SECRET", "private-fixture")
 	t.Setenv("GROQ_API_KEY", "selected-fixture")
+	t.Setenv("CUSTOM_LLM_KEY", "custom-fixture")
 	t.Setenv("RETICLE_ML_PROFILE", "amd-rocm")
 	t.Setenv("RETICLE_GPU_DEVICES", "0")
 	env := strings.Join(workerEnvironment(Task{Parameters: map[string]any{"api_key": "GROQ_API_KEY"}, Capabilities: []Capability{CapabilityGPUUse}}, nil), "\n")
@@ -60,5 +75,9 @@ func TestWorkerEnvironmentOnlySelectedCredential(t *testing.T) {
 	env = strings.Join(workerEnvironment(Task{Parameters: map[string]any{"api_key": "UNRELATED_SECRET"}}, nil), "\n")
 	if strings.Contains(env, "UNRELATED_SECRET=") {
 		t.Fatal("model parameter escalated credential access")
+	}
+	env = strings.Join(workerEnvironment(Task{Parameters: map[string]any{"api_key": "CUSTOM_LLM_KEY"}}, nil), "\n")
+	if !strings.Contains(env, "CUSTOM_LLM_KEY=custom-fixture") {
+		t.Fatal("configured provider credential was not passed to its worker")
 	}
 }

@@ -286,6 +286,7 @@ func (d *Dispatcher) Start() {
 				maxRetries = 15
 			}
 			lastFailure := &WorkerFailure{Reason: "cancelled", ExitCode: -1, Stderr: "Execution cancelled"}
+			lastDisposition := providerFailureDisposition{}
 			if hasCapability(w.Capabilities, CapabilityGPUUse) {
 				devices, err := ParseDeviceList(os.Getenv("RETICLE_GPU_DEVICES"))
 				if err != nil {
@@ -335,7 +336,7 @@ func (d *Dispatcher) Start() {
 							if selectRetries > 24 { // 2 minutes
 								break
 							}
-							d.Logger.Info("All models are currently locked or penalized. Waiting 5 seconds before retrying routing...", "worker_id", w.ID)
+							d.Logger.Info("No model route is currently eligible. Waiting 5 seconds before retrying routing...", "worker_id", w.ID, "detail", d.Router.ExplainNoRoute(t.Modality))
 							select {
 							case <-ctx.Done():
 								selectRetries = 25
@@ -347,16 +348,22 @@ func (d *Dispatcher) Start() {
 
 						if selectedModel == nil {
 							d.Logger.Error("No models became available after 2 minutes of waiting. Aborting task.", "worker_id", w.ID)
-							lastFailure = &WorkerFailure{Reason: "no_models_available", ExitCode: 1, Stderr: "No models available for selection. All models might be permanently disabled or rate-limited for too long."}
+							detail := d.Router.ExplainNoRoute(t.Modality)
+							lastFailure = &WorkerFailure{Reason: "no_models_available", ExitCode: 1, Stderr: detail}
 							break
 						}
 
-						t.Parameters["llm_model"] = selectedModel.ID
-						if selectedModel.APIKeyEnv != "" {
-							t.Parameters["api_key"] = selectedModel.APIKeyEnv
-						}
+						// Parameters survive across bounded attempts. Clear the
+						// previous route before installing this one so a fallback
+						// from a configured endpoint to a built-in/local model cannot
+						// inherit the old API base or credential binding.
+						applySelectedModelParameters(t.Parameters, selectedModel)
 					} else if attempt == 1 {
-						d.Router.TrackForcedModel(string(t.ID), fmt.Sprint(t.Parameters["llm_model"]))
+						forcedModel := fmt.Sprint(t.Parameters["llm_model"])
+						if configured := d.Router.Model(forcedModel); configured != nil {
+							applySelectedModelParameters(t.Parameters, configured)
+						}
+						d.Router.TrackForcedModel(string(t.ID), forcedModel)
 					}
 				}
 
@@ -436,6 +443,7 @@ func (d *Dispatcher) Start() {
 				// Only route around recognized provider or model-behavior failures with
 				// explicit proof that the worker did not start an external effect.
 				disposition := classifyProviderFailure(failure)
+				lastDisposition = disposition
 				if !disposition.retryable {
 					lastFailure = failure
 					break
@@ -447,7 +455,7 @@ func (d *Dispatcher) Start() {
 				if d.Router != nil {
 					if disposition.penalizeProvider {
 						if apiKeyEnv, ok := t.Parameters["api_key"].(string); ok && apiKeyEnv != "" {
-							d.Router.PenalizeProvider(string(w.ID), apiKeyEnv)
+							d.Router.PenalizeProviderFor(string(w.ID), apiKeyEnv, disposition.category, disposition.category)
 						}
 						if disposition.penalizeFamily {
 							if modelID, ok := t.Parameters["llm_model"].(string); ok {
@@ -475,7 +483,14 @@ func (d *Dispatcher) Start() {
 
 			// All attempts exhausted
 			d.Logger.Error("Worker execution aborted after exhausting all retries. The task could not complete successfully.", "worker_id", w.ID)
-			d.Logger.Error("TROUBLESHOOTING: If the logs show repeated 429 Quota Exceeded errors, your API keys are out of credits or being throttled. Please check your provider billing dashboards or add new API keys to your environment.", "worker_id", w.ID)
+			switch lastDisposition.category {
+			case "provider_rate_limit", "provider_account_quota", "provider_quota":
+				d.Logger.Error("Provider quota or rate limit exhausted retries; inspect credential health and the provider dashboard.", "worker_id", w.ID, "category", lastDisposition.category)
+			case "provider_access":
+				d.Logger.Error("Provider authentication failed; inspect the selected credential.", "worker_id", w.ID)
+			case "provider_transient":
+				d.Logger.Error("Provider connectivity or service availability exhausted retries; the credential itself was not marked rate-limited.", "worker_id", w.ID)
+			}
 			d.Bus.Publish(events.EventType("WorkerFailed"), events.Component("dispatcher"), map[string]any{
 				"task_id":    string(t.ID),
 				"worker_id":  w.ID,
@@ -486,6 +501,22 @@ func (d *Dispatcher) Start() {
 			})
 		}(worker, task, isForced)
 	})
+}
+
+func applySelectedModelParameters(parameters map[string]any, model *routing.Model) {
+	delete(parameters, "llm_request_model")
+	delete(parameters, "llm_api_base")
+	delete(parameters, "api_key")
+	parameters["llm_model"] = model.ID
+	if model.RequestModel != "" {
+		parameters["llm_request_model"] = model.RequestModel
+	}
+	if model.APIBase != "" {
+		parameters["llm_api_base"] = model.APIBase
+	}
+	if model.APIKeyEnv != "" {
+		parameters["api_key"] = model.APIKeyEnv
+	}
 }
 
 func newAttemptID(execution string) string {
@@ -575,14 +606,20 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 	// Check access failures before generic request wrappers. Some providers and
 	// LiteLLM surface a 401/403 as BadRequestError even though every model using
 	// the same credential will fail.
-	if containsAny("insufficient credits", "invalid api key", "authenticationerror", "401 unauthorized", "status code: 401", "401 client error", "exceeded your current quota", "permissiondeniederror", "403 forbidden", "status code: 403", "403 client error", "permission denied") {
+	if containsAny("insufficient credits", "exceeded your current quota") {
+		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_quota"}
+	}
+	if containsAny("invalid api key", "authenticationerror", "401 unauthorized", "status code: 401", "401 client error", "permissiondeniederror", "403 forbidden", "status code: 403", "403 client error", "permission denied") {
 		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_access"}
 	}
 	if containsAny("requires terms acceptance", "max_tokens must be less than", "request too large", "maximum context length", "badrequesterror", "bad request", "status code: 400", "400 client error", "notfounderror", "404 not found", "status code: 404", "unprocessableentityerror", "422 unprocessable") {
 		return providerFailureDisposition{retryable: true, category: "model_request"}
 	}
-	if containsAny("ratelimiterror", "code\":429", "code\": 429", "429 too many requests", "status code: 429", "apiconnectionerror", "serviceunavailableerror", "internalservererror", "500 internal server error", "502 bad gateway", "503 service unavailable", "504 gateway timeout") {
-		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_transient"}
+	if containsAny("ratelimiterror", "code\":429", "code\": 429", "429 too many requests", "status code: 429") {
+		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_rate_limit"}
+	}
+	if containsAny("apiconnectionerror", "serviceunavailableerror", "internalservererror", "500 internal server error", "502 bad gateway", "503 service unavailable", "504 gateway timeout") {
+		return providerFailureDisposition{retryable: true, category: "provider_transient"}
 	}
 	if containsAny("midstreamfallbackerror", "timeout error", "a timeout occurred", "timed out") {
 		return providerFailureDisposition{retryable: true, category: "timeout"}

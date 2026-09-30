@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LIB = ROOT / "cmd/forge/compiler/lib"
 sys.path.insert(0, str(LIB))
 import forge_utils
+import comfy_tools
 
 class WorkerContracts(unittest.TestCase):
     def test_sdk_attempt_scoped_broker_protocol(self):
@@ -126,7 +127,7 @@ class WorkerContracts(unittest.TestCase):
                 self.assertEqual(kwargs["num_retries"],0)
                 self.assertEqual(kwargs["api_base"],"http://localhost:11434")
                 return calls.pop(0)
-            with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{},clear=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stdout",output):
+            with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{"RETICLE_LOCAL_GPU_COORDINATION":"false"},clear=True),patch.object(comfy_tools,"ollama_model_loaded",return_value=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stdout",output):
                 worker_sdk.run("Fixture",kind="writing")
             result=json.loads(output.getvalue())
             self.assertEqual(result["artifact"]["data"],"verified")
@@ -166,12 +167,34 @@ class WorkerContracts(unittest.TestCase):
             output=io.StringIO()
             def completion(**kwargs):
                 return calls.pop(0)
-            with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{},clear=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stdout",output):
+            with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{"RETICLE_LOCAL_GPU_COORDINATION":"false"},clear=True),patch.object(comfy_tools,"ollama_model_loaded",return_value=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stdout",output):
                 worker_sdk.run(instructions,kind="coding")
             result=json.loads(output.getvalue())
             self.assertEqual(result["artifact"]["data"],"verified")
             self.assertEqual(calls,[])
             self.assertTrue((Path(temp)/"src"/"report.md").exists())
+
+    def test_sdk_uses_configured_openai_compatible_provider(self):
+        import worker_sdk
+        def response(name, args):
+            call=SimpleNamespace(id="call", function=SimpleNamespace(name=name,arguments=json.dumps(args)))
+            message=SimpleNamespace(tool_calls=[call], model_dump=lambda **kwargs: {"role":"assistant","tool_calls":[{"id":"call","type":"function","function":{"name":name,"arguments":json.dumps(args)}}]})
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+        calls=[response("read_file",{"path":"input.txt"}),response("mark_task_complete",{"summary":"verified"})]
+        with tempfile.TemporaryDirectory() as temp:
+            (Path(temp)/"src").mkdir()
+            (Path(temp)/"src"/"input.txt").write_text("fixture",encoding="utf-8")
+            req={"id":"execution|node","execution":"execution","memory":{"workspace_dir":temp},"parameters":{"llm_model":"llm7/vendor/model","llm_request_model":"vendor/model","llm_api_base":"https://api.example.test/v1","api_key":"LLM7_API_KEY"}}
+            output=io.StringIO()
+            def completion(**kwargs):
+                self.assertEqual(kwargs["model"],"openai/vendor/model")
+                self.assertEqual(kwargs["api_base"],"https://api.example.test/v1")
+                self.assertEqual(kwargs["api_key"],"secret-fixture")
+                return calls.pop(0)
+            with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{"LLM7_API_KEY":"secret-fixture"},clear=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stdout",output):
+                worker_sdk.run("Read input.txt and report.",kind="writing")
+            self.assertEqual(json.loads(output.getvalue())["artifact"]["data"],"verified")
+            self.assertEqual(calls,[])
 
     def test_devops_availability_checks_are_not_verification(self):
         import worker_sdk
@@ -199,7 +222,7 @@ class WorkerContracts(unittest.TestCase):
             count.append(1)
             return SimpleNamespace(choices=[SimpleNamespace(message=message)])
         req={"id":"fixture","memory":{"workspace_dir":"unused"},"parameters":{"llm_model":"ollama/fixture"}}
-        with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stdout",io.StringIO()) as output:
+        with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{"RETICLE_LOCAL_GPU_COORDINATION":"false"},clear=False),patch.object(comfy_tools,"ollama_model_loaded",return_value=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stdout",io.StringIO()) as output:
             with self.assertRaisesRegex(RuntimeError,"budget exhausted"):
                 worker_sdk.run("Fixture")
             self.assertEqual(output.getvalue(),"")
@@ -218,7 +241,7 @@ class WorkerContracts(unittest.TestCase):
                         message=SimpleNamespace(tool_calls=[call],model_dump=lambda **kwargs:{"role":"assistant"})
                         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
                     raise RuntimeError("RateLimitError")
-                with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stderr",io.StringIO()) as error:
+                with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{"RETICLE_LOCAL_GPU_COORDINATION":"false"},clear=False),patch.object(comfy_tools,"ollama_model_loaded",return_value=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stderr",io.StringIO()) as error:
                     with self.assertRaisesRegex(RuntimeError,"RateLimitError"): worker_sdk.run("fixture")
                     self.assertEqual("RETICLE_RETRY_SAFE" in error.getvalue(),not mutate)
 

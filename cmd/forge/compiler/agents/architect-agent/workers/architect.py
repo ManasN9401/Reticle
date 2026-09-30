@@ -389,9 +389,15 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
 
         api_key_env = req.get("parameters", {}).get("api_key")
         api_key = os.environ.get(api_key_env) if api_key_env else None
+        configured_api_base = req.get("parameters", {}).get("llm_api_base")
+        configured_request_model = req.get("parameters", {}).get("llm_request_model")
 
         kwargs = {}
-        if model.startswith(("ollama/", "ollama_chat/")):
+        if configured_api_base:
+            model = "openai/" + str(configured_request_model or model.split("/", 1)[-1])
+            kwargs["api_base"] = str(configured_api_base).rstrip("/")
+            if not api_key: api_key = "dummy"
+        elif model.startswith(("ollama/", "ollama_chat/")):
             kwargs["api_base"] = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
             kwargs["num_ctx"] = int(mem.get("llm_num_ctx", 8192))
             kwargs["keep_alive"] = str(mem.get("ollama_keep_alive", "5m"))

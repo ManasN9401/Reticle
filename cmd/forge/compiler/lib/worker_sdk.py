@@ -435,7 +435,16 @@ def run(instructions, kind="coding"):
                 {"role":"user", "content":json.dumps(build_user_context(req, mem))}]
     kwargs = generation_options(model, mem)
     key_name = req.get("parameters", {}).get("api_key")
-    if model.startswith(("ollama/", "ollama_chat/")):
+    configured_api_base = req.get("parameters", {}).get("llm_api_base")
+    configured_request_model = req.get("parameters", {}).get("llm_request_model")
+    if configured_api_base:
+        model = "openai/" + str(configured_request_model or model.split("/", 1)[-1])
+        kwargs["api_base"] = str(configured_api_base).rstrip("/")
+        if key_name and key_name in os.environ:
+            kwargs["api_key"] = os.environ[key_name]
+        else:
+            kwargs["api_key"] = "dummy"
+    elif model.startswith(("ollama/", "ollama_chat/")):
         kwargs["api_base"] = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         if "api_key" not in kwargs and not os.environ.get(key_name or ""):
             kwargs["api_key"] = "dummy"

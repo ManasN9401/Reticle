@@ -53,13 +53,23 @@ func TestTextTasksRequireExplicitCoderFallback(t *testing.T) {
 func TestProviderFamilyCooldownCoversCredentialSlots(t *testing.T) {
 	ModelsMutex.Lock()
 	old := AvailableModels
+	oldHealth := KeyHealthStates
+	oldLocked := LockedKeys
+	KeyHealthStates = nil
+	LockedKeys = nil
 	AvailableModels = []Model{
 		{ID: "openrouter/a", Provider: "openrouter", APIKeyEnv: "KEY_1", Enabled: true},
 		{ID: "openrouter/b", Provider: "openrouter", APIKeyEnv: "KEY_2", Enabled: true},
 		{ID: "groq/c", Provider: "groq", APIKeyEnv: "GROQ_KEY", Enabled: true},
 	}
 	ModelsMutex.Unlock()
-	defer func() { ModelsMutex.Lock(); AvailableModels = old; ModelsMutex.Unlock() }()
+	defer func() {
+		ModelsMutex.Lock()
+		AvailableModels = old
+		KeyHealthStates = oldHealth
+		LockedKeys = oldLocked
+		ModelsMutex.Unlock()
+	}()
 
 	r := &ModelRouter{}
 	r.PenalizeProviderFamily("openrouter")
@@ -70,6 +80,64 @@ func TestProviderFamilyCooldownCoversCredentialSlots(t *testing.T) {
 	}
 	if !AvailableModels[2].CooldownUntil.IsZero() {
 		t.Fatal("unrelated provider was cooled down")
+	}
+}
+
+func TestCapacityRecoversFromOneAfterSuccessfulProbe(t *testing.T) {
+	ModelsMutex.Lock()
+	old := AvailableModels
+	oldHealth := KeyHealthStates
+	oldLocked := LockedKeys
+	AvailableModels = []Model{{ID: "fixture", Enabled: true, Modality: "text", APIKeyEnv: "FIXTURE_KEY"}}
+	KeyHealthStates = []KeyHealth{{Key: "FIXTURE_KEY", Status: KeyRateLimited, RetryAt: time.Now().Add(-time.Second)}}
+	ModelsMutex.Unlock()
+	defer func() {
+		ModelsMutex.Lock()
+		AvailableModels = old
+		KeyHealthStates = oldHealth
+		LockedKeys = oldLocked
+		ModelsMutex.Unlock()
+	}()
+
+	r := &ModelRouter{
+		Logger: &logger.Logger{}, Matrix: map[string]map[string]float64{}, inFlight: map[string]string{},
+		ProviderCapacity: map[string]int{"FIXTURE_KEY": 1}, ProviderInFlight: map[string]int{},
+	}
+	if r.SelectModel("probe", "agent", 1, 0.9, "text") == nil {
+		t.Fatal("probe could not acquire the reduced provider capacity")
+	}
+	r.UpdateProbability("agent", "probe", true)
+	if r.ProviderCapacity["FIXTURE_KEY"] != 2 {
+		t.Fatalf("successful saturated probe did not recover capacity: %d", r.ProviderCapacity["FIXTURE_KEY"])
+	}
+	health, _ := KeyHealthSnapshot()
+	if len(health) != 1 || health[0].Status != KeyHealthy {
+		t.Fatalf("successful probe did not restore key health: %#v", health)
+	}
+}
+
+func TestConcurrentRateLimitsOnlyHalveCapacityOncePerWindow(t *testing.T) {
+	ModelsMutex.Lock()
+	old := AvailableModels
+	oldHealth := KeyHealthStates
+	oldLocked := LockedKeys
+	AvailableModels = []Model{{ID: "fixture", Provider: "fixture", Enabled: true, APIKeyEnv: "FIXTURE_KEY"}}
+	KeyHealthStates = nil
+	LockedKeys = nil
+	ModelsMutex.Unlock()
+	defer func() {
+		ModelsMutex.Lock()
+		AvailableModels = old
+		KeyHealthStates = oldHealth
+		LockedKeys = oldLocked
+		ModelsMutex.Unlock()
+	}()
+
+	r := &ModelRouter{ProviderCapacity: map[string]int{"FIXTURE_KEY": 40}, ProviderInFlight: map[string]int{}}
+	r.PenalizeProviderFor("agent", "FIXTURE_KEY", "provider_rate_limit", "429")
+	r.PenalizeProviderFor("agent", "FIXTURE_KEY", "provider_rate_limit", "429")
+	if r.ProviderCapacity["FIXTURE_KEY"] != 20 {
+		t.Fatalf("one penalty window reduced capacity more than once: %d", r.ProviderCapacity["FIXTURE_KEY"])
 	}
 }
 

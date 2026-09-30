@@ -14,6 +14,7 @@ import (
 	"github.com/reticle/runtime/events"
 	"github.com/reticle/runtime/logger"
 	"github.com/reticle/runtime/memory"
+	"github.com/reticle/runtime/routing"
 )
 
 type WorkerID string
@@ -374,9 +375,9 @@ func workerEnvironment(req Task, explicit []string) []string {
 		allowed["RETICLE_GPU_DEVICES"] = true
 	}
 	if key, ok := req.Parameters["api_key"].(string); ok && key != "" {
-		// A model-auth parameter cannot request an arbitrary parent secret.
-		switch key {
-		case "OPENROUTER_API_KEY", "OPENROUTER_API_KEY_2", "OPENROUTER_API_KEY_3", "GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3", "GEMINI_API_KEY":
+		// A model-auth parameter cannot request an arbitrary parent secret. The
+		// router registry replaces a hardcoded provider-key allowlist.
+		if routing.IsConfiguredCredential(key) {
 			allowed[key] = true
 		}
 	}

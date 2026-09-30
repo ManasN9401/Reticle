@@ -59,10 +59,11 @@ type WaitlistItem struct {
 }
 
 type WaitlistPayload struct {
-	Items          []*WaitlistItem `json:"items"`
-	MaxWorkers     int             `json:"maxWorkers"`
-	RunningWorkers int             `json:"runningWorkers"`
-	LockedKeys     []string        `json:"lockedKeys"`
+	Items          []*WaitlistItem     `json:"items"`
+	MaxWorkers     int                 `json:"maxWorkers"`
+	RunningWorkers int                 `json:"runningWorkers"`
+	LockedKeys     []string            `json:"lockedKeys"`
+	KeyHealth      []routing.KeyHealth `json:"keyHealth"`
 }
 
 type WaitlistManager struct {
@@ -325,10 +326,13 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 					runningTotal++
 				}
 			}
+			keyHealth, lockedKeys := routing.KeyHealthSnapshot()
 			payload := WaitlistPayload{
 				Items:          cloneWaitlist(wm.items),
 				MaxWorkers:     wm.maxWorkers,
 				RunningWorkers: runningTotal,
+				LockedKeys:     lockedKeys,
+				KeyHealth:      keyHealth,
 			}
 			wm.orchestrator.Bus.Publish(events.EventType("WaitlistUpdated"), events.Component("waitlist"), payload)
 		}
@@ -518,11 +522,13 @@ func (wm *WaitlistManager) save() (err error) {
 		}
 	}
 
+	keyHealth, lockedKeys := routing.KeyHealthSnapshot()
 	payload := WaitlistPayload{
 		Items:          snapshot,
 		MaxWorkers:     wm.maxWorkers,
 		RunningWorkers: runningTotal,
-		LockedKeys:     routing.LockedKeys,
+		LockedKeys:     lockedKeys,
+		KeyHealth:      keyHealth,
 	}
 
 	// Broadcast waitlist to UI

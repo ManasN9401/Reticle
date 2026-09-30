@@ -7,6 +7,7 @@ import (
 	"github.com/reticle/runtime/events"
 	"github.com/reticle/runtime/logger"
 	"github.com/reticle/runtime/memory"
+	"github.com/reticle/runtime/routing"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +15,24 @@ import (
 	"testing"
 	"time"
 )
+
+func TestSelectedModelParametersDoNotLeakAcrossFallbacks(t *testing.T) {
+	parameters := map[string]any{
+		"llm_model":         "custom/vendor-model",
+		"llm_request_model": "vendor-model",
+		"llm_api_base":      "https://provider.example/v1",
+		"api_key":           "CUSTOM_API_KEY",
+	}
+	applySelectedModelParameters(parameters, &routing.Model{ID: "ollama/local-model"})
+	if parameters["llm_model"] != "ollama/local-model" {
+		t.Fatalf("selected model was not replaced: %#v", parameters)
+	}
+	for _, key := range []string{"llm_request_model", "llm_api_base", "api_key"} {
+		if _, exists := parameters[key]; exists {
+			t.Fatalf("stale route parameter %s survived fallback: %#v", key, parameters)
+		}
+	}
+}
 
 func TestRegistryRejectsUnknownFields(t *testing.T) {
 	dir := t.TempDir()
@@ -155,9 +174,11 @@ func TestProviderFailureDisposition(t *testing.T) {
 		{"forbidden key", "403 Forbidden", true, false, false, "provider_access"},
 		{"wrapped forbidden key", "BadRequestError: request failed with 403 Forbidden", true, false, false, "provider_access"},
 		{"authentication", "AuthenticationError: 401 Unauthorized", true, false, false, "provider_access"},
-		{"rate limit", "RateLimitError", true, false, false, "provider_transient"},
+		{"rate limit", "RateLimitError", true, false, false, "provider_rate_limit"},
 		{"account quota", "RateLimitError: openrouter_free_tier_daily", true, false, true, "provider_account_quota"},
-		{"server error", "InternalServerError: 500 Internal Server Error", true, false, false, "provider_transient"},
+		{"account credits", "insufficient credits", true, false, false, "provider_quota"},
+		{"server error", "InternalServerError: 500 Internal Server Error", false, false, false, "provider_transient"},
+		{"connection error", "APIConnectionError: connection refused", false, false, false, "provider_transient"},
 		{"timeout", "MidStreamFallbackError: A Timeout Occurred", false, false, false, "timeout"},
 		{"bad request", "BadRequestError: unsupported parameter", false, false, false, "model_request"},
 		{"missing model", "NotFoundError: 404 Not Found", false, false, false, "model_request"},

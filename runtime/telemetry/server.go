@@ -4,11 +4,13 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +44,11 @@ type Server struct {
 	once      sync.Once
 	mcp       *mcp.Manager
 	plugins   *runtimeplugin.Manager
+	router    *routing.ModelRouter
+}
+
+func (s *Server) SetRouter(router *routing.ModelRouter) {
+	s.router = router
 }
 
 func (s *Server) SetExtensionManagers(mcpManager *mcp.Manager, pluginManager *runtimeplugin.Manager) {
@@ -271,6 +278,68 @@ func (s *Server) Start() error {
 			}
 		}
 		http.Error(w, "Model not found", http.StatusNotFound)
+	})
+	mux.HandleFunc("/api/providers/refresh", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if s.router == nil {
+			http.Error(w, "Router unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		s.router.RefreshModels()
+		writeControlJSON(w, http.StatusOK, s.router.ListProviders())
+	})
+	mux.HandleFunc("/api/providers", func(w http.ResponseWriter, r *http.Request) {
+		if s.router == nil {
+			http.Error(w, "Router unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			writeControlJSON(w, http.StatusOK, s.router.ListProviders())
+		case http.MethodPost:
+			var config routing.ProviderConfig
+			decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256*1024))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&config); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			status, err := s.router.PutProvider(config)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			writeControlJSON(w, http.StatusOK, status)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/providers/", func(w http.ResponseWriter, r *http.Request) {
+		if s.router == nil {
+			http.Error(w, "Router unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if r.Method != http.MethodDelete {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id, err := url.PathUnescape(strings.TrimPrefix(r.URL.Path, "/api/providers/"))
+		if err != nil || id == "" || strings.Contains(id, "/") {
+			http.Error(w, "Invalid provider id", http.StatusBadRequest)
+			return
+		}
+		if err := s.router.DeleteProvider(id); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				http.Error(w, "Provider not found", http.StatusNotFound)
+			} else {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			}
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	mux.HandleFunc("/api/mcp/servers", s.handleMCPServers)

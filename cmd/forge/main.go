@@ -247,6 +247,7 @@ func main() {
 	instructionStore := agent.NewInstructionStore()
 	router := routing.NewRouter(orch.Logger, orch.Bus, *allModelsFlag)
 	router.SetTextToCodingFallback(orch.Settings.AllowTextCoderFallback)
+	telemetryServer.SetRouter(router)
 
 	subManager := agent.NewSubscriptionManager(orch.Logger, orch.Bus)
 	dispatcher := agent.NewDispatcher(orch.Logger, orch.Bus, instructionStore, router, orch.RuntimeState)
