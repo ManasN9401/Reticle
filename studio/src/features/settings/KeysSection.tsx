@@ -15,8 +15,8 @@ import { cn } from '@/design/cn'
 import { Button, IconButton, Input, Spinner } from '@/design/primitives'
 import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
-import type { EnvKeyEntry, KeyProvider } from '@shared/ipc'
-import type { RoutingModel } from '@shared/events'
+import type { EnvKeyEntry, KeyProvider, ProviderStatus } from '@shared/ipc'
+import type { KeyHealth, RoutingModel } from '@shared/events'
 
 const PROVIDER_LABEL: Record<KeyProvider, string> = {
   openrouter: 'OpenRouter',
@@ -26,6 +26,15 @@ const PROVIDER_LABEL: Record<KeyProvider, string> = {
 }
 
 const PROVIDER_ORDER: KeyProvider[] = ['openrouter', 'groq', 'gemini', 'other']
+
+const HEALTH_LABELS: Record<KeyHealth['status'], string> = {
+  healthy: 'healthy',
+  discovery_unreachable: 'discovery unreachable',
+  authentication_failed: 'authentication failed',
+  quota_exhausted: 'quota exhausted',
+  rate_limited: 'temporarily rate limited',
+  provider_error: 'provider error',
+}
 
 /**
  * API key management.
@@ -41,6 +50,7 @@ const PROVIDER_ORDER: KeyProvider[] = ['openrouter', 'groq', 'gemini', 'other']
 export function KeysSection() {
   const [keys, setKeys] = useState<EnvKeyEntry[] | null>(null)
   const [models, setModels] = useState<RoutingModel[]>([])
+  const [providerProfiles, setProviderProfiles] = useState<ProviderStatus[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [path, setPath] = useState<string | null>(null)
@@ -49,21 +59,27 @@ export function KeysSection() {
 
   const connected = useStudio((s) => s.connection.phase === 'connected')
   const lockedKeys = useStudio((s) => s.projection.waitlist?.lockedKeys ?? [])
+  const keyHealth = useStudio((s) => s.projection.waitlist?.keyHealth ?? [])
   const forgePhase = useStudio((s) => s.forge.phase)
 
   const load = useCallback(async () => {
     if (!bridge) return
     setBusy(true)
-    const [result, envPath] = await Promise.all([bridge.keys.list(), bridge.keys.path()])
+    const [result, envPath, providers] = await Promise.all([
+      bridge.keys.list(),
+      bridge.keys.path(),
+      connected ? bridge.api.providers() : Promise.resolve({ ok: true, data: [] as ProviderStatus[] }),
+    ])
     setBusy(false)
     setPath(envPath)
+    if (providers.ok && providers.data) setProviderProfiles(providers.data)
     if (result.ok && result.data) {
       setKeys(result.data)
       setError(null)
     } else {
       setError(result.error ?? 'Could not read .env')
     }
-  }, [])
+  }, [connected])
 
   useEffect(() => {
     void load()
@@ -121,8 +137,12 @@ export function KeysSection() {
     )
   }
 
+  const configuredProviderKeys = new Set(providerProfiles.map((profile) => profile.config.apiKeyEnv).filter(Boolean))
   const configured = keys.filter((k) => k.present).length
-  const unknownPresent = keys.some((k) => !k.known && k.present)
+  const recognised = keys.filter((k) => k.known || configuredProviderKeys.has(k.name)).length
+  const unknownPresent = keys.some((k) => !k.known && !configuredProviderKeys.has(k.name) && k.present)
+  const healthByKey = new Map(keyHealth.map((health) => [health.key, health]))
+  const unhealthyCount = keyHealth.filter((health) => health.status !== 'healthy').length
 
   return (
     <div className="flex flex-col gap-4">
@@ -141,9 +161,9 @@ export function KeysSection() {
             ) : null}
           </p>
           <p className="num mt-1 text-2xs text-fg-4">
-            {configured} of {keys.filter((k) => k.known).length} recognised slots
+            {configured} configured variables · {recognised} recognised by routing
             configured
-            {lockedKeys.length > 0 ? ` · ${lockedKeys.length} currently unavailable` : ''}
+            {unhealthyCount > 0 ? ` · ${unhealthyCount} need attention` : ''}
           </p>
         </div>
         <IconButton label="Reload from disk" onClick={load} disabled={busy}>
@@ -169,7 +189,7 @@ export function KeysSection() {
               </h2>
               {provider === 'other' ? (
                 <span className="pretty text-2xs text-fg-4">
-                  present in .env but never read by the router
+                  custom-provider and unassigned variables
                 </span>
               ) : (
                 <span className="num text-2xs text-fg-4">
@@ -185,6 +205,7 @@ export function KeysSection() {
                   entry={entry}
                   first={index === 0}
                   locked={lockedKeys.includes(entry.name)}
+                  health={healthByKey.get(entry.name)}
                   modelCount={modelsPerKey.get(entry.name)}
                   editing={editing === entry.name}
                   busy={busy}
@@ -202,8 +223,8 @@ export function KeysSection() {
       {unknownPresent ? (
         <p className="pretty flex items-start gap-2 text-2xs text-st-waiting">
           <AlertTriangle size={12} strokeWidth={1.9} className="mt-0.5 shrink-0" />
-          Variables outside the recognised slots are kept in the file untouched, but the
-          router will never read them — it scans a hardcoded list of names.
+          Unassigned variables are kept untouched. Bind one to a provider profile in Models
+          before Reticle may pass it to a worker.
         </p>
       ) : null}
 
@@ -232,6 +253,7 @@ function KeyRow({
   entry,
   first,
   locked,
+  health,
   modelCount,
   editing,
   busy,
@@ -243,6 +265,7 @@ function KeyRow({
   entry: EnvKeyEntry
   first: boolean
   locked: boolean
+  health?: KeyHealth
   modelCount?: number
   editing: boolean
   busy: boolean
@@ -274,6 +297,16 @@ function KeyRow({
     if (result?.ok) setRevealed(result.data ?? '')
   }
 
+  const unhealthy = health && health.status !== 'healthy' ? health : undefined
+
+  const healthTitle = unhealthy
+    ? `${HEALTH_LABELS[unhealthy.status]}${unhealthy.reason ? `: ${unhealthy.reason}` : ''}`
+    : locked
+      ? 'Unavailable for routing'
+      : entry.present
+        ? 'Set'
+        : 'Not set'
+
   return (
     <div
       className={cn(
@@ -285,13 +318,13 @@ function KeyRow({
       <span
         className="h-1.5 w-1.5 shrink-0 rounded-full"
         style={{
-          backgroundColor: locked
+          backgroundColor: unhealthy || locked
             ? 'var(--color-st-waiting)'
             : entry.present
               ? 'var(--color-st-done)'
               : 'var(--color-st-idle)',
         }}
-        title={locked ? 'Unavailable for routing' : entry.present ? 'Set' : 'Not set'}
+        title={healthTitle}
       />
 
       <div className="min-w-0 flex-1">
@@ -300,15 +333,21 @@ function KeyRow({
           {entry.slotLabel ? (
             <span className="text-2xs text-fg-4">{entry.slotLabel}</span>
           ) : null}
-          {locked ? (
+          {unhealthy || locked ? (
             <span className="rounded-[3px] bg-st-waiting-weak px-1 text-2xs text-st-waiting">
-              unavailable
+              {unhealthy ? HEALTH_LABELS[unhealthy.status] : 'unavailable'}
             </span>
           ) : null}
           {modelCount !== undefined && modelCount > 0 ? (
             <span className="num text-2xs text-fg-4">{modelCount} models</span>
           ) : null}
         </div>
+
+        {unhealthy?.reason ? (
+          <div className="mt-0.5 truncate-1 text-2xs text-fg-4" title={unhealthy.reason}>
+            {unhealthy.reason}
+          </div>
+        ) : null}
 
         {editing ? (
           <div className="mt-1.5 flex items-center gap-1">

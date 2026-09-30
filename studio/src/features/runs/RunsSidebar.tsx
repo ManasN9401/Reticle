@@ -219,7 +219,28 @@ export function RunsSidebar() {
           )}
         </section>
 
-        {waitlist?.lockedKeys && waitlist.lockedKeys.length > 0 ? (
+        {waitlist?.keyHealth?.some((health) => health.status !== 'healthy') ? (
+          <section>
+            <SectionLabel>
+              Credential health ·{' '}
+              {waitlist.keyHealth.filter((health) => health.status !== 'healthy').length}
+            </SectionLabel>
+            <div className="flex flex-wrap gap-1 px-3 pb-2">
+              {waitlist.keyHealth
+                .filter((health) => health.status !== 'healthy')
+                .map((health) => (
+                  <span
+                    key={health.key}
+                    className="mono flex items-center gap-1 rounded-[3px] border border-line-2 bg-bg-2 px-1.5 py-0.5 text-[10px] text-st-waiting"
+                    title={health.reason ?? health.status.replaceAll('_', ' ')}
+                  >
+                    <KeyRound size={9} strokeWidth={2} />
+                    {health.key}: {health.status.replaceAll('_', ' ')}
+                  </span>
+                ))}
+            </div>
+          </section>
+        ) : waitlist?.lockedKeys && waitlist.lockedKeys.length > 0 ? (
           <section>
             <SectionLabel>Unavailable keys · {waitlist.lockedKeys.length}</SectionLabel>
             <div className="flex flex-wrap gap-1 px-3 pb-2">
@@ -227,7 +248,7 @@ export function RunsSidebar() {
                 <span
                   key={key}
                   className="mono flex items-center gap-1 rounded-[3px] border border-line-2 bg-bg-2 px-1.5 py-0.5 text-[10px] text-st-waiting"
-                  title="This API key failed discovery or exhausted its reported limit"
+                  title="Credential unavailable (legacy runtime)"
                 >
                   <KeyRound size={9} strokeWidth={2} />
                   {key}

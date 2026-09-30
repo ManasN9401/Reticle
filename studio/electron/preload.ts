@@ -39,6 +39,8 @@ import type {
   OutputFile,
   PluginAction,
   PluginView,
+  ProviderConfig,
+  ProviderStatus,
   ProjectionPush,
   ReadFileResult,
   ResolvedTheme,
@@ -126,6 +128,14 @@ const bridge: ReticleBridge = {
     models: () => ipcRenderer.invoke(IPC.apiModels) as Promise<ModelsResult>,
     toggleModel: (modelKey: string) =>
       ipcRenderer.invoke(IPC.apiModelToggle, modelKey) as Promise<ApiResult<void>>,
+    providers: () =>
+      ipcRenderer.invoke(IPC.apiProvidersList) as Promise<ApiResult<ProviderStatus[]>>,
+    saveProvider: (config: ProviderConfig) =>
+      ipcRenderer.invoke(IPC.apiProviderSave, config) as Promise<ApiResult<ProviderStatus>>,
+    deleteProvider: (id: string) =>
+      ipcRenderer.invoke(IPC.apiProviderDelete, id) as Promise<ApiResult<void>>,
+    refreshProviders: () =>
+      ipcRenderer.invoke(IPC.apiProvidersRefresh) as Promise<ApiResult<ProviderStatus[]>>,
     outputs: (execId: string) =>
       ipcRenderer.invoke(IPC.apiOutputs, execId) as Promise<ApiResult<OutputFile[]>>,
     upload: (paths: string[]) =>

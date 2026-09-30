@@ -499,12 +499,13 @@ function applyToBatch(batch: Batch, state: ProjectionState, event: RuntimeEvent)
     case 'WaitlistUpdated': {
       const p = payload as unknown as WaitlistPayload | null
       if (!p) return
-      // The replay path omits lockedKeys; don't let it erase what we know.
+      // Historical replay frames may omit health fields; retain the last live state.
       state.waitlist = {
         items: p.items ?? [],
         maxWorkers: p.maxWorkers ?? 0,
         runningWorkers: p.runningWorkers ?? 0,
         lockedKeys: p.lockedKeys ?? state.waitlist?.lockedKeys ?? null,
+        keyHealth: p.keyHealth ?? state.waitlist?.keyHealth ?? null,
       }
       return
     }

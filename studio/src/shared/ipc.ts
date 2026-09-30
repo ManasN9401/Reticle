@@ -50,6 +50,10 @@ export const IPC = {
   // --- REST passthrough (main owns the base URL) ---------------------------
   apiModels: 'api:models',
   apiModelToggle: 'api:model-toggle',
+  apiProvidersList: 'api:providers-list',
+  apiProviderSave: 'api:provider-save',
+  apiProviderDelete: 'api:provider-delete',
+  apiProvidersRefresh: 'api:providers-refresh',
   apiOutputs: 'api:outputs',
   apiUpload: 'api:upload',
   apiMcpList: 'api:mcp-list',
@@ -728,6 +732,33 @@ export interface ApiResult<T> {
 
 export type ModelsResult = ApiResult<RoutingModel[]>
 
+export interface ProviderModelConfig {
+  id: string
+  modality?: 'text' | 'coding' | 'image'
+  capability?: number
+  contextLimit?: number
+}
+
+export interface ProviderConfig {
+  id: string
+  name?: string
+  protocol: 'openai-compatible'
+  baseUrl: string
+  apiKeyEnv?: string
+  modelsPath?: string
+  models?: ProviderModelConfig[]
+  enabled: boolean
+  toolSupport?: 'unknown' | 'advertised'
+}
+
+export interface ProviderStatus {
+  config: ProviderConfig
+  state: 'ready' | 'degraded' | 'disabled' | 'missing_credential' | 'discovery_unreachable' | 'provider_error' | 'invalid' | 'not_tested'
+  lastError?: string
+  missingVariables?: string[]
+  modelCount: number
+}
+
 // ---------------------------------------------------------------------------
 // The bridge surface exposed on `window.reticle`
 // ---------------------------------------------------------------------------
@@ -788,6 +819,10 @@ export interface ReticleBridge {
   api: {
     models(): Promise<ModelsResult>
     toggleModel(modelKey: string): Promise<ApiResult<void>>
+    providers(): Promise<ApiResult<ProviderStatus[]>>
+    saveProvider(config: ProviderConfig): Promise<ApiResult<ProviderStatus>>
+    deleteProvider(id: string): Promise<ApiResult<void>>
+    refreshProviders(): Promise<ApiResult<ProviderStatus[]>>
     outputs(execId: string): Promise<ApiResult<OutputFile[]>>
     upload(paths: string[]): Promise<ApiResult<WaitlistItem['attachments']>>
     mcpServers(): Promise<ApiResult<McpServerStatus[]>>

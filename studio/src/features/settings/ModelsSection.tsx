@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, KeyRound, RefreshCw, Search, X } from 'lucide-react'
+import { AlertTriangle, KeyRound, Pencil, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { cn } from '@/design/cn'
 import { Button, EmptyState, IconButton, Input, Select, Spinner, Toggle } from '@/design/primitives'
 import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
 import { modelKey, type RoutingModel } from '@shared/events'
-import type { EnvKeyEntry } from '@shared/ipc'
+import type { EnvKeyEntry, ProviderConfig, ProviderStatus } from '@shared/ipc'
 import { updateSettings } from '@/state/actions'
 
 type StatusFilter = 'all' | 'enabled' | 'disabled'
@@ -30,9 +30,11 @@ function providerOf(id: string): string {
 export function ModelsSection() {
   const connected = useStudio((s) => s.connection.phase === 'connected')
   const lockedKeys = useStudio((s) => s.projection.waitlist?.lockedKeys ?? [])
+  const keyHealth = useStudio((s) => s.projection.waitlist?.keyHealth ?? [])
 
   const [models, setModels] = useState<RoutingModel[] | null>(null)
   const [keys, setKeys] = useState<EnvKeyEntry[]>([])
+  const [providerProfiles, setProviderProfiles] = useState<ProviderStatus[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -66,12 +68,14 @@ export function ModelsSection() {
   const load = useCallback(async () => {
     if (!bridge) return
     setBusy(true)
-    const [modelResult, keyResult] = await Promise.all([
+    const [modelResult, keyResult, providerResult] = await Promise.all([
       bridge.api.models(),
       bridge.keys.list(),
+      bridge.api.providers(),
     ])
     setBusy(false)
     if (keyResult.ok && keyResult.data) setKeys(keyResult.data)
+    if (providerResult.ok && providerResult.data) setProviderProfiles(providerResult.data)
     if (modelResult.ok && modelResult.data) {
       setModels(modelResult.data)
       setError(null)
@@ -95,11 +99,13 @@ export function ModelsSection() {
     (model: RoutingModel): HealthFilter => {
       const env = model.api_key_env
       if (!env) return 'ok'
+      const observed = keyHealth.find((item) => item.key === env)
+      if (observed && observed.status !== 'healthy') return 'unavailable'
       if (lockedKeys.includes(env)) return 'unavailable'
       if (keyPresence.get(env) === false) return 'missing-key'
       return 'ok'
     },
-    [lockedKeys, keyPresence],
+    [keyHealth, lockedKeys, keyPresence],
   )
 
   const providers = useMemo(() => {
@@ -217,6 +223,14 @@ export function ModelsSection() {
 
   return (
     <div className="flex flex-col gap-5">
+      <ProviderProfiles
+        profiles={providerProfiles}
+        busy={busy}
+        onBusy={setBusy}
+        onError={setError}
+        onChanged={load}
+      />
+
       <div className="flex flex-col gap-3 rounded border border-line-1 p-4 bg-bg-2">
         <h3 className="text-sm font-semibold text-fg-1">LLM Tuning</h3>
         <div className="flex flex-wrap items-end gap-4">
@@ -524,6 +538,182 @@ export function ModelsSection() {
       )}
     </div>
     </div>
+  )
+}
+
+const EMPTY_PROVIDER: ProviderConfig = {
+  id: '',
+  name: '',
+  protocol: 'openai-compatible',
+  baseUrl: '',
+  apiKeyEnv: '',
+  modelsPath: '/models',
+  models: [],
+  enabled: true,
+  toolSupport: 'unknown',
+}
+
+function ProviderProfiles({
+  profiles,
+  busy,
+  onBusy,
+  onError,
+  onChanged,
+}: {
+  profiles: ProviderStatus[]
+  busy: boolean
+  onBusy: (value: boolean) => void
+  onError: (value: string | null) => void
+  onChanged: () => Promise<void>
+}) {
+  const [editing, setEditing] = useState<ProviderConfig | null>(null)
+  const [staticModels, setStaticModels] = useState('')
+
+  const beginEdit = (config?: ProviderConfig) => {
+    const next = config ? { ...config, models: [...(config.models ?? [])] } : { ...EMPTY_PROVIDER, models: [] }
+    setEditing(next)
+    setStaticModels((next.models ?? []).map((model) => model.id).join('\n'))
+  }
+
+  const save = async () => {
+    if (!bridge || !editing) return
+    const modelIds = staticModels
+      .split(/[\n,]/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+    onBusy(true)
+    const result = await bridge.api.saveProvider({
+      ...editing,
+      models: modelIds.map((id) => ({ id })),
+    })
+    onBusy(false)
+    if (!result.ok) {
+      onError(result.error ?? 'Could not save provider profile.')
+      return
+    }
+    onError(null)
+    setEditing(null)
+    await onChanged()
+  }
+
+  const remove = async (id: string) => {
+    if (!bridge) return
+    onBusy(true)
+    const result = await bridge.api.deleteProvider(id)
+    onBusy(false)
+    if (!result.ok) onError(result.error ?? 'Could not delete provider profile.')
+    else {
+      onError(null)
+      await onChanged()
+    }
+  }
+
+  const refresh = async () => {
+    if (!bridge) return
+    onBusy(true)
+    const result = await bridge.api.refreshProviders()
+    onBusy(false)
+    if (!result.ok) onError(result.error ?? 'Could not refresh provider discovery.')
+    else {
+      onError(null)
+      await onChanged()
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-3 rounded border border-line-1 bg-bg-2 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-fg-1">Provider profiles</h3>
+          <p className="pretty mt-0.5 text-2xs text-fg-4">
+            Connect any OpenAI-compatible API. Profiles store endpoint metadata and an
+            environment-variable name; secret values remain in <span className="mono">.env</span>.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-1.5">
+          <Button size="sm" onClick={refresh} disabled={busy}>
+            <RefreshCw size={12} /> Refresh discovery
+          </Button>
+          <Button size="sm" variant="primary" onClick={() => beginEdit()} disabled={busy}>
+            <Plus size={12} /> Add provider
+          </Button>
+        </div>
+      </div>
+
+      {profiles.length > 0 ? (
+        <div className="grid gap-2 md:grid-cols-2">
+          {profiles.map((profile) => (
+            <div key={profile.config.id} className="min-w-0 rounded border border-line-2 bg-bg-1 p-3">
+              <div className="flex min-w-0 items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="mono truncate text-xs text-fg-1">{profile.config.id}</span>
+                    <span className={cn(
+                      'rounded-[3px] px-1 text-2xs',
+                      profile.state === 'ready' ? 'bg-st-done-weak text-st-done' :
+                        profile.state === 'disabled' ? 'bg-bg-3 text-fg-4' : 'bg-st-waiting-weak text-st-waiting',
+                    )}>
+                      {profile.state.replaceAll('_', ' ')}
+                    </span>
+                  </div>
+                  <div className="mono mt-1 truncate text-2xs text-fg-3" title={profile.config.baseUrl}>
+                    {profile.config.baseUrl}
+                  </div>
+                  <div className="mt-1 text-2xs text-fg-4">
+                    {profile.config.apiKeyEnv || 'No credential'} · {profile.modelCount} models
+                  </div>
+                  {profile.lastError ? <div className="mt-1 truncate text-2xs text-st-waiting" title={profile.lastError}>{profile.lastError}</div> : null}
+                </div>
+                <div className="flex shrink-0 gap-0.5">
+                  <IconButton label={`Edit ${profile.config.id}`} size="sm" onClick={() => beginEdit(profile.config)}><Pencil size={12} /></IconButton>
+                  <IconButton label={`Delete ${profile.config.id}`} size="sm" className="hover:text-st-failed" onClick={() => void remove(profile.config.id)}><Trash2 size={12} /></IconButton>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-2xs text-fg-4">No configurable provider profiles yet.</p>
+      )}
+
+      {editing ? (
+        <div className="rounded border border-line-2 bg-bg-1 p-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <ProviderField label="Provider ID" value={editing.id} disabled={profiles.some((item) => item.config.id === editing.id)} onChange={(id) => setEditing({ ...editing, id: id.toLowerCase() })} placeholder="llm7" />
+            <ProviderField label="Display name" value={editing.name ?? ''} onChange={(name) => setEditing({ ...editing, name })} placeholder="LLM7" />
+            <ProviderField label="Base URL" value={editing.baseUrl} onChange={(baseUrl) => setEditing({ ...editing, baseUrl })} placeholder="https://provider.example/v1" />
+            <ProviderField label="API key variable" value={editing.apiKeyEnv ?? ''} onChange={(apiKeyEnv) => setEditing({ ...editing, apiKeyEnv: apiKeyEnv.toUpperCase() })} placeholder="LLM7_API_KEY" />
+            <ProviderField label="Models path" value={editing.modelsPath ?? '/models'} onChange={(modelsPath) => setEditing({ ...editing, modelsPath })} placeholder="/models" />
+            <label className="flex flex-col gap-1 text-2xs text-fg-3">
+              Tool support
+              <Select value={editing.toolSupport ?? 'unknown'} onChange={(event) => setEditing({ ...editing, toolSupport: event.target.value as 'unknown' | 'advertised' })}>
+                <option value="unknown">Unknown</option>
+                <option value="advertised">Advertised by provider</option>
+              </Select>
+            </label>
+          </div>
+          <label className="mt-3 flex flex-col gap-1 text-2xs text-fg-3">
+            Static model IDs <span className="text-fg-4">(optional; one per line or comma-separated)</span>
+            <textarea className="mono min-h-20 resize-y rounded border border-line-2 bg-bg-0 px-2 py-1.5 text-xs text-fg-1 outline-none focus:border-accent" value={staticModels} onChange={(event) => setStaticModels(event.target.value)} placeholder="vendor/model-name" />
+          </label>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Toggle label="Enabled" checked={editing.enabled} onChange={(enabled) => setEditing({ ...editing, enabled })} />
+            <span className="flex-1" />
+            <Button size="sm" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button size="sm" variant="primary" disabled={busy || !editing.id || !editing.baseUrl} onClick={() => void save()}>Save and discover</Button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function ProviderField({ label, value, onChange, placeholder, disabled = false }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; disabled?: boolean }) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1 text-2xs text-fg-3">
+      {label}
+      <Input className="mono w-full" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+    </label>
   )
 }
 

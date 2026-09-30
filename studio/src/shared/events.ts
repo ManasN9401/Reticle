@@ -224,17 +224,31 @@ export interface WaitlistPayload {
   items: WaitlistItem[] | null
   maxWorkers: number
   runningWorkers: number
-  /**
-   * Absent on the first frame after connect: the state-replay path
-   * (cmd/forge/waitlist.go:262-266) builds the payload without it, while the
-   * save path (:380-385) includes it. Always treat as nullable.
-   */
+  /** Nullable for compatibility with events recorded by older runtimes. */
   lockedKeys: string[] | null
+  /** Reasoned credential state from the router; absent for older runtimes/replay frames. */
+  keyHealth?: KeyHealth[] | null
+}
+
+export interface KeyHealth {
+  key: string
+  status:
+    | 'healthy'
+    | 'discovery_unreachable'
+    | 'authentication_failed'
+    | 'quota_exhausted'
+    | 'rate_limited'
+    | 'provider_error'
+  reason?: string
+  observedAt: string
+  retryAt?: string
 }
 
 /** runtime/routing/models.go:18-25 — served by `GET /api/models`. */
 export interface RoutingModel {
   id: string
+  request_model?: string
+  api_base?: string
   cost: number
   capability: number
   endpoint_env?: string

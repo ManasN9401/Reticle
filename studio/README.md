@@ -43,7 +43,7 @@ electron/                  main process — owns everything privileged
   forge/client.ts          WebSocket to /ws, backoff reconnect
   forge/process.ts         spawn/kill forge.exe
   forge/store.ts           event ring buffer + projection + payload stripping
-  forge/rest.ts            /api/models, /api/outputs, /api/upload
+  forge/rest.ts            /api/models, /api/providers, /api/outputs, /api/upload
   hitl/checkpoints.ts      read requests / write hash-bound decisions
   workspace/reader.ts      guarded filesystem reads
 src/shared/                pure, imported by BOTH main and renderer
@@ -115,21 +115,25 @@ comments and no quote handling. Writes preserve every other line, comment and
 ordering, and go through a temp file plus rename so a crash cannot truncate the
 file. Two facts are surfaced in the panel rather than left to be discovered:
 
-- the router only reads a **fixed set of variable names**
-  (`routing/models.go:100`, `:194`, `:255`) — three OpenRouter slots, three Groq,
-  one Gemini. Anything else is kept in the file but flagged as never read.
+- built-in discovery recognizes the documented OpenRouter, Groq and Gemini
+  slots; any other environment-variable name becomes usable when a non-secret
+  OpenAI-compatible provider profile references it in **Models**.
 - `.env` is parsed once at boot, so edits need a **forge restart**.
 
 Values are masked to the last four characters. Plaintext only leaves the main
 process through an explicit reveal, which re-hides itself after 20 seconds.
 
-**Models** lists the live catalog from `GET /api/models`, filterable by search,
-provider, **API key slot**, enabled state, and health — where health folds in
-whether discovery marked that key unavailable (from `WaitlistUpdated.lockedKeys`)
-or it is missing from `.env` entirely. An OpenRouter free-tier key remains usable
-for free models until its reported limit is exhausted. A model bound to an
-unavailable key cannot run, and that is invisible from the model id alone. Bulk
-enable/disable applies to the current filter.
+**Models** manages provider profiles through `/api/providers` and lists the live
+catalog from `GET /api/models`, filterable by search,
+provider, **API key slot**, enabled state, and health. Current runtimes publish
+reasoned credential health in `WaitlistUpdated.keyHealth`; this distinguishes
+discovery connectivity, authentication, exhausted quota, temporary rate limits,
+and provider errors. `lockedKeys` remains as a compatibility field and contains
+only credentials known to be unusable, rather than transient discovery failures.
+An OpenRouter free-tier key remains usable for free models until its reported
+limit is exhausted. A model bound to an unavailable key cannot run, and that is
+invisible from the model id alone. Bulk enable/disable applies to the current
+filter.
 
 ## Node map presentations
 

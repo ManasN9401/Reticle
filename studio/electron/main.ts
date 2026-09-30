@@ -23,6 +23,7 @@ import type {
   NativeAction,
   OutboundCommand,
   PluginAction,
+  ProviderConfig,
   ProfileImportResult,
   ProjectionPush,
   ResolvedTheme,
@@ -370,6 +371,10 @@ function registerIpc(): void {
 
   handle(IPC.apiModels, () => rest.models())
   handle(IPC.apiModelToggle, (_e, modelKey: string) => rest.toggleModel(modelKey))
+  handle(IPC.apiProvidersList, () => rest.providers())
+  handle(IPC.apiProviderSave, (_e, config: ProviderConfig) => rest.saveProvider(config))
+  handle(IPC.apiProviderDelete, (_e, id: string) => rest.deleteProvider(id))
+  handle(IPC.apiProvidersRefresh, () => rest.refreshProviders())
   handle(IPC.apiOutputs, (_e, execId: string) => rest.outputs(execId))
   handle(IPC.apiUpload, (_e, paths: string[]) => rest.upload(paths ?? []))
   handle(IPC.apiMcpList, () => rest.mcpServers())

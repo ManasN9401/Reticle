@@ -10,6 +10,8 @@ import type {
   OutputFile,
   PluginAction,
   PluginView,
+  ProviderConfig,
+  ProviderStatus,
 } from '../../src/shared/ipc'
 import type { Attachment } from '../../src/shared/events'
 
@@ -84,6 +86,24 @@ export class ForgeRest {
       },
       'void',
     )
+  }
+
+  providers(): Promise<ApiResult<ProviderStatus[]>> {
+    return request<ProviderStatus[]>(this.baseUrl, '/api/providers')
+  }
+
+  saveProvider(config: ProviderConfig): Promise<ApiResult<ProviderStatus>> {
+    return request<ProviderStatus>(this.baseUrl, '/api/providers', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(config),
+    }, 'json', 125_000)
+  }
+
+  deleteProvider(id: string): Promise<ApiResult<void>> {
+    return request<void>(this.baseUrl, `/api/providers/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'void', 125_000)
+  }
+
+  refreshProviders(): Promise<ApiResult<ProviderStatus[]>> {
+    return request<ProviderStatus[]>(this.baseUrl, '/api/providers/refresh', { method: 'POST' }, 'json', 125_000)
   }
 
   /** Returns every file under `.reticle/sessions/{execId}/src`, contents inlined. */
