@@ -1,7 +1,7 @@
 ---
 status: active
 owner: Reticle Project
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 # Reticle roadmap and RFC register
@@ -29,6 +29,9 @@ The extensibility sequence is now implemented:
 
 [RFC-050](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md) is accepted and its broker,
 dispatcher/worker integration and fixture adapter contract are implemented.
+[RFC-051](rfc/RFC-051-Configurable-Model-Providers.md) is accepted and replaces
+the fixed hosted-provider boundary with non-secret OpenAI-compatible provider
+profiles, shared routing and Studio management.
 
 The recommended next step is an acceptance and hardening cycle: exercise signed
 or checksummed provenance options, crash recovery, invalid bundle upgrades and a
@@ -88,6 +91,7 @@ additional claim about implementation completeness.
 | [RFC-048](rfc/RFC-048-Meta-Scaffolder-Revised.md) | Meta-Scaffolder, Revised | `draft` |
 | [RFC-049](rfc/RFC-049-Memory-Query-Management.md) | Memory Query and Management Surface | `draft` |
 | [RFC-050](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md) | Attempt-Scoped Tool Broker | `accepted` |
+| [RFC-051](rfc/RFC-051-Configurable-Model-Providers.md) | Configurable Model Providers | `accepted` |
 
 ## Unfiled identifiers
 

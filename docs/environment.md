@@ -1,6 +1,25 @@
 # Environment configuration
 
-Copy `.env.example` to `.env` only when no configuration exists. Preserve populated keys. The model catalog uses OpenRouter keys 1–3, Groq keys 1–3 and one Gemini key; none of these providers is mandatory when a supported local provider is configured.
+Copy `.env.example` to `.env` only when no configuration exists. Preserve
+populated keys. Built-in discovery recognizes OpenRouter keys 1–3, Groq keys
+1–3 and one Gemini key; none is mandatory when a supported local provider is
+configured.
+
+Additional OpenAI-compatible services do not require source changes. Put the
+secret under any valid environment-variable name in `.env`, then bind that name
+to a provider profile in Studio under **Settings → Models → Provider profiles**.
+The profile supplies the base URL, `/models` discovery path and optional static
+model IDs. Forge saves that non-secret metadata in the ignored local file
+`.reticle/providers.json`; it never copies the key value there. `.env` is loaded
+at process start, so restart Forge after adding or changing a secret. Profile
+changes and model discovery can be refreshed while Forge is running.
+
+V1 profiles use bearer authentication and the OpenAI-compatible models/chat
+contract. “Any key” therefore means any credential for a service implementing
+that contract; a service with different authentication or request semantics
+requires a reviewed adapter. Remote profiles must use HTTPS. Redirects are not
+followed during model discovery, and static model IDs can be supplied when a
+provider has no compatible `/models` endpoint.
 
 `OLLAMA_HOST` and `COMFYUI_HOST` are endpoint settings, not secret values. `HF_TOKEN` and `WANDB_API_KEY` are optional for experiments that actually need those services. A blank optional key does not mean the core application is broken.
 

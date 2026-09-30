@@ -31,6 +31,7 @@ RFCs marked `historical` preserve design context and do not override an accepted
 - [Plugin system RFC](rfc/RFC-047-Plugin-System.md).
 - [Plugin manifest v1](specifications/plugin-manifest-v1.md).
 - [Attempt-scoped tool broker RFC](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md).
+- [Configurable model providers RFC](rfc/RFC-051-Configurable-Model-Providers.md).
 - [Current project state and extensibility sequence](planning/PROJECT_STATE_27-09-26.md).
 - [Planning document index](planning/README.md).
 - [Historical material boundary](archive/README.md).

@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 # Runtime Orchestration Architecture
@@ -33,7 +33,17 @@ Local LLM and image requests are serialized through a host lock. A local LLM req
 
 Every concrete try has a random attempt ID. The dispatcher owns retry policy, routing outcome updates and completion publication. Accepted result mutations use the attempt ID as a durable idempotency key so duplicate delivery cannot apply them twice.
 
-Provider fallback requires the worker's `[RETICLE_RETRY_SAFE: NO_EFFECTS]` proof. With that proof, rate limits, unavailable/connection failures, authentication or permission failures, upstream streaming timeouts, and recognized bad-request/model-compatibility failures may consume another bounded attempt. Authentication, permission, quota, rate-limit, connection, and service failures temporarily cool down the affected provider key. Request-shape and context failures lower the selected model's score; unsupported tool calling disables that model. An unrecognized process failure is terminal because the runtime cannot assume retry safety from an error code alone.
+Provider fallback requires the worker's `[RETICLE_RETRY_SAFE: NO_EFFECTS]` proof. With that proof, rate limits, unavailable/connection failures, authentication or permission failures, upstream streaming timeouts, and recognized bad-request/model-compatibility failures may consume another bounded attempt. Authentication and exhausted quota make the affected credential unavailable; a live rate limit applies only a bounded retry delay. Connection and provider-service failures cool the provider slot without falsely marking every key as rate-limited. Request-shape and context failures lower the selected model's score; unsupported tool calling disables that model. An unrecognized process failure is terminal because the runtime cannot assume retry safety from an error code alone.
+
+Hosted model integrations may be built in or supplied as non-secret provider
+profiles under `.reticle/providers.json`. A profile binds an OpenAI-compatible
+base URL and model catalog to an environment-variable name. The router creates
+one catalog and health model for both paths; the dispatcher passes the selected
+upstream model and API base through trusted parameters, and worker credential
+filtering admits only variables attached to router models. Discovery is bounded,
+does not follow redirects and does not treat connection failure as credential
+exhaustion. Providers with another protocol or authentication scheme require a
+reviewed adapter. See RFC-051.
 
 Waitlist admission creates the isolated workspace and commits required run/compiler memory as one acknowledged batch before submitting a workflow. A workspace or memory failure terminalizes that item without starting compilation.
 

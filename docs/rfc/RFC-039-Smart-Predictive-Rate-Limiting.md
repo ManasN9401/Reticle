@@ -1,7 +1,7 @@
 ---
 status: historical
 owner: Reticle Project
-updated: 2026-09-19
+updated: 2026-09-30
 ---
 
 > Historical design record. Current versioned specifications and schemas take precedence.
@@ -22,9 +22,22 @@ The `routing.ModelRouter` has been expanded to act as a localized token bucket t
 ### 2.1 The "Smart" Learning Algorithm
 The router assumes no predetermined capacity limits for cloud providers, starting at an optimistic default of 50 concurrent requests. For local/self-hosted models (e.g., Ollama), the router defaults to a highly conservative capacity of `2` to prevent physical hardware exhaustion (VRAM thrashing).
 
+Capacity is tracked by credential slot for cloud providers and by endpoint slot
+for local providers. Consequently, unrelated local runtimes such as Ollama and
+ComfyUI do not consume the same capacity allowance.
+
 - **Additive Increase (Cautious Push):** When a worker completes a task successfully, the router checks if the provider was operating near its ceiling (i.e., using >= 50% of the theoretical capacity). If so, it cautiously nudges the capacity ceiling up by `+1` (capped at 200). This guarantees we never artificially constrain a paid-tier user, and allows local models to scale up if the hardware allows (e.g. multi-GPU rigs).
 - **Multiplicative Decrease (Instant Protection):** If a worker triggers a `429 Rate Limit` penalty via the `PenalizeProvider` method, the orchestrator instantly divides the provider's `ProviderCapacity` by 2 (minimum 1). 
 - **Death-Spiral Prevention:** To prevent concurrent 429s (from multiple in-flight requests failing at once) from repeatedly halving the capacity down to 1, the Multiplicative Decrease is locked to execute only once per penalty window.
+
+Only a confirmed `429` response applies multiplicative decrease. Connection
+failures and provider `5xx` responses remain retryable but do not imply that a
+credential is rate limited. Authentication failures, exhausted quotas,
+temporary limits, and discovery connectivity are represented as distinct key
+health states. A successful request after a temporary cooldown returns that key
+to healthy status. Exhausted quotas receive a bounded retry window so a
+long-running Forge process can recover after the provider resets the allowance;
+authentication failures remain blocked until credentials are reloaded.
 
 ### 2.2 Predictive Skipping
 During `SelectModel`, before a task is dispatched, the router compares `ProviderInFlight` to `ProviderCapacity`. 
