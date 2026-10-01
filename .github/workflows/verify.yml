@@ -13,7 +13,7 @@ jobs:
         module: [runtime, cmd/forge, examples/01_readme_generator, examples/02_book_creator, examples/03_startup_launch, examples/04_memory_test]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v7
         with:
           go-version: '1.21.x'
@@ -26,7 +26,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -37,7 +37,7 @@ jobs:
       run:
         working-directory: studio
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
         with:
           node-version: '26'

@@ -48,6 +48,16 @@ def assess_ml_profile(profile, gpu, host):
         return ["WSL2 detected: verify the exact Windows driver, WSL distribution, ROCm image and RX 7800 XT support before running an experiment."]
     return []
 
+def _expand_short_name(path):
+    # CI runners expose TEMP as C:\Users\RUNNER~1; an 8.3 alias names the same
+    # directory as its long form, unlike a symlink or junction.
+    if os.name != "nt":
+        return path
+    import ctypes
+    buffer = ctypes.create_unicode_buffer(32768)
+    length = ctypes.windll.kernel32.GetLongPathNameW(str(path), buffer, len(buffer))
+    return Path(buffer.value) if 0 < length < len(buffer) else path
+
 def safe_path(workspace, relative, *, base="src"):
     if not isinstance(relative, str) or "\\" in relative or ":" in relative:
         raise ValueError("A workspace-relative path is required")
@@ -57,6 +67,7 @@ def safe_path(workspace, relative, *, base="src"):
     workspace = Path(workspace).absolute()
     root = workspace / base if base else workspace
     root.mkdir(parents=True, exist_ok=True)
+    root = _expand_short_name(root)
     if root.resolve() != root:
         raise ValueError("Aliased workspace root denied")
     target = root / rel
