@@ -112,8 +112,21 @@ async function exportLogs(request: LogExportRequest): Promise<LogExportResult> {
   const content = formatLogRecords(batch.records, request.format)
 
   if (request.destination === 'clipboard') {
-    clipboard.writeText(content)
-    return { ok: true, count: batch.records.length }
+    if (batch.records.length === 0 || content.length === 0) {
+      return { ok: false, count: 0, error: 'No filtered logs to copy' }
+    }
+    try {
+      await clipboard.writeText(content)
+      // Await Electron's clipboard promise and read it back: platform clipboard
+      // contention can otherwise look like a successful no-op to the renderer.
+      const normalizeNewlines = (value: string) => value.replace(/\r\n/g, '\n')
+      if (normalizeNewlines(await clipboard.readText()) !== normalizeNewlines(content)) {
+        return { ok: false, count: 0, error: 'The system clipboard did not accept the logs' }
+      }
+      return { ok: true, count: batch.records.length }
+    } catch (error) {
+      return { ok: false, count: 0, error: error instanceof Error ? error.message : String(error) }
+    }
   }
 
   if (!mainWindow) return { ok: false, count: 0, error: 'Window unavailable' }

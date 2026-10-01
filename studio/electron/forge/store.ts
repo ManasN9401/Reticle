@@ -190,9 +190,14 @@ export class EventStore extends EventEmitter {
     for (let i = all.length - 1; i >= 0 && matched.length < limit; i -= 1) {
       const record = all[i]
       if (query.after !== undefined && record.seq <= query.after) break
-      if (query.execId && record.execId !== query.execId) continue
+      if (
+        query.execId &&
+        record.execId !== query.execId &&
+        !(query.includeUnscoped && record.execId === undefined)
+      ) continue
       if (query.nodeId && record.nodeId !== query.nodeId) continue
       if (levels && !levels.has(record.level)) continue
+      if (query.excludeLlm && record.isLlm) continue
       if (search && !record.message.toLowerCase().includes(search)) continue
       matched.push(record)
     }

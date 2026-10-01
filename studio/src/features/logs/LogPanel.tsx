@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowDownToLine, Ban, ClipboardCopy, Download, Filter, Search, Trash2 } from 'lucide-react'
+import { ArrowDownToLine, Ban, Check, ClipboardCopy, Download, Filter, Search, Trash2, TriangleAlert } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/design/cn'
 import { EmptyState, IconButton, Input, Select } from '@/design/primitives'
@@ -41,6 +41,7 @@ export function LogPanel() {
   // Seeded from the persisted preference; scrolling away still releases it.
   const [follow, setFollow] = useState(followDefault)
   const [exportFormat, setExportFormat] = useState<LogExportFormat>('json')
+  const [copyResult, setCopyResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -48,9 +49,11 @@ export function LogPanel() {
   // exactly what's on screen rather than re-deriving a second filter model.
   const currentQuery = (): LogQuery => ({
     execId: run?.execId,
+    includeUnscoped: Boolean(run),
     nodeId: scopeToNode ? (selectedNodeId ?? undefined) : undefined,
     search: search.trim() || undefined,
     levels: levels.size < LEVELS.length ? Array.from(levels) : undefined,
+    excludeLlm: true,
   })
 
   async function handleExport() {
@@ -67,12 +70,19 @@ export function LogPanel() {
 
   async function handleCopy() {
     if (!bridge) return
+    setCopyResult(null)
     const result = await bridge.logs.export({
       query: currentQuery(),
       format: 'text',
       destination: 'clipboard',
     })
-    if (!result.ok) console.error('[logs] copy failed', result.error)
+    if (result.ok) {
+      setCopyResult({ ok: true, message: `Copied ${result.count.toLocaleString()} log records` })
+    } else {
+      const message = result.error ?? 'Could not copy logs'
+      setCopyResult({ ok: false, message })
+      console.error('[logs] copy failed', message)
+    }
   }
 
   const filtered = useMemo(() => {
@@ -216,9 +226,23 @@ export function LogPanel() {
           <Download size={13} strokeWidth={1.7} />
         </IconButton>
 
-        <IconButton label="Copy filtered logs to clipboard" size="sm" onClick={handleCopy}>
-          <ClipboardCopy size={13} strokeWidth={1.7} />
+        <IconButton
+          label={copyResult?.message ?? 'Copy filtered logs to clipboard'}
+          size="sm"
+          disabled={filtered.length === 0}
+          className={copyResult ? (copyResult.ok ? 'text-st-done' : 'text-st-failed') : undefined}
+          onClick={handleCopy}
+        >
+          {copyResult ? (
+            copyResult.ok ? <Check size={13} strokeWidth={1.8} /> : <TriangleAlert size={13} strokeWidth={1.8} />
+          ) : (
+            <ClipboardCopy size={13} strokeWidth={1.7} />
+          )}
         </IconButton>
+
+        <span className="sr-only" role="status" aria-live="polite">
+          {copyResult?.message}
+        </span>
 
         <IconButton label="Clear logs" size="sm" onClick={clearLogs}>
           <Trash2 size={13} strokeWidth={1.7} />

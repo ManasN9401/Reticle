@@ -250,10 +250,14 @@ export interface LogRecord {
 
 export interface LogQuery {
   execId?: string
+  /** Include global records without an execution ID while scoping to execId. */
+  includeUnscoped?: boolean
   nodeId?: string
   /** Case-insensitive substring match over the message. */
   search?: string
   levels?: LogRecord['level'][]
+  /** Omit verbose model stream records from user-facing exports. */
+  excludeLlm?: boolean
   limit?: number
   /** Return records with seq strictly greater than this. */
   after?: number
