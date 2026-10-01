@@ -287,6 +287,10 @@ func (d *Dispatcher) Start() {
 			}
 			lastFailure := &WorkerFailure{Reason: "cancelled", ExitCode: -1, Stderr: "Execution cancelled"}
 			lastDisposition := providerFailureDisposition{}
+			routes := newRetryRoutes()
+			stopReason := "attempt_budget_exhausted"
+			originalTokens, hadTokens := t.Memory["llm_max_tokens"]
+			var attemptModel *routing.Model
 			if hasCapability(w.Capabilities, CapabilityGPUUse) {
 				devices, err := ParseDeviceList(os.Getenv("RETICLE_GPU_DEVICES"))
 				if err != nil {
@@ -311,6 +315,7 @@ func (d *Dispatcher) Start() {
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				if ctx.Err() != nil {
+					stopReason = "cancelled_or_deadline"
 					break
 				}
 				// Extract effort - Apply global UI effort as a modifier to the task's base effort
@@ -330,8 +335,11 @@ func (d *Dispatcher) Start() {
 				if d.Router != nil && !deterministicWorker(w.ID) {
 					if !forced {
 						selectRetries := 0
-						selectedModel := d.Router.SelectModel(string(t.ID), string(w.ID), finalTier, 0.90, t.Modality)
+						selectedModel := d.Router.SelectModelWithPolicy(string(t.ID), string(w.ID), finalTier, 0.90, t.Modality, routes.policy)
 						for selectedModel == nil {
+							if d.Router.RouteAvailability(t.Modality, routes.policy).Potential == 0 {
+								break
+							}
 							selectRetries++
 							if selectRetries > 24 { // 2 minutes
 								break
@@ -343,12 +351,18 @@ func (d *Dispatcher) Start() {
 								continue
 							case <-time.After(5 * time.Second):
 							}
-							selectedModel = d.Router.SelectModel(string(t.ID), string(w.ID), finalTier, 0.90, t.Modality)
+							selectedModel = d.Router.SelectModelWithPolicy(string(t.ID), string(w.ID), finalTier, 0.90, t.Modality, routes.policy)
 						}
 
 						if selectedModel == nil {
-							d.Logger.Error("No models became available after 2 minutes of waiting. Aborting task.", "worker_id", w.ID)
-							detail := d.Router.ExplainNoRoute(t.Modality)
+							stopReason = "no_eligible_route"
+							if ctx.Err() != nil {
+								stopReason = "cancelled_or_deadline"
+							}
+							detail := d.Router.ExplainNoRoute(t.Modality) + "; task routing: " + d.Router.RouteAvailability(t.Modality, routes.policy).String()
+							if routes.attempts > 0 {
+								detail = lastFailure.Stderr + "\n" + detail
+							}
 							lastFailure = &WorkerFailure{Reason: "no_models_available", ExitCode: 1, Stderr: detail}
 							break
 						}
@@ -358,13 +372,25 @@ func (d *Dispatcher) Start() {
 						// from a configured endpoint to a built-in/local model cannot
 						// inherit the old API base or credential binding.
 						applySelectedModelParameters(t.Parameters, selectedModel)
+						attemptModel = selectedModel
 					} else if attempt == 1 {
 						forcedModel := fmt.Sprint(t.Parameters["llm_model"])
 						if configured := d.Router.Model(forcedModel); configured != nil {
 							applySelectedModelParameters(t.Parameters, configured)
+							attemptModel = configured
 						}
 						d.Router.TrackForcedModel(string(t.ID), forcedModel)
 					}
+				}
+				if t.Memory == nil {
+					t.Memory = make(map[string]any)
+				}
+				delete(t.Memory, "llm_max_tokens")
+				if hadTokens {
+					t.Memory["llm_max_tokens"] = originalTokens
+				}
+				if attemptModel != nil && routes.limits[attemptModel.Key()] > 0 {
+					t.Memory["llm_max_tokens"] = routes.limits[attemptModel.Key()]
 				}
 
 				t.AttemptID = newAttemptID(t.ExecutionID)
@@ -397,6 +423,7 @@ func (d *Dispatcher) Start() {
 					if brokerErr != nil {
 						d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": "tool_broker_start_failed"})
 						lastFailure = &WorkerFailure{Reason: WorkerStartFailed, ExitCode: -1, Stderr: brokerErr.Error()}
+						stopReason = "tool_broker_start_failed"
 						break
 					}
 					attemptEnvironment = credentials.Environment()
@@ -412,6 +439,7 @@ func (d *Dispatcher) Start() {
 					d.Bus.Publish("WorkerFailed", "dispatcher", map[string]any{"task_id": string(t.ID), "worker_id": string(w.ID), "attempt_id": t.AttemptID, "reason": "timeout", "stderr": ctx.Err().Error()})
 					return
 				}
+				routes.started(attemptModel)
 				_, failure := w.ExecuteWithEnvironment(ctx, t, attemptEnvironment)
 				<-d.slots
 				if d.ToolBroker != nil {
@@ -423,6 +451,7 @@ func (d *Dispatcher) Start() {
 					d.Logger.Info("Worker execution was cancelled (likely killed by user). Aborting retries.", "worker_id", w.ID)
 					cleanupExecutionContainers(t.ExecutionID)
 					lastFailure = &WorkerFailure{Reason: "killed", ExitCode: -1, Stderr: "Context cancelled"}
+					stopReason = "cancelled_or_deadline"
 					break
 				}
 
@@ -438,6 +467,7 @@ func (d *Dispatcher) Start() {
 
 				if failure.Reason == WorkerProtocolError || failure.Reason == WorkerStartFailed || failure.Reason == WorkerInvalidJSON {
 					lastFailure = failure
+					stopReason = "worker_contract_failure"
 					break
 				}
 				// Only route around recognized provider or model-behavior failures with
@@ -446,11 +476,17 @@ func (d *Dispatcher) Start() {
 				lastDisposition = disposition
 				if !disposition.retryable {
 					lastFailure = failure
+					stopReason = "failure_not_retry_safe_or_unclassified"
 					break
 				}
 				// Failed attempt
 				d.Logger.Error("Worker execution failed (attempt)", "worker_id", w.ID, "attempt", attempt, "reason", failure.Reason, "stderr", failure.Stderr)
 				lastFailure = failure
+				if !forced && routes.failed(attemptModel, disposition, failure, t.Memory["llm_max_tokens"]) {
+					d.Router.Release(string(t.ID))
+					d.Logger.Info("Provider supplied an output-token bound; next attempt will use the adjusted request on this route.", "task_id", t.ID, "model", attemptModel.ID, "max_tokens", routes.limits[attemptModel.Key()])
+					continue
+				}
 
 				if d.Router != nil {
 					if disposition.penalizeProvider {
@@ -466,30 +502,42 @@ func (d *Dispatcher) Start() {
 						}
 					} else if disposition.disableModel {
 						if modelID, ok := t.Parameters["llm_model"].(string); ok && modelID != "" {
-							d.Logger.Info("Model does not support tool calling, disabling globally", "model", modelID)
+							d.Logger.Info("Model is incompatible with the required chat/tool API; disabling only this model and trying another.", "model", modelID)
 							d.Router.PenalizeModel(modelID)
 						}
 					} else if disposition.category == "model_request" {
 						d.Logger.Info("Model rejected this request; lowering its score and trying another.", "worker_id", w.ID)
+					}
+					if disposition.category == "provider_transient" || disposition.category == "timeout" {
+						if attemptModel != nil {
+							d.Router.CoolProviderSlot(routing.ProviderSlot(*attemptModel), time.Minute)
+						}
 					}
 					d.Router.UpdateProbability(string(w.ID), string(t.ID), false)
 				}
 
 				// Don't retry if we forced the model
 				if forced {
+					stopReason = "forced_model_failed"
 					break
 				}
 			}
 
-			// All attempts exhausted
-			d.Logger.Error("Worker execution aborted after exhausting all retries. The task could not complete successfully.", "worker_id", w.ID)
+			summary := "Recovery stopped: " + stopReason + " (" + routes.summary()
+			if d.Router != nil {
+				d.Router.Release(string(t.ID))
+				summary += ", " + d.Router.RouteAvailability(t.Modality, routes.policy).String()
+			}
+			summary += ")"
+			d.Logger.Error(summary, "worker_id", w.ID, "task_id", t.ID)
+			lastFailure.Stderr += "\n" + summary
 			switch lastDisposition.category {
 			case "provider_rate_limit", "provider_account_quota", "provider_quota":
-				d.Logger.Error("Provider quota or rate limit exhausted retries; inspect credential health and the provider dashboard.", "worker_id", w.ID, "category", lastDisposition.category)
+				d.Logger.Error("Last provider failure was a quota or rate limit; inspect credential health and the recovery stop reason.", "worker_id", w.ID, "category", lastDisposition.category)
 			case "provider_access":
 				d.Logger.Error("Provider authentication failed; inspect the selected credential.", "worker_id", w.ID)
 			case "provider_transient":
-				d.Logger.Error("Provider connectivity or service availability exhausted retries; the credential itself was not marked rate-limited.", "worker_id", w.ID)
+				d.Logger.Error("Last provider failure was connectivity or service availability; the credential itself was not marked rate-limited.", "worker_id", w.ID)
 			}
 			d.Bus.Publish(events.EventType("WorkerFailed"), events.Component("dispatcher"), map[string]any{
 				"task_id":    string(t.ID),
@@ -569,26 +617,23 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 		return false
 	}
 
-	// Agent-side stalls (stuck repeating the same tool call, or exhausting
-	// its iteration/time budget without ever reaching verified completion)
-	// are a property of the stuck conversation, not of any partial effects
-	// it produced along the way. A retry reuses the same task/session, so
-	// any files the stalled attempt already wrote are still there — the
-	// fresh attempt just needs to notice that and finish (e.g. write_file's
-	// "File exists" message now tells it to read and verify instead of
-	// re-writing). Unlike provider/timeout failures, this is retry-safe
-	// regardless of whether NO_EFFECTS was printed, so it's checked before
-	// that gate.
+	// A stalled conversation does not prove that replaying its tools is safe.
+	if !strings.Contains(f.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]") {
+		return result
+	}
 	if containsAny("agent stalled: repeated identical tool requests", "agent iteration budget exhausted", "agent time budget exhausted") {
 		return providerFailureDisposition{retryable: true, category: "model_behavior"}
 	}
 
-	if !strings.Contains(f.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]") {
-		return result
-	}
-
 	if (strings.Contains(message, "tool calling") && strings.Contains(message, "not supported")) ||
-		strings.Contains(message, "only available on agentic harnesses") {
+		strings.Contains(message, "only available on agentic harnesses") ||
+		containsAny(
+			"not supported by the chat api",
+			"does not support the chat api",
+			"not supported by the chat completions api",
+			"is not a chat model",
+			"model does not support chat completions",
+		) {
 		return providerFailureDisposition{retryable: true, disableModel: true, category: "model_incompatible"}
 	}
 	// The architect's own DAG schema validation (architect.py's validate_dag)
@@ -606,7 +651,14 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 	// Check access failures before generic request wrappers. Some providers and
 	// LiteLLM surface a 401/403 as BadRequestError even though every model using
 	// the same credential will fail.
-	if containsAny("insufficient credits", "exceeded your current quota") {
+	// Compatible endpoints often wrap billing failures in APIError rather than
+	// a dedicated quota exception. Match explicit billing evidence, never the
+	// generic wrapper: it also covers unknown, potentially non-retryable errors.
+	if containsAny(
+		"insufficient credits", "insufficient balance", "insufficient_quota",
+		"credit balance is too low", "exceeded your current quota",
+		"402 payment required", "status code: 402", "error code: 402",
+	) {
 		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_quota"}
 	}
 	if containsAny("invalid api key", "authenticationerror", "401 unauthorized", "status code: 401", "401 client error", "permissiondeniederror", "403 forbidden", "status code: 403", "403 client error", "permission denied") {

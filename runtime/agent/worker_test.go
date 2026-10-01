@@ -130,6 +130,8 @@ func TestRetriesRequireNoEffectProof(t *testing.T) {
 		want bool
 	}{
 		{"RateLimitError", false},
+		{"litellm.APIError: APIError: OpenAIException - Insufficient balance.", false},
+		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] litellm.APIError: unexplained provider failure", false},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] RateLimitError", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] MidStreamFallbackError: A Timeout Occurred", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] 403 Forbidden", true},
@@ -143,22 +145,17 @@ func TestRetriesRequireNoEffectProof(t *testing.T) {
 	}
 }
 
-// A node that has already written files (so NO_EFFECTS was never printed)
-// can still stall out repeating mark_task_complete against a verification
-// failure it never resolves. Because a retry reuses the same task/session,
-// those effects are exactly what the next attempt needs to see to finish
-// quickly — so this category must stay retryable without the marker, while
-// failure categories that genuinely depend on "nothing happened yet" (like
-// the architect's own DAG schema validation) must still require it.
-func TestAgentStallRetryableWithoutEffectProof(t *testing.T) {
+// Existing workspace files cannot prove that replaying commands or external
+// tools is safe. Stalls obey the same documented no-effects gate as providers.
+func TestAgentStallRequiresEffectProof(t *testing.T) {
 	for _, fixture := range []struct {
 		name string
 		text string
 		want bool
 	}{
-		{"stalled tool loop, effects already started", "Agent stalled: repeated identical tool requests for 3 consecutive iterations", true},
-		{"iteration budget exhausted, effects already started", "Agent iteration budget exhausted without verified completion", true},
-		{"time budget exhausted, effects already started", "Agent time budget exhausted", true},
+		{"stalled tool loop, effects already started", "Agent stalled: repeated identical tool requests for 3 consecutive iterations", false},
+		{"iteration budget exhausted, effects already started", "Agent iteration budget exhausted without verified completion", false},
+		{"time budget exhausted, effects already started", "Agent time budget exhausted", false},
 		{"dag validation failure still requires no-effect proof", "Validation failed: Agent backend-agent is not registered and must be marked is_new", false},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -185,6 +182,10 @@ func TestProviderFailureDisposition(t *testing.T) {
 		{"rate limit", "RateLimitError", true, false, false, "provider_rate_limit"},
 		{"account quota", "RateLimitError: openrouter_free_tier_daily", true, false, true, "provider_account_quota"},
 		{"account credits", "insufficient credits", true, false, false, "provider_quota"},
+		{"compatible provider balance", "litellm.APIError: APIError: OpenAIException - Insufficient balance.", true, false, false, "provider_quota"},
+		{"low balance", "credit balance is too low", true, false, false, "provider_quota"},
+		{"structured quota code", `APIError: {"code": "insufficient_quota"}`, true, false, false, "provider_quota"},
+		{"wrapped payment required", "BadRequestError: Error code: 402 - Payment Required", true, false, false, "provider_quota"},
 		{"server error", "InternalServerError: 500 Internal Server Error", false, false, false, "provider_transient"},
 		{"connection error", "APIConnectionError: connection refused", false, false, false, "provider_transient"},
 		{"timeout", "MidStreamFallbackError: A Timeout Occurred", false, false, false, "timeout"},
@@ -192,6 +193,7 @@ func TestProviderFailureDisposition(t *testing.T) {
 		{"missing model", "NotFoundError: 404 Not Found", false, false, false, "model_request"},
 		{"tool support", "tool calling is not supported", false, true, false, "model_incompatible"},
 		{"harness gate", "403: model is only available on agentic harnesses", false, true, false, "model_incompatible"},
+		{"embedding model rejected by chat endpoint", "BadRequestError: model 'packed-embed-multilingual-light-v3.0' is not supported by the chat API", false, true, false, "model_incompatible"},
 		{"repeated tools", "Agent stalled: repeated identical tool requests for 3 consecutive iterations", false, false, false, "model_behavior"},
 		{"iteration budget", "Agent iteration budget exhausted without verified completion", false, false, false, "model_behavior"},
 		{"dag schema validation", "Validation failed: Agent backend-agent is not registered and must be marked is_new", false, false, false, "model_behavior"},
@@ -237,6 +239,47 @@ func TestWorkerChild(t *testing.T) {
 	var req Task
 	json.Unmarshal(b, &req)
 	switch mode {
+	case "route-repair", "route-limit-fallback", "route-balance":
+		model := fmt.Sprint(req.Parameters["llm_model"])
+		if mode == "route-limit-fallback" {
+			if model == "bad/a" {
+				if req.Memory["llm_max_tokens"] == float64(8192) {
+					fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nBadRequestError: unsupported parameter")
+				} else {
+					fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nBadRequestError: max_tokens must be less than or equal to 8192")
+				}
+				os.Exit(1)
+			}
+			if req.Memory["llm_max_tokens"] != float64(12288) {
+				fmt.Fprintln(os.Stderr, "model inherited a different route's reduced token budget")
+				os.Exit(2)
+			}
+			json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "original budget restored"})
+			break
+		}
+		if strings.HasPrefix(model, "bad/") {
+			fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nBadRequestError: model is not supported by the chat API")
+			os.Exit(1)
+		}
+		if mode == "route-balance" {
+			if model == "good/a" {
+				fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\n[LLM] Hard limit reached: litellm.APIError: APIError: OpenAIException - Insufficient balance.")
+				os.Exit(1)
+			}
+			json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "completed using another funded provider"})
+			break
+		}
+		if req.Memory["llm_max_tokens"] != float64(8192) {
+			fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nBadRequestError: max tokens must be less than or equal to 8192, the maximum output length for this model - received 12288.")
+			os.Exit(1)
+		}
+		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "adjusted route completed", Artifact: &memory.Artifact{ID: "route-fixture", Name: "route-fixture", Type: "text/plain", Data: "verified fixture output"}})
+	case "route-reject":
+		fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nBadRequestError: unsupported parameter")
+		os.Exit(1)
+	case "effect-stall":
+		fmt.Fprintln(os.Stderr, "Agent iteration budget exhausted without verified completion")
+		os.Exit(1)
 	case "produce":
 		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Artifact: &memory.Artifact{ID: "fixture", Name: "fixture", Type: "text/plain", Data: "output"}, Memory: []MemoryMutation{{Key: "shared", Value: "expected"}}})
 	case "consume":

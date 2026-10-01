@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 # Runtime Orchestration Architecture
@@ -34,6 +34,30 @@ Local LLM and image requests are serialized through a host lock. A local LLM req
 Every concrete try has a random attempt ID. The dispatcher owns retry policy, routing outcome updates and completion publication. Accepted result mutations use the attempt ID as a durable idempotency key so duplicate delivery cannot apply them twice.
 
 Provider fallback requires the worker's `[RETICLE_RETRY_SAFE: NO_EFFECTS]` proof. With that proof, rate limits, unavailable/connection failures, authentication or permission failures, upstream streaming timeouts, and recognized bad-request/model-compatibility failures may consume another bounded attempt. Authentication and exhausted quota make the affected credential unavailable; a live rate limit applies only a bounded retry delay. Connection and provider-service failures cool the provider slot without falsely marking every key as rate-limited. Request-shape and context failures lower the selected model's score; unsupported tool calling disables that model. An unrecognized process failure is terminal because the runtime cannot assume retry safety from an error code alone.
+
+The dispatcher keeps a task-local route history. Request rejections exclude that
+exact model/credential route for the remaining task, including confidence and
+modality fallback passes. Other tasks are unaffected. Untried eligible routes
+are preferred; repeated catalog/request failures from one provider favour an
+eligible alternative provider. Transport failures temporarily cool the affected
+slot without changing credential health or predictive capacity. Transient and
+model-behaviour failures may be retried within the existing budget when there
+is no eligible untried route. These preferences never bypass admission limits.
+
+An explicit output-token upper bound in the final provider exception can lower a
+configured request once per route. This consumes another normal attempt, requires
+no-effects proof, and tries that route again without a learning penalty for the
+adjustable request. The bound is task-local; a different model receives the original
+budget. Context/input overflow is not an output limit. Forced models retain their
+single-route/no-fallback behavior. Stalls and exhausted worker budgets require the
+same no-effects proof as other retryable failures.
+
+Recovery diagnostics distinguish attempt-budget exhaustion, unavailable routes,
+cancellation/deadline, forced-model failure, worker-contract failure and
+unclassified/unsafe replay. They include tried and still-untried route/provider
+counts. The default three attempts (maximum fifteen) and task deadline are shared
+by ordinary retries and output-limit adjustments. Pending-inference recovery
+inside a live worker remains a proposal in RFC-052, not current behavior.
 
 Hosted model integrations may be built in or supplied as non-secret provider
 profiles under `.reticle/providers.json`. A profile binds an OpenAI-compatible

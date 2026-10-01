@@ -341,6 +341,19 @@ func modelRouteAvailableLocked(model Model, now time.Time) bool {
 
 // SelectModel returns a model based on the requested effort tier, constrained by confidence.
 func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int, requiredConfidence float64, modality string) *Model {
+	return r.SelectModelWithPolicy(taskID, agentID, effortTier, requiredConfidence, modality, RoutePolicy{})
+}
+
+// RoutePolicy is owned by one dispatcher task. Hard exclusions survive the
+// confidence fallback; preferences never bypass availability or modality checks.
+type RoutePolicy struct {
+	Excluded       map[string]bool
+	Tried          map[string]bool
+	AvoidProviders map[string]bool
+	PreferredKey   string
+}
+
+func (r *ModelRouter) SelectModelWithPolicy(taskID string, agentID string, effortTier int, requiredConfidence float64, modality string, policy RoutePolicy) *Model {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -354,9 +367,12 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 
 	var capable []Model
 	now := time.Now()
+	available := func(m Model) bool {
+		return !policy.Excluded[m.Key()] && modelRouteAvailableLocked(m, now)
+	}
 	ModelsMutex.RLock()
 	for _, m := range AvailableModels {
-		if !modelRouteAvailableLocked(m, now) {
+		if !available(m) {
 			continue
 		}
 		if m.Modality != modality {
@@ -389,7 +405,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 				r.Matrix[agentID][mCopy.Key()] = prob
 			}
 
-			if prob >= requiredConfidence {
+			if prob >= requiredConfidence || mCopy.Key() == policy.PreferredKey {
 				capable = append(capable, mCopy)
 			}
 		} else {
@@ -402,7 +418,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 	if len(capable) == 0 {
 		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
-			if modelRouteAvailableLocked(m, now) && m.Modality == modality {
+			if available(m) && m.Modality == modality {
 				// Still respect predictive limits on fallback
 				slot := ProviderSlot(m)
 				capacity := r.ProviderCapacity[slot]
@@ -420,7 +436,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 		r.Logger.Info("WARNING: No 'coding' models available. Falling back to a standard 'text' model.", "agent_id", agentID, "task_id", taskID)
 		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
-			if modelRouteAvailableLocked(m, now) && m.Modality == "text" {
+			if available(m) && m.Modality == "text" {
 				slot := ProviderSlot(m)
 				capacity := r.ProviderCapacity[slot]
 				if capacity > 0 && r.ProviderInFlight[slot] >= capacity {
@@ -437,7 +453,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 		r.Logger.Info("WARNING: No 'text' models available. Falling back to a standard 'coding' model.", "agent_id", agentID, "task_id", taskID)
 		ModelsMutex.RLock()
 		for _, m := range AvailableModels {
-			if modelRouteAvailableLocked(m, now) && m.Modality == "coding" {
+			if available(m) && m.Modality == "coding" {
 				slot := ProviderSlot(m)
 				capacity := r.ProviderCapacity[slot]
 				if capacity > 0 && r.ProviderInFlight[slot] >= capacity {
@@ -466,7 +482,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 			if modality == "text" && !r.AllowTextToCodingFallback {
 				allowedModality = m.Modality == "text"
 			}
-			if modelRouteAvailableLocked(m, now) && allowedModality {
+			if available(m) && allowedModality {
 				slot := ProviderSlot(m)
 				capacity := r.ProviderCapacity[slot]
 				if capacity > 0 && r.ProviderInFlight[slot] >= capacity {
@@ -483,6 +499,33 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 		return nil
 	}
 
+	// Repair a proven request limit on the same route first. Otherwise prefer
+	// untried routes and, only after correlated failures, another provider.
+	prefer := func(matches func(Model) bool) {
+		var preferred []Model
+		for _, model := range capable {
+			if matches(model) {
+				preferred = append(preferred, model)
+			}
+		}
+		if len(preferred) > 0 {
+			capable = preferred
+		}
+	}
+	preferredAvailable := false
+	for _, m := range capable {
+		if m.Key() == policy.PreferredKey {
+			preferredAvailable = true
+			break
+		}
+	}
+	if preferredAvailable {
+		prefer(func(m Model) bool { return m.Key() == policy.PreferredKey })
+	} else {
+		prefer(func(m Model) bool { return !policy.Tried[m.Key()] })
+		prefer(func(m Model) bool { return !policy.AvoidProviders[m.Provider] })
+	}
+
 	// Sort capable models by Capability ascending, then Cost ascending, then Priority
 	sort.Slice(capable, func(i, j int) bool {
 		if capable[i].Capability == capable[j].Capability {
@@ -496,6 +539,9 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 				if jHas3 && !iHas3 {
 					return false
 				}
+			}
+			if capable[i].Cost == capable[j].Cost {
+				return capable[i].Key() < capable[j].Key()
 			}
 			if capable[i].Cost < 0 {
 				return false
@@ -520,6 +566,9 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 
 	bestModel := &capable[idx]
 
+	if r.inFlight == nil {
+		r.inFlight = make(map[string]string)
+	}
 	r.inFlight[taskID] = bestModel.Key()
 	r.ProviderInFlight[ProviderSlot(*bestModel)]++
 	r.Logger.Info("Model routed", "agent_id", agentID, "model_key", bestModel.Key(), "effort_tier", effortTier, "capability", bestModel.Capability)
@@ -648,7 +697,20 @@ func (r *ModelRouter) PenalizeProviderFamily(provider string) {
 	rebuildLockedKeysLocked()
 }
 
-// PenalizeModel globally disables a specific model across the entire application.
+// CoolProviderSlot handles temporary transport/service failures without changing
+// credential health or predictive capacity. Later probes can recover normally.
+func (r *ModelRouter) CoolProviderSlot(slot string, delay time.Duration) {
+	ModelsMutex.Lock()
+	defer ModelsMutex.Unlock()
+	until := time.Now().Add(delay)
+	for i := range AvailableModels {
+		if ProviderSlot(AvailableModels[i]) == slot && AvailableModels[i].CooldownUntil.Before(until) {
+			AvailableModels[i].CooldownUntil = until
+		}
+	}
+}
+
+// PenalizeModel disables an incompatible model, leaving other models available.
 func (r *ModelRouter) PenalizeModel(modelID string) {
 	ModelsMutex.Lock()
 	defer ModelsMutex.Unlock()

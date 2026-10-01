@@ -75,3 +75,29 @@ Run `tools/eval_memory_quality.py` without a model for an offline contract check
 ## Durable lifecycle files
 
 Workflow state is stored in `.reticle/executions/state.json`; external operation records are stored in `.reticle/effects/state.json`. Both are local single-writer snapshots. Running work recovers as `interrupted`. Inspect and reconcile the real external system before retrying an interrupted effect. These files may contain target identifiers and task metadata and should remain uncommitted and access-controlled.
+
+## Routing recovery
+
+Forge's `-retries` option is a total per-node attempt budget (default 3, range
+1–15), not a promise to try every provider. Recognized failures require explicit
+no-effects proof before the dispatcher can restart the worker. Unknown failures
+and stalled workers that have already produced effects remain terminal.
+
+The router remembers rejected requests for the current task, favours untried
+eligible routes and moves away from providers with repeated catalog/request
+failures when an alternative is available. Temporary connection/service failures
+cool the affected slot without marking its API key rate-limited. An explicit
+output-token limit can lower `llm_max_tokens` once for that route using another
+attempt; other routes keep the original budget. This is not automatic context
+truncation or recovery of a live conversation.
+
+The terminal error includes `Recovery stopped`, the stop reason, attempts and
+providers tried, task exclusions, and eligible routes/providers still untried.
+Use those diagnostics before increasing the attempt budget. Native protocols
+other than the configured OpenAI-compatible protocol still require an adapter;
+adding a key alone does not establish model/tool compatibility.
+
+Explicit billing failures such as `Insufficient balance`, `insufficient_quota`
+and HTTP 402 are classified as exhausted quota on the selected credential.
+Other eligible routes can use the remaining attempt budget. The no-effects
+requirement still applies; a generic `APIError` alone does not authorize replay.
