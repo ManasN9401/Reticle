@@ -101,6 +101,7 @@ func SafePath(root, relative string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	base = expandShortName(base)
 	target := filepath.Join(base, clean)
 	for current := target; current != base; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
