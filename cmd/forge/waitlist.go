@@ -147,6 +147,7 @@ func NewWaitlistManager(filePath string, maxWorkers int, engine *agent.GraphEngi
 						// Load any dynamically generated agents first
 						agentDir, _ := filepath.Abs(filepath.Join(os.Getenv("RETICLE_ROOT"), ".reticle", "sessions", sessionID, "agents"))
 						if err := wm.registry.LoadAgentsForExecution(agentDir, sessionID); err != nil {
+							wm.orchestrator.Logger.Error("[Waitlist] Failed to load generated agents", "error", err, "agentDir", agentDir, "execution", sessionID)
 							wm.updateStatus(sessionID, StatusFailed)
 							wm.Pump()
 							return

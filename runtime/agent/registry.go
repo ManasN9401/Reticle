@@ -494,6 +494,15 @@ func (r *Registry) BuildSubscriptions() []*Subscription {
 
 // LoadAgentsForExecution loads a compiled registry under execution-specific keys. Public agent IDs stay local to the graph.
 func (r *Registry) LoadAgentsForExecution(dir, execution string) error {
+	// A compiled workflow may reuse only maintained agents. In that case the
+	// compiler intentionally emits no execution-local agents directory; that is
+	// a valid empty overlay, not a failed compilation.
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
 	local := NewRegistry()
 	if err := local.LoadAgents(dir); err != nil {
 		return err

@@ -56,6 +56,14 @@ func TestRegistryRequiresSchemaIdentityFields(t *testing.T) {
 	}
 }
 
+func TestExecutionRegistryAllowsNoGeneratedAgents(t *testing.T) {
+	r := NewRegistry()
+	missing := filepath.Join(t.TempDir(), "agents")
+	if err := r.LoadAgentsForExecution(missing, "execution"); err != nil {
+		t.Fatalf("missing optional execution agent overlay was rejected: %v", err)
+	}
+}
+
 func TestSerializedTaskFieldsAreDeclaredBySchema(t *testing.T) {
 	schemaBytes, err := os.ReadFile("../../schemas/task.schema.json")
 	if err != nil {
