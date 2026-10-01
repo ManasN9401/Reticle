@@ -395,10 +395,7 @@ export interface EnvKeyEntry {
   provider: KeyProvider
   /** Which slot in the provider's rotation this is. */
   slotLabel?: string
-  /**
-   * False for variables the router never reads — the key-slot names are
-   * hardcoded (routing/models.go:100, :194, :255).
-   */
+  /** False until a built-in slot or configurable provider profile recognises it. */
   known: boolean
   present: boolean
   /** Obfuscated for display; the plaintext requires an explicit reveal. */
@@ -750,6 +747,7 @@ export interface ProviderConfig {
   baseUrl: string
   apiKeyEnv?: string
   modelsPath?: string
+  discoveryMode?: 'catalog' | 'static-only'
   models?: ProviderModelConfig[]
   enabled: boolean
   toolSupport?: 'unknown' | 'advertised'
@@ -761,6 +759,7 @@ export interface ProviderStatus {
   lastError?: string
   missingVariables?: string[]
   modelCount: number
+  excludedModelCount?: number
 }
 
 // ---------------------------------------------------------------------------

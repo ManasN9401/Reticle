@@ -63,6 +63,52 @@ func TestConfiguredProviderDiscoversOpenAICompatibleModels(t *testing.T) {
 	}
 }
 
+func TestConfiguredProviderExcludesAdvertisedNonChatModels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"command-chat","endpoints":["chat"]},{"id":"embed-v5","endpoints":["embed"]},{"id":"metadata-unknown"}]}`))
+	}))
+	defer server.Close()
+	config, err := ValidateProviderConfig(ProviderConfig{ID: "fixture", BaseURL: server.URL, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, _, status := discoverConfiguredProvider(server.Client(), config, time.Now())
+	if status.ModelCount != 2 || status.ExcludedModelCount != 1 {
+		t.Fatalf("unexpected filtered discovery status: %#v", status)
+	}
+	if models[0].RequestModel != "command-chat" || models[1].RequestModel != "metadata-unknown" {
+		t.Fatalf("unexpected filtered models: %#v", models)
+	}
+}
+
+func TestConfiguredProviderStaticOnlySkipsCatalog(t *testing.T) {
+	requested := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requested = true
+		http.Error(w, "catalog must not be called", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	config, err := ValidateProviderConfig(ProviderConfig{
+		ID: "fixture", BaseURL: server.URL, Enabled: true, DiscoveryMode: "static-only",
+		Models: []ProviderModelConfig{{ID: "command-chat", Modality: "text"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, _, status := discoverConfiguredProvider(server.Client(), config, time.Now())
+	if requested || status.State != "ready" || len(models) != 1 || models[0].RequestModel != "command-chat" {
+		t.Fatalf("static-only discovery was not isolated: requested=%v status=%#v models=%#v", requested, status, models)
+	}
+}
+
+func TestStaticOnlyProviderRequiresAModel(t *testing.T) {
+	_, err := ValidateProviderConfig(ProviderConfig{ID: "fixture", BaseURL: "https://example.invalid/v1", Enabled: true, DiscoveryMode: "static-only"})
+	if err == nil {
+		t.Fatal("empty static-only provider was accepted")
+	}
+}
+
 func TestProviderValidationRejectsRemotePlainHTTP(t *testing.T) {
 	_, err := ValidateProviderConfig(ProviderConfig{ID: "unsafe", BaseURL: "http://example.com/v1", APIKeyEnv: "KEY", Enabled: true})
 	if err == nil {

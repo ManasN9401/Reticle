@@ -84,6 +84,18 @@ export function ModelsSection() {
     }
   }, [])
 
+  const reloadCatalog = useCallback(async () => {
+    if (!bridge) return
+    setBusy(true)
+    const discoveryResult = await bridge.api.refreshProviders()
+    if (!discoveryResult.ok) {
+      setBusy(false)
+      setError(discoveryResult.error ?? 'Could not refresh model discovery.')
+      return
+    }
+    await load()
+  }, [load])
+
   useEffect(() => {
     if (connected) void load()
     else setModels(null)
@@ -376,7 +388,11 @@ export function ModelsSection() {
           </IconButton>
         ) : null}
 
-        <IconButton label="Reload catalog" onClick={load} disabled={busy}>
+        <IconButton
+          label="Rediscover and reload catalog"
+          onClick={() => void reloadCatalog()}
+          disabled={busy}
+        >
           {busy ? <Spinner size={12} /> : <RefreshCw size={13} strokeWidth={1.8} />}
         </IconButton>
       </div>
@@ -548,9 +564,25 @@ const EMPTY_PROVIDER: ProviderConfig = {
   baseUrl: '',
   apiKeyEnv: '',
   modelsPath: '/models',
+  discoveryMode: 'catalog',
   models: [],
   enabled: true,
   toolSupport: 'unknown',
+}
+
+function providerDiscoveryProblem(profile: ProviderStatus): string | null {
+  if (!profile.config.enabled || profile.state === 'ready' || profile.state === 'disabled') {
+    return null
+  }
+  if (profile.state === 'missing_credential') {
+    const names = profile.missingVariables?.join(', ') || profile.config.apiKeyEnv
+    return `${names || 'The configured credential'} is not available to Forge. Add it to .env, then restart Forge.`
+  }
+  const detail = profile.lastError || `Discovery finished with status ${profile.state.replaceAll('_', ' ')}.`
+  if (profile.modelCount > 0) {
+    return `${detail} Reticle is using ${profile.modelCount} configured static model${profile.modelCount === 1 ? '' : 's'} as a fallback.`
+  }
+  return `${detail} No models were added. Check the base URL and models path, or add static model IDs.`
 }
 
 function ProviderProfiles({
@@ -568,9 +600,14 @@ function ProviderProfiles({
 }) {
   const [editing, setEditing] = useState<ProviderConfig | null>(null)
   const [staticModels, setStaticModels] = useState('')
+  const discoveryIssues = profiles
+    .map((profile) => ({ profile, problem: providerDiscoveryProblem(profile) }))
+    .filter((item): item is { profile: ProviderStatus; problem: string } => Boolean(item.problem))
 
   const beginEdit = (config?: ProviderConfig) => {
-    const next = config ? { ...config, models: [...(config.models ?? [])] } : { ...EMPTY_PROVIDER, models: [] }
+    const next = config
+      ? { ...config, discoveryMode: config.discoveryMode ?? 'catalog', models: [...(config.models ?? [])] }
+      : { ...EMPTY_PROVIDER, models: [] }
     setEditing(next)
     setStaticModels((next.models ?? []).map((model) => model.id).join('\n'))
   }
@@ -640,10 +677,34 @@ function ProviderProfiles({
         </div>
       </div>
 
+      {discoveryIssues.length > 0 ? (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-[var(--radius-card)] border border-st-waiting/45 bg-st-waiting-weak px-3 py-2 text-xs text-st-waiting"
+        >
+          <AlertTriangle size={14} strokeWidth={1.9} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="font-medium">
+              {discoveryIssues.length} provider profile{discoveryIssues.length === 1 ? '' : 's'} need attention
+            </div>
+            <ul className="mt-1 space-y-1 text-2xs">
+              {discoveryIssues.map(({ profile, problem }) => (
+                <li key={profile.config.id} className="break-words">
+                  <span className="mono font-medium">{profile.config.name || profile.config.id}</span>
+                  {': '}{problem}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : null}
+
       {profiles.length > 0 ? (
         <div className="grid gap-2 md:grid-cols-2">
-          {profiles.map((profile) => (
-            <div key={profile.config.id} className="min-w-0 rounded border border-line-2 bg-bg-1 p-3">
+          {profiles.map((profile) => {
+            const problem = providerDiscoveryProblem(profile)
+            return (
+            <div key={profile.config.id} className={cn('min-w-0 rounded border bg-bg-1 p-3', problem ? 'border-st-waiting/45' : 'border-line-2')}>
               <div className="flex min-w-0 items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -660,9 +721,15 @@ function ProviderProfiles({
                     {profile.config.baseUrl}
                   </div>
                   <div className="mt-1 text-2xs text-fg-4">
-                    {profile.config.apiKeyEnv || 'No credential'} · {profile.modelCount} models
+                    {profile.config.apiKeyEnv || 'No credential'} · {profile.modelCount} models · {profile.config.discoveryMode === 'static-only' ? 'static only' : 'catalog'}
+                    {(profile.excludedModelCount ?? 0) > 0 ? ` · ${profile.excludedModelCount} non-chat excluded` : ''}
                   </div>
-                  {profile.lastError ? <div className="mt-1 truncate text-2xs text-st-waiting" title={profile.lastError}>{profile.lastError}</div> : null}
+                  {problem ? (
+                    <div className="mt-2 flex items-start gap-1.5 text-2xs text-st-waiting">
+                      <AlertTriangle size={11} strokeWidth={2} className="mt-0.5 shrink-0" />
+                      <span className="min-w-0 break-words">{problem}</span>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 gap-0.5">
                   <IconButton label={`Edit ${profile.config.id}`} size="sm" onClick={() => beginEdit(profile.config)}><Pencil size={12} /></IconButton>
@@ -670,7 +737,8 @@ function ProviderProfiles({
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       ) : (
         <p className="text-2xs text-fg-4">No configurable provider profiles yet.</p>
@@ -683,7 +751,14 @@ function ProviderProfiles({
             <ProviderField label="Display name" value={editing.name ?? ''} onChange={(name) => setEditing({ ...editing, name })} placeholder="LLM7" />
             <ProviderField label="Base URL" value={editing.baseUrl} onChange={(baseUrl) => setEditing({ ...editing, baseUrl })} placeholder="https://provider.example/v1" />
             <ProviderField label="API key variable" value={editing.apiKeyEnv ?? ''} onChange={(apiKeyEnv) => setEditing({ ...editing, apiKeyEnv: apiKeyEnv.toUpperCase() })} placeholder="LLM7_API_KEY" />
-            <ProviderField label="Models path" value={editing.modelsPath ?? '/models'} onChange={(modelsPath) => setEditing({ ...editing, modelsPath })} placeholder="/models" />
+            <label className="flex flex-col gap-1 text-2xs text-fg-3">
+              Model source
+              <Select value={editing.discoveryMode ?? 'catalog'} onChange={(event) => setEditing({ ...editing, discoveryMode: event.target.value as 'catalog' | 'static-only' })}>
+                <option value="catalog">Discover catalog + static models</option>
+                <option value="static-only">Static models only</option>
+              </Select>
+            </label>
+            <ProviderField label="Models path" value={editing.modelsPath ?? '/models'} disabled={editing.discoveryMode === 'static-only'} onChange={(modelsPath) => setEditing({ ...editing, modelsPath })} placeholder="/models" />
             <label className="flex flex-col gap-1 text-2xs text-fg-3">
               Tool support
               <Select value={editing.toolSupport ?? 'unknown'} onChange={(event) => setEditing({ ...editing, toolSupport: event.target.value as 'unknown' | 'advertised' })}>
@@ -693,14 +768,14 @@ function ProviderProfiles({
             </label>
           </div>
           <label className="mt-3 flex flex-col gap-1 text-2xs text-fg-3">
-            Static model IDs <span className="text-fg-4">(optional; one per line or comma-separated)</span>
+            Static model IDs <span className="text-fg-4">({editing.discoveryMode === 'static-only' ? 'required' : 'optional'}; one per line or comma-separated)</span>
             <textarea className="mono min-h-20 resize-y rounded border border-line-2 bg-bg-0 px-2 py-1.5 text-xs text-fg-1 outline-none focus:border-accent" value={staticModels} onChange={(event) => setStaticModels(event.target.value)} placeholder="vendor/model-name" />
           </label>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Toggle label="Enabled" checked={editing.enabled} onChange={(enabled) => setEditing({ ...editing, enabled })} />
             <span className="flex-1" />
             <Button size="sm" onClick={() => setEditing(null)}>Cancel</Button>
-            <Button size="sm" variant="primary" disabled={busy || !editing.id || !editing.baseUrl} onClick={() => void save()}>Save and discover</Button>
+            <Button size="sm" variant="primary" disabled={busy || !editing.id || !editing.baseUrl || (editing.discoveryMode === 'static-only' && !staticModels.trim())} onClick={() => void save()}>{editing.discoveryMode === 'static-only' ? 'Save provider' : 'Save and discover'}</Button>
           </div>
         </div>
       ) : null}

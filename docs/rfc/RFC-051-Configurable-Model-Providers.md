@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 # RFC-051: Configurable Model Providers
@@ -37,6 +37,7 @@ Each profile contains:
 - an HTTPS base URL (plain HTTP is allowed only on loopback);
 - an optional API-key environment-variable name;
 - a model-discovery path, defaulting to `/models`;
+- a model source: merged catalog discovery (default) or static-only;
 - optional static model IDs and metadata;
 - enabled state and declared tool-support confidence.
 
@@ -59,6 +60,14 @@ body and model count, and reports `ready`, `degraded`, `missing_credential`,
 remain usable in degraded discovery state. Authentication and quota failures
 can make a credential unavailable; network discovery failures do not masquerade
 as rate limits.
+
+When catalog entries advertise compatible endpoints, Forge admits only entries
+that include the chat endpoint and reports how many non-chat models it excluded.
+Entries without endpoint metadata remain eligible because the OpenAI-compatible
+catalog schema does not require such metadata; a provider-specific runtime
+rejection quarantines only that model. Static-only mode is the deterministic
+operator override for mixed catalogs that omit endpoint metadata. It requires
+at least one static model and skips the catalog request entirely.
 
 Catalog refresh preserves enable/disable choices for model identities that
 still exist. Routing, capacity limits, cooldowns, Bayesian outcomes and retry
@@ -97,6 +106,9 @@ rejected before persistence.
    rejected, and discovery inputs and outputs are bounded.
 5. Provider CRUD and refresh work through Studio and authenticated control APIs.
 6. Existing built-in providers and local runtimes remain compatible.
+7. Mixed-purpose catalogs cannot route entries that explicitly advertise only
+   embedding, reranking or other non-chat endpoints, and static-only profiles
+   can bypass ambiguous discovery.
 
 ## 8. Implementation
 

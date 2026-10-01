@@ -803,6 +803,15 @@ func discoverConfiguredProvider(client *http.Client, config ProviderConfig, obse
 	for _, configured := range config.Models {
 		appendModel(configured.ID, configured.Modality, configured.Capability, configured.ContextLimit)
 	}
+	if config.DiscoveryMode == "static-only" {
+		status.State = "ready"
+		status.ModelCount = len(models)
+		if config.APIKeyEnv == "" {
+			return models, nil, status
+		}
+		health := KeyHealth{Key: config.APIKeyEnv, Status: KeyHealthy, ObservedAt: observedAt}
+		return models, &health, status
+	}
 
 	req, err := http.NewRequest(http.MethodGet, config.BaseURL+config.ModelsPath, nil)
 	if err != nil {
@@ -848,10 +857,15 @@ func discoverConfiguredProvider(client *http.Client, config ProviderConfig, obse
 		health := keyHealthForDiscovery(config.APIKeyEnv, resp.StatusCode, nil, observedAt)
 		return models, &health, status
 	}
+	type catalogModel struct {
+		ID               string   `json:"id"`
+		Name             string   `json:"name"`
+		Endpoints        []string `json:"endpoints"`
+		DefaultEndpoints []string `json:"default_endpoints"`
+	}
 	var catalog struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
+		Data   []catalogModel `json:"data"`
+		Models []catalogModel `json:"models"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4*1024*1024)).Decode(&catalog); err != nil {
 		status.State = "degraded"
@@ -860,19 +874,47 @@ func discoverConfiguredProvider(client *http.Client, config ProviderConfig, obse
 		return models, nil, status
 	}
 	const maximumDiscoveredModels = 4096
-	for _, item := range catalog.Data {
+	catalogItems := append(catalog.Data, catalog.Models...)
+	for _, item := range catalogItems {
 		if len(seen) >= maximumDiscoveredModels {
 			status.State = "degraded"
 			status.LastError = "provider model catalog exceeded the 4096-model limit"
 			break
 		}
 		upstreamID := strings.TrimSpace(item.ID)
+		if upstreamID == "" {
+			upstreamID = strings.TrimSpace(item.Name)
+		}
+		advertisedEndpoints := append(append([]string(nil), item.Endpoints...), item.DefaultEndpoints...)
+		if len(advertisedEndpoints) > 0 {
+			chatCompatible := false
+			for _, endpoint := range advertisedEndpoints {
+				normalized := strings.ToLower(strings.Trim(strings.TrimSpace(endpoint), "/"))
+				if normalized == "chat" || normalized == "chat/completions" || normalized == "chat-completions" || normalized == "chat_completions" {
+					chatCompatible = true
+					break
+				}
+			}
+			if !chatCompatible {
+				status.ExcludedModelCount++
+				continue
+			}
+		}
 		if upstreamID != "" && len(upstreamID) <= 256 && !strings.ContainsAny(upstreamID, "\x00\r\n") {
 			appendModel(upstreamID, "", 0, 0)
 		}
 	}
 	if status.State != "degraded" {
-		status.State = "ready"
+		if len(models) == 0 {
+			status.State = "degraded"
+			if status.ExcludedModelCount > 0 {
+				status.LastError = "model catalog advertised no chat-compatible models"
+			} else {
+				status.LastError = "model catalog returned no usable models"
+			}
+		} else {
+			status.State = "ready"
+		}
 	}
 	status.ModelCount = len(models)
 	if config.APIKeyEnv == "" {

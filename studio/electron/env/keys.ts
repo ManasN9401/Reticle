@@ -13,11 +13,11 @@ import { findRepoRoot } from '../paths'
  *
  * Two consequences worth surfacing in the UI rather than hiding:
  *  - `loadEnv` runs once at boot, so edits only take effect on a forge restart.
- *  - the router scans a fixed set of variable names (routing/models.go:100,
- *    :194, :255). A key stored under any other name is simply never read.
+ *  - built-in providers have fixed slots; configurable provider profiles may
+ *    recognise additional variables at runtime.
  */
 
-/** The only variable names the router looks for. */
+/** Built-in key slots. Configurable profile slots are joined in the renderer. */
 const KNOWN_SLOTS: { name: string; provider: KeyProvider; label: string }[] = [
   { name: 'OPENROUTER_API_KEY', provider: 'openrouter', label: 'Primary' },
   { name: 'OPENROUTER_API_KEY_2', provider: 'openrouter', label: 'Secondary' },
@@ -89,8 +89,8 @@ export async function listKeys(): Promise<ApiResult<EnvKeyEntry[]>> {
     }
   })
 
-  // Anything else in the file is shown too, but flagged: the router will not
-  // read it, and silently ignoring it would be worse than saying so.
+  // Anything else in the file is shown too. The renderer marks it recognised
+  // when a configurable provider profile binds that variable.
   for (const [name, value] of values) {
     if (KNOWN_SLOTS.some((slot) => slot.name === name)) continue
     entries.push({

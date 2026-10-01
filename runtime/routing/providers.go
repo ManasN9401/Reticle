@@ -32,23 +32,27 @@ type ProviderModelConfig struct {
 // ProviderConfig is intentionally non-secret. APIKeyEnv names a variable in
 // the process environment; its value is never written to this registry.
 type ProviderConfig struct {
-	ID          string                `json:"id"`
-	Name        string                `json:"name,omitempty"`
-	Protocol    string                `json:"protocol"`
-	BaseURL     string                `json:"baseUrl"`
-	APIKeyEnv   string                `json:"apiKeyEnv,omitempty"`
-	ModelsPath  string                `json:"modelsPath,omitempty"`
-	Models      []ProviderModelConfig `json:"models,omitempty"`
-	Enabled     bool                  `json:"enabled"`
-	ToolSupport string                `json:"toolSupport,omitempty"`
+	ID         string `json:"id"`
+	Name       string `json:"name,omitempty"`
+	Protocol   string `json:"protocol"`
+	BaseURL    string `json:"baseUrl"`
+	APIKeyEnv  string `json:"apiKeyEnv,omitempty"`
+	ModelsPath string `json:"modelsPath,omitempty"`
+	// DiscoveryMode is "catalog" (merge /models with static entries) or
+	// "static-only" (trust only the explicitly configured model list).
+	DiscoveryMode string                `json:"discoveryMode,omitempty"`
+	Models        []ProviderModelConfig `json:"models,omitempty"`
+	Enabled       bool                  `json:"enabled"`
+	ToolSupport   string                `json:"toolSupport,omitempty"`
 }
 
 type ProviderStatus struct {
-	Config           ProviderConfig `json:"config"`
-	State            string         `json:"state"`
-	LastError        string         `json:"lastError,omitempty"`
-	MissingVariables []string       `json:"missingVariables,omitempty"`
-	ModelCount       int            `json:"modelCount"`
+	Config             ProviderConfig `json:"config"`
+	State              string         `json:"state"`
+	LastError          string         `json:"lastError,omitempty"`
+	MissingVariables   []string       `json:"missingVariables,omitempty"`
+	ModelCount         int            `json:"modelCount"`
+	ExcludedModelCount int            `json:"excludedModelCount,omitempty"`
 }
 
 type providerSnapshot struct {
@@ -78,6 +82,7 @@ func ValidateProviderConfig(config ProviderConfig) (ProviderConfig, error) {
 	config.BaseURL = strings.TrimRight(strings.TrimSpace(config.BaseURL), "/")
 	config.APIKeyEnv = strings.TrimSpace(config.APIKeyEnv)
 	config.ModelsPath = strings.TrimSpace(config.ModelsPath)
+	config.DiscoveryMode = strings.ToLower(strings.TrimSpace(config.DiscoveryMode))
 	config.ToolSupport = strings.ToLower(strings.TrimSpace(config.ToolSupport))
 	if !providerIDPattern.MatchString(config.ID) {
 		return ProviderConfig{}, fmt.Errorf("provider id must start with a lowercase letter and contain only lowercase letters, digits, underscores or hyphens")
@@ -111,6 +116,12 @@ func ValidateProviderConfig(config ProviderConfig) (ProviderConfig, error) {
 	if !strings.HasPrefix(config.ModelsPath, "/") || strings.Contains(config.ModelsPath, "://") || strings.Contains(config.ModelsPath, "..") || len(config.ModelsPath) > 256 {
 		return ProviderConfig{}, fmt.Errorf("modelsPath must be a bounded absolute URL path")
 	}
+	if config.DiscoveryMode == "" {
+		config.DiscoveryMode = "catalog"
+	}
+	if config.DiscoveryMode != "catalog" && config.DiscoveryMode != "static-only" {
+		return ProviderConfig{}, fmt.Errorf("discoveryMode must be catalog or static-only")
+	}
 	if config.ToolSupport == "" {
 		config.ToolSupport = "unknown"
 	}
@@ -143,6 +154,9 @@ func ValidateProviderConfig(config ProviderConfig) (ProviderConfig, error) {
 		}
 	}
 	config.Models = append([]ProviderModelConfig(nil), config.Models...)
+	if config.DiscoveryMode == "static-only" && len(config.Models) == 0 {
+		return ProviderConfig{}, fmt.Errorf("static-only providers require at least one static model")
+	}
 	return config, nil
 }
 

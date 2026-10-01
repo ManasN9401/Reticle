@@ -15,17 +15,9 @@ import { cn } from '@/design/cn'
 import { Button, IconButton, Input, Spinner } from '@/design/primitives'
 import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
-import type { EnvKeyEntry, KeyProvider, ProviderStatus } from '@shared/ipc'
+import { buildKeySections } from './keySections'
+import type { EnvKeyEntry, ProviderStatus } from '@shared/ipc'
 import type { KeyHealth, RoutingModel } from '@shared/events'
-
-const PROVIDER_LABEL: Record<KeyProvider, string> = {
-  openrouter: 'OpenRouter',
-  groq: 'Groq',
-  gemini: 'Gemini',
-  other: 'Other variables',
-}
-
-const PROVIDER_ORDER: KeyProvider[] = ['openrouter', 'groq', 'gemini', 'other']
 
 const HEALTH_LABELS: Record<KeyHealth['status'], string> = {
   healthy: 'healthy',
@@ -43,8 +35,8 @@ const HEALTH_LABELS: Record<KeyHealth['status'], string> = {
  * startup. Two facts drive the whole design of this panel and are stated in it
  * rather than left for the user to discover:
  *
- *  - the router only reads a fixed set of variable names, so a key stored under
- *    any other name is silently ignored;
+ *  - built-in providers have known key slots, while configurable provider
+ *    profiles recognise the environment-variable name assigned to them;
  *  - `.env` is read once at boot, so edits need a forge restart to take effect.
  */
 export function KeysSection() {
@@ -104,15 +96,10 @@ export function KeysSection() {
     return counts
   }, [models])
 
-  const grouped = useMemo(() => {
-    const map = new Map<KeyProvider, EnvKeyEntry[]>()
-    for (const entry of keys ?? []) {
-      const list = map.get(entry.provider) ?? []
-      list.push(entry)
-      map.set(entry.provider, list)
-    }
-    return map
-  }, [keys])
+  const sections = useMemo(
+    () => buildKeySections(keys ?? [], providerProfiles),
+    [keys, providerProfiles],
+  )
 
   const write = async (fn: () => Promise<{ ok: boolean; error?: string }>) => {
     setBusy(true)
@@ -137,10 +124,10 @@ export function KeysSection() {
     )
   }
 
-  const configuredProviderKeys = new Set(providerProfiles.map((profile) => profile.config.apiKeyEnv).filter(Boolean))
-  const configured = keys.filter((k) => k.present).length
-  const recognised = keys.filter((k) => k.known || configuredProviderKeys.has(k.name)).length
-  const unknownPresent = keys.some((k) => !k.known && !configuredProviderKeys.has(k.name) && k.present)
+  const displayKeys = sections.flatMap((section) => section.entries)
+  const configured = displayKeys.filter((key) => key.present).length
+  const recognised = displayKeys.filter((key) => key.known).length
+  const unknownPresent = displayKeys.some((key) => !key.known && key.present)
   const healthByKey = new Map(keyHealth.map((health) => [health.key, health]))
   const unhealthyCount = keyHealth.filter((health) => health.status !== 'healthy').length
 
@@ -162,7 +149,6 @@ export function KeysSection() {
           </p>
           <p className="num mt-1 text-2xs text-fg-4">
             {configured} configured variables · {recognised} recognised by routing
-            configured
             {unhealthyCount > 0 ? ` · ${unhealthyCount} need attention` : ''}
           </p>
         </div>
@@ -178,24 +164,22 @@ export function KeysSection() {
         </div>
       ) : null}
 
-      {PROVIDER_ORDER.map((provider) => {
-        const entries = grouped.get(provider)
-        if (!entries || entries.length === 0) return null
+      {sections.map((section) => {
+        const { entries } = section
         return (
-          <section key={provider}>
+          <section key={section.id}>
             <div className="mb-1.5 flex items-baseline gap-2">
               <h2 className="text-xs font-semibold tracking-wide text-fg-2 uppercase">
-                {PROVIDER_LABEL[provider]}
+                {section.label}
               </h2>
-              {provider === 'other' ? (
+              {section.description ? (
                 <span className="pretty text-2xs text-fg-4">
-                  custom-provider and unassigned variables
+                  {section.description}
                 </span>
-              ) : (
-                <span className="num text-2xs text-fg-4">
-                  {entries.filter((e) => e.present).length}/{entries.length} set
-                </span>
-              )}
+              ) : null}
+              <span className="num text-2xs text-fg-4">
+                {entries.filter((e) => e.present).length}/{entries.length} set
+              </span>
             </div>
 
             <div className="overflow-hidden rounded-[var(--radius-card)] border border-line-2">
@@ -224,7 +208,7 @@ export function KeysSection() {
         <p className="pretty flex items-start gap-2 text-2xs text-st-waiting">
           <AlertTriangle size={12} strokeWidth={1.9} className="mt-0.5 shrink-0" />
           Unassigned variables are kept untouched. Bind one to a provider profile in Models
-          before Reticle may pass it to a worker.
+          before Reticle can use it for routing.
         </p>
       ) : null}
 
@@ -467,7 +451,7 @@ function CustomVarForm({
         <p className="pretty min-w-0 flex-1 text-2xs text-fg-4">
           {name && !valid
             ? 'Names may contain only letters, digits and underscores.'
-            : 'Only the recognised slot names above are read by the router; anything else is stored but unused.'}
+            : 'Built-in key slots and variables assigned to provider profiles are available to the router.'}
         </p>
         <Button size="sm" onClick={onCancel}>
           Cancel
