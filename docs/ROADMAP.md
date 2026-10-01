@@ -1,7 +1,7 @@
 ---
 status: active
 owner: Reticle Project
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 # Reticle roadmap and RFC register
@@ -19,6 +19,13 @@ versions of this roadmap assigned RFC-like numbers to prospective topics. Those
 labels were placeholders and are not retained as a second numbering system.
 
 ## Current course of action
+
+The immediate routing hardening work now includes task-local route exclusions,
+evidence-driven fallback preferences, bounded output-limit adjustment and explicit
+recovery stop diagnostics. [RFC-052](rfc/RFC-052-Request-Level-Inference-Recovery.md)
+proposes a separate next step: recover pending inference inside a live worker
+under dispatcher control. It remains draft; graph failure and external-effect
+reconciliation semantics are not expanded by this work.
 
 The extensibility sequence is now implemented:
 
@@ -92,6 +99,7 @@ additional claim about implementation completeness.
 | [RFC-049](rfc/RFC-049-Memory-Query-Management.md) | Memory Query and Management Surface | `draft` |
 | [RFC-050](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md) | Attempt-Scoped Tool Broker | `accepted` |
 | [RFC-051](rfc/RFC-051-Configurable-Model-Providers.md) | Configurable Model Providers | `accepted` |
+| [RFC-052](rfc/RFC-052-Request-Level-Inference-Recovery.md) | Request-Level Inference Recovery | `draft` |
 
 ## Unfiled identifiers
 
