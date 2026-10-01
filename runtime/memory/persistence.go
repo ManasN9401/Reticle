@@ -2,10 +2,12 @@ package memory
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 )
 
 const snapshotFormatVersion = 2
@@ -15,6 +17,12 @@ type persistedState struct {
 	Runtime           []MemoryEntry              `json:"runtime"`
 	Artifacts         map[ArtifactID][]*Artifact `json:"artifacts"`
 	CommittedAttempts []string                   `json:"committed_attempts,omitempty"`
+}
+
+// A path through a regular file reports ENOTDIR on Unix where Windows reports
+// not-exist; both mean no snapshot has been written yet.
+func snapshotMissing(err error) bool {
+	return os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR)
 }
 
 // SnapshotFile provides atomic, permission-restricted restart snapshots.
@@ -35,10 +43,10 @@ func (f *SnapshotFile) LoadWithCommits(runtime *RuntimeState, artifacts *Artifac
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	data, err := os.ReadFile(f.path)
-	if os.IsNotExist(err) {
+	if snapshotMissing(err) {
 		data, err = os.ReadFile(f.path + ".previous")
 	}
-	if os.IsNotExist(err) {
+	if snapshotMissing(err) {
 		return make(map[string]struct{}), nil
 	}
 	if err != nil {

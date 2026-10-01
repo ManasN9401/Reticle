@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -63,6 +64,9 @@ func TestExecutionStoreSaveRecoversFromTransientLock(t *testing.T) {
 }
 
 func TestExecutionStoreSaveFailsWhenLockNeverClears(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("an open handle only blocks replacing the file on Windows")
+	}
 	dir := t.TempDir()
 	// A lock that outlasts every retry attempt is a permanent failure from
 	// Save()'s perspective — the bounded retry loop must still terminate and
