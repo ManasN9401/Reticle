@@ -79,15 +79,48 @@ def _broker_call(descriptor, call_id, arguments):
         raise RuntimeError(error.get("message", "Brokered tool call failed"))
     return response.get("result"), response.get("effect", "uncertain")
 
+# Tools that change the workspace; replaying a worker after one has run is unsafe.
+EFFECTFUL_LOCAL_TOOLS = frozenset({
+    "write_file", "replace_file_content", "execute_terminal_command",
+    "generate_local_asset", "index_directory", "remove_path_from_index",
+})
+
+_JSON_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict}
+
+def _tool_property(spec):
+    """A property spec is a JSON type name, or a schema dict with optional "optional": True."""
+    if isinstance(spec, str):
+        return {"type": spec}, False
+    schema = dict(spec)
+    return schema, bool(schema.pop("optional", False))
+
+def _json_type_matches(value, kind):
+    if kind in ("integer", "number") and isinstance(value, bool):
+        return False
+    return isinstance(value, _JSON_TYPES[kind])
+
+def _tool_argument_error(name, properties, args):
+    """Describe how args violate a local tool's declared properties, or return None."""
+    declared = {key: _tool_property(spec) for key, spec in properties.items()}
+    required = sorted(key for key, (_, optional) in declared.items() if not optional)
+    optional = sorted(key for key, (_, optional) in declared.items() if optional)
+    problems = [f"missing '{key}'" for key in required if key not in args]
+    problems += [f"unknown argument '{key}'" for key in sorted(args) if key not in declared]
+    for key, (schema, _) in declared.items():
+        if key in args and not _json_type_matches(args[key], schema["type"]):
+            problems.append(f"'{key}' must be {schema['type']}")
+    if not problems:
+        return None
+    def listing(keys):
+        return ", ".join(f"{key} ({declared[key][0]['type']})" for key in keys) or "(none)"
+    return f"Invalid arguments for '{name}': {'; '.join(problems)}. Required: {listing(required)}. Optional: {listing(optional)}."
+
 def _local_tool_descriptor(name, description, properties, required_capability):
-    effectful = {
-        "write_file", "replace_file_content", "execute_terminal_command",
-        "generate_local_asset", "index_directory", "remove_path_from_index",
-    }
+    declared = {key: _tool_property(spec) for key, spec in properties.items()}
     schema = {
         "type": "object",
-        "properties": {key: {"type": kind} for key, kind in properties.items()},
-        "required": list(properties),
+        "properties": {key: prop for key, (prop, _) in declared.items()},
+        "required": [key for key, (_, optional) in declared.items() if not optional],
         "additionalProperties": False,
     }
     return {
@@ -99,7 +132,7 @@ def _local_tool_descriptor(name, description, properties, required_capability):
         "adapter": "python-local",
         "timeout_ms": 0,
         "output_limit": 20000,
-        "effect": "effect_started" if name in effectful else "no_effect",
+        "effect": "effect_started" if name in EFFECTFUL_LOCAL_TOOLS else "no_effect",
         "available": True,
     }
 
@@ -429,11 +462,13 @@ def run(instructions, kind="coding"):
 
     if "image.local" in capabilities:
         definitions["generate_local_asset"]=(
-            f"Generate an image using configured local ComfyUI.{comfy_checkpoints}",
+            f"Generate an image using configured local ComfyUI. checkpoint, width and height are optional (width/height: multiples of 8 from 64 to 2048).{comfy_checkpoints}",
             {
                 "prompt":"string",
                 "output_path":"string",
-                "checkpoint":"string"
+                "checkpoint":{"type":"string","optional":True},
+                "width":{"type":"integer","optional":True},
+                "height":{"type":"integer","optional":True}
             }
         )
         implementations["generate_local_asset"] = comfy_tools.generate_local_asset
@@ -686,12 +721,13 @@ def run(instructions, kind="coding"):
                         f"'{name}' is not a real tool. Choose one of the tools actually "
                         f"available to you: {', '.join(sorted(set(definitions) | set(broker_tools)))}."
                     )
-                if broker_descriptor is None and (set(args) != set(expected[1]) or not all(isinstance(v,str) for v in args.values())):
-                    raise ValueError(
-                        f"Invalid arguments for '{name}'. It requires exactly these string "
-                        f"arguments: {', '.join(sorted(expected[1])) or '(none)'}."
-                    )
-                if name in ("write_file", "replace_file_content", "execute_terminal_command", "generate_local_asset", "index_directory", "remove_path_from_index"):
+                if broker_descriptor is None:
+                    if not isinstance(args, dict):
+                        raise ValueError(f"Invalid arguments for '{name}': expected an object.")
+                    argument_error = _tool_argument_error(name, expected[1], args)
+                    if argument_error:
+                        raise ValueError(argument_error)
+                if name in EFFECTFUL_LOCAL_TOOLS:
                     effects_started = True
                 if broker_descriptor is not None:
                     if not isinstance(args, dict):

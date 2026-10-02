@@ -21,9 +21,9 @@ def tool_response(name, args):
 class GeneratedAssetOutputs(unittest.TestCase):
     def test_generated_images_satisfy_declared_output_directories(self):
         script = [
-            tool_response("generate_local_asset", {"prompt": "art", "checkpoint": "fixture.safetensors", "output_path": "public/images/art/artwork-1.jpg"}),
+            tool_response("generate_local_asset", {"prompt": "art", "output_path": "public/images/art/artwork-1.jpg"}),
             tool_response("mark_task_complete", {"summary": "too early: thumbs are missing"}),
-            tool_response("generate_local_asset", {"prompt": "thumb", "checkpoint": "fixture.safetensors", "output_path": "public/images/thumbs/artwork-1.jpg"}),
+            tool_response("generate_local_asset", {"prompt": "thumb", "checkpoint": "fixture.safetensors", "width": 256, "height": 256, "output_path": "public/images/thumbs/artwork-1.jpg"}),
             tool_response("mark_task_complete", {"summary": "generated"}),
         ]
         instructions = "Create or update exactly these workspace files: public/images/art/, public/images/thumbs/.\n"
