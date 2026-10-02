@@ -83,6 +83,7 @@ def _broker_call(descriptor, call_id, arguments):
 EFFECTFUL_LOCAL_TOOLS = frozenset({
     "write_file", "replace_file_content", "execute_terminal_command",
     "generate_local_asset", "generate_local_assets", "index_directory", "remove_path_from_index",
+    "resize_image", "make_thumbnails", "convert_image", "crop_image",
 })
 
 _JSON_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict}
@@ -402,12 +403,19 @@ def _iteration_limit(memory, capabilities):
         requested = default
     return max(1, min(requested, MAX_ITERATIONS))
 
+# Image tools whose successful calls create workspace files that count as outputs.
+IMAGE_OUTPUT_TOOLS = frozenset({
+    "generate_local_asset", "generate_local_assets", "resize_image",
+    "convert_image", "crop_image", "make_thumbnails",
+})
+
 def _generated_paths(name, args, result):
     """Output paths a successful image tool call actually produced."""
-    if name == "generate_local_asset":
+    if name in ("generate_local_asset", "resize_image", "convert_image", "crop_image"):
         return [args["output_path"]]
+    key = "created" if name == "make_thumbnails" else "generated"
     try:
-        return [path for path in json.loads(result).get("generated", []) if isinstance(path, str)]
+        return [path for path in json.loads(result).get(key, []) if isinstance(path, str)]
     except (ValueError, AttributeError):
         return []
 
@@ -469,6 +477,7 @@ def run(instructions, kind="coding"):
             implementations[name] = getattr(rag_tools,name)
             tool_capabilities[name] = "rag.local"
     import comfy_tools
+    import image_tools
     import urllib.request, urllib.parse
     comfy_checkpoints = ""
     if "image.local" in capabilities:
@@ -518,6 +527,26 @@ def run(instructions, kind="coding"):
         )
         implementations["generate_local_assets"] = comfy_tools.generate_local_assets
         tool_capabilities["generate_local_assets"] = "image.local"
+        optional_int = {"type":"integer","optional":True}
+        definitions["resize_image"]=(
+            "Resize an image file. mode 'fit' (default) keeps the aspect ratio inside width x height (height optional); 'cover' fills width x height exactly and crops the overflow. Paths end in .png, .jpg, .jpeg or .webp.",
+            {"source_path":"string","output_path":"string","width":"integer","height":optional_int,"mode":{"type":"string","optional":True,"enum":["fit","cover"]}}
+        )
+        definitions["make_thumbnails"]=(
+            f"Create a thumbnail (longest side max_size, default 256) with the same file name for every image directly inside source_dir, in one call (up to {image_tools.MAX_THUMBNAILS}).",
+            {"source_dir":"string","output_dir":"string","max_size":optional_int}
+        )
+        definitions["convert_image"]=(
+            "Re-encode an image; the output extension picks the format (.png, .jpg, .jpeg, .webp). quality 1-100 applies to JPEG and WebP (default 85).",
+            {"source_path":"string","output_path":"string","quality":optional_int}
+        )
+        definitions["crop_image"]=(
+            "Crop an image to the pixel box left, top, right, bottom of the source image.",
+            {"source_path":"string","output_path":"string","left":"integer","top":"integer","right":"integer","bottom":"integer"}
+        )
+        for tool in ("resize_image", "make_thumbnails", "convert_image", "crop_image"):
+            implementations[tool] = getattr(image_tools, tool)
+            tool_capabilities[tool] = "image.local"
     local_descriptors = {
         name: _local_tool_descriptor(name, desc, props, tool_capabilities.get(name))
         for name, (desc, props) in definitions.items()
@@ -818,7 +847,7 @@ def run(instructions, kind="coding"):
                     if not str(result).startswith("Error"):
                         if kind == "rag" and name == "query_knowledge":
                             record_verification(name, args["query"])
-                        elif name in ("generate_local_asset", "generate_local_assets"):
+                        elif name in IMAGE_OUTPUT_TOOLS:
                             # A generated image is a written output; without this a node
                             # declaring image paths could never satisfy missing_outputs().
                             for output_path in _generated_paths(name, args, result):
