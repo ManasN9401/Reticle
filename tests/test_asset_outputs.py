@@ -53,7 +53,9 @@ class BatchGeneration(unittest.TestCase):
             if output_path in fail:
                 raise ValueError("boom " + output_path)
             return "ok"
-        with patch.object(comfy_tools, "_generate_local_asset", generate),                 patch.object(comfy_tools, "local_gpu_session", lambda name: nullcontext()),                 patch.object(comfy_tools, "release_comfy_models") as release:
+        with patch.object(comfy_tools, "_generate_local_asset", generate), \
+                patch.object(comfy_tools, "local_gpu_session", lambda name: nullcontext()), \
+                patch.object(comfy_tools, "release_comfy_models") as release:
             try:
                 return comfy_tools.generate_local_assets(items, "workspace"), calls, release
             except ValueError as error:
@@ -96,7 +98,12 @@ class BatchGeneration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             request = {"id": "execution|node", "execution": "execution", "memory": {"workspace_dir": temp}, "parameters": {"llm_model": "ollama/fixture"}}
             output = io.StringIO()
-            with patch.dict(sys.modules, {"litellm": SimpleNamespace(completion=completion)}),                     patch.dict("os.environ", {"RETICLE_LOCAL_GPU_COORDINATION": "false"}, clear=True),                     patch.object(comfy_tools, "ollama_model_loaded", return_value=True),                     patch.object(comfy_tools, "generate_local_assets", lambda workspace_dir, **args: report),                     patch.object(sys, "stdin", io.StringIO(json.dumps(request))),                     patch.object(sys, "stdout", output):
+            with patch.dict(sys.modules, {"litellm": SimpleNamespace(completion=completion)}), \
+                    patch.dict("os.environ", {"RETICLE_LOCAL_GPU_COORDINATION": "false"}, clear=True), \
+                    patch.object(comfy_tools, "ollama_model_loaded", return_value=True), \
+                    patch.object(comfy_tools, "generate_local_assets", lambda workspace_dir, **args: report), \
+                    patch.object(sys, "stdin", io.StringIO(json.dumps(request))), \
+                    patch.object(sys, "stdout", output):
                 worker_sdk.run(instructions, kind="writing")
             self.assertEqual(json.loads(output.getvalue())["artifact"]["data"], "batch")
 
