@@ -313,6 +313,48 @@ def build_user_context(req, memory):
             "attachments":memory.get("prompt_attachments"), "history":memory.get("prompt_history"),
             "shared_memory":shared_memory_context(memory), "memory_metadata":req.get("memory_metadata",{})}
 
+# A 429 rejects the request before any generation, so waiting and repeating the
+# same request is safe even after earlier tool rounds changed the workspace.
+# Only the pre-stream call is retried; a failure while reading a stream may have
+# produced partial output and keeps the dispatcher's no-effects rules.
+RATE_LIMIT_WAITS = (10, 20, 40)
+MAX_RATE_LIMIT_ADVICE = 120
+NON_TRANSIENT_LIMITS = (
+    "free-models-per-day", "openrouter_free_tier_daily", "insufficient",
+    "exceeded your current quota", "credit balance", "billing",
+)
+
+def _rate_limit_wait(error, attempt):
+    """Seconds to wait before repeating a transient 429, or None to give up."""
+    if attempt >= len(RATE_LIMIT_WAITS):
+        return None
+    if "RateLimitError" not in {cls.__name__ for cls in type(error).__mro__}:
+        return None
+    if any(marker in str(error).lower() for marker in NON_TRANSIENT_LIMITS):
+        return None
+    delay = RATE_LIMIT_WAITS[attempt]
+    headers = getattr(getattr(error, "response", None), "headers", None)
+    try:
+        advised = float(headers.get("retry-after"))
+    except (AttributeError, TypeError, ValueError):
+        advised = None
+    if advised is not None:
+        if advised > MAX_RATE_LIMIT_ADVICE:
+            return None
+        delay = max(1.0, advised)
+    return delay
+
+def _complete_with_rate_limit_retry(completion, started, **request):
+    for attempt in range(len(RATE_LIMIT_WAITS) + 1):
+        try:
+            return completion(**request)
+        except Exception as error:
+            wait = _rate_limit_wait(error, attempt)
+            if wait is None or time.monotonic() - started + wait > 3600:
+                raise
+            _emit_llm("status", f"Rate limited by the provider; repeating the same request in {wait:.0f}s (retry {attempt + 1}/{len(RATE_LIMIT_WAITS)})")
+            time.sleep(wait)
+
 def generation_options(model, memory):
     """Return only the request options supported across the selected provider."""
     options = {}
@@ -485,7 +527,7 @@ def run(instructions, kind="coding"):
                 if local_model else nullcontext()
             )
             with session:
-                response = completion(model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
+                response = _complete_with_rate_limit_retry(completion, started, model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
                 content_buffer = []
                 tool_calls_buffer = {}
                 if hasattr(response, "choices") and hasattr(response.choices[0], "message"):

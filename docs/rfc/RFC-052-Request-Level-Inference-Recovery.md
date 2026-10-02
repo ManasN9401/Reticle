@@ -36,6 +36,13 @@ Context overflow is not treated as an output bound. Unknown failures stay termin
 The existing total attempts (default 3, maximum 15) and task deadline remain.
 Terminal diagnostics state the stop reason and remaining/untried route counts.
 
+The worker SDK additionally repeats a provider 429 on the same route, up to three
+times after 10, 20 and 40 seconds (or a `Retry-After` of at most 120 seconds),
+within the task deadline. It applies only to the request rejected before streaming
+begins, so it is safe after earlier tool rounds, and it excludes account quotas,
+billing errors and stream failures. This is not failover: when the waits are
+exhausted the original error reaches the dispatcher, whose no-effects rules apply.
+
 ## Proposed authority and transport
 
 The dispatcher remains the sole recovery-policy owner. Introduce a runtime-owned
