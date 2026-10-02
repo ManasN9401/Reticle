@@ -738,6 +738,9 @@ def run(instructions, kind="coding"):
                         if kind == "rag" and name == "query_knowledge":
                             record_verification(name, args["query"])
                         elif name == "generate_local_asset":
+                            # A generated image is a written output; without this a node
+                            # declaring image paths could never satisfy missing_outputs().
+                            written_paths.add(_normalized_workspace_path(args["output_path"]))
                             record_verification(name, args["output_path"])
                 elif name == "execute_terminal_command":
                     parts = shlex.split(args["command"])
