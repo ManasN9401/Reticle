@@ -124,6 +124,40 @@ def generate_local_asset(prompt: str, output_path: str, workspace_dir: str, chec
         finally:
             release_comfy_models()
 
+MAX_BATCH_ASSETS = 12
+
+def generate_local_assets(items, workspace_dir: str) -> str:
+    """Generate several images in one tool call and one GPU session, so a gallery does
+    not spend one model turn per image. Items are independent: one failure is
+    reported and the rest still run. Returns JSON {"generated": [...], "failed": [...]}."""
+    if not isinstance(items, list) or not items:
+        raise ValueError("items must be a non-empty list of {prompt, output_path} objects")
+    if len(items) > MAX_BATCH_ASSETS:
+        raise ValueError(f"At most {MAX_BATCH_ASSETS} images per call; split the request")
+    seen = set()
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("prompt"), str) or not isinstance(item.get("output_path"), str):
+            raise ValueError("Each item needs string prompt and output_path fields")
+        if item["output_path"] in seen:
+            raise ValueError(f"Duplicate output_path: {item['output_path']}")
+        seen.add(item["output_path"])
+    generated, failed = [], []
+    with local_gpu_session("comfy"):
+        try:
+            for item in items:
+                options = {key: item[key] for key in ("checkpoint", "width", "height") if item.get(key) is not None}
+                try:
+                    _generate_local_asset(item["prompt"], item["output_path"], workspace_dir, **options)
+                except Exception as error:
+                    failed.append({"output_path": item["output_path"], "error": str(error)})
+                else:
+                    generated.append(item["output_path"])
+        finally:
+            release_comfy_models()
+    if not generated:
+        return "Error: no image was generated. " + json.dumps(failed)
+    return json.dumps({"generated": generated, "failed": failed})
+
 def _generate_local_asset(prompt: str, output_path: str, workspace_dir: str, checkpoint: str = None, width: int = 1024, height: int = 1024) -> str:
     """
     Sends a prompt to a local ComfyUI instance (http://localhost:8188) to generate an image.

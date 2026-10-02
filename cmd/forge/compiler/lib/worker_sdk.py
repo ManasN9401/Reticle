@@ -82,7 +82,7 @@ def _broker_call(descriptor, call_id, arguments):
 # Tools that change the workspace; replaying a worker after one has run is unsafe.
 EFFECTFUL_LOCAL_TOOLS = frozenset({
     "write_file", "replace_file_content", "execute_terminal_command",
-    "generate_local_asset", "index_directory", "remove_path_from_index",
+    "generate_local_asset", "generate_local_assets", "index_directory", "remove_path_from_index",
 })
 
 _JSON_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict}
@@ -402,6 +402,15 @@ def _iteration_limit(memory, capabilities):
         requested = default
     return max(1, min(requested, MAX_ITERATIONS))
 
+def _generated_paths(name, args, result):
+    """Output paths a successful image tool call actually produced."""
+    if name == "generate_local_asset":
+        return [args["output_path"]]
+    try:
+        return [path for path in json.loads(result).get("generated", []) if isinstance(path, str)]
+    except (ValueError, AttributeError):
+        return []
+
 def generation_options(model, memory):
     """Return only the request options supported across the selected provider."""
     options = {}
@@ -487,6 +496,28 @@ def run(instructions, kind="coding"):
         )
         implementations["generate_local_asset"] = comfy_tools.generate_local_asset
         tool_capabilities["generate_local_asset"] = "image.local"
+        definitions["generate_local_assets"]=(
+            f"Generate up to {comfy_tools.MAX_BATCH_ASSETS} images in one call (one model turn). Prefer this over repeated generate_local_asset calls. Each item: prompt, output_path, and optional checkpoint, width, height. Items fail independently; the result lists generated and failed paths.{comfy_checkpoints}",
+            {
+                "items":{
+                    "type":"array",
+                    "items":{
+                        "type":"object",
+                        "properties":{
+                            "prompt":{"type":"string"},
+                            "output_path":{"type":"string"},
+                            "checkpoint":{"type":"string"},
+                            "width":{"type":"integer"},
+                            "height":{"type":"integer"}
+                        },
+                        "required":["prompt","output_path"],
+                        "additionalProperties":False
+                    }
+                }
+            }
+        )
+        implementations["generate_local_assets"] = comfy_tools.generate_local_assets
+        tool_capabilities["generate_local_assets"] = "image.local"
     local_descriptors = {
         name: _local_tool_descriptor(name, desc, props, tool_capabilities.get(name))
         for name, (desc, props) in definitions.items()
@@ -787,11 +818,12 @@ def run(instructions, kind="coding"):
                     if not str(result).startswith("Error"):
                         if kind == "rag" and name == "query_knowledge":
                             record_verification(name, args["query"])
-                        elif name == "generate_local_asset":
+                        elif name in ("generate_local_asset", "generate_local_assets"):
                             # A generated image is a written output; without this a node
                             # declaring image paths could never satisfy missing_outputs().
-                            written_paths.add(_normalized_workspace_path(args["output_path"]))
-                            record_verification(name, args["output_path"])
+                            for output_path in _generated_paths(name, args, result):
+                                written_paths.add(_normalized_workspace_path(output_path))
+                                record_verification(name, output_path)
                 elif name == "execute_terminal_command":
                     parts = shlex.split(args["command"])
                     if kind in ("devops", "pentest"):
