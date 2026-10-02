@@ -1,5 +1,5 @@
 import type { Attachment } from '@shared/events'
-import type { HitlResolveRequest, OutboundCommand } from '@shared/ipc'
+import type { HitlResolveRequest, OutboundCommand, OutputFile } from '@shared/ipc'
 import { bridge } from './bridge'
 import { useStudio } from './store'
 import { useUi } from './ui'
@@ -134,6 +134,47 @@ export async function openFileInEditor(path: string, title?: string): Promise<vo
     path,
     subtitle: path,
   })
+}
+
+/** Remembered by the Preview panel so it can pick the URL up even when it mounts later. */
+export const PREVIEW_URL_KEY = 'reticle.previewUrl'
+/** Tabs opened for a finished run; the rest stay in the Artifacts view. */
+const MAX_PRODUCT_TABS = 6
+
+/** Serve a finished run's site and show it in the Preview panel. */
+export async function openRunPreview(execId: string, entry?: string): Promise<boolean> {
+  if (!bridge) return false
+  const result = await bridge.preview.serveRun(execId, entry)
+  if (!result.ok || !result.data) return false
+  try {
+    localStorage.setItem(PREVIEW_URL_KEY, result.data)
+  } catch {
+    // Storage can be unavailable; the event below still reaches a mounted panel.
+  }
+  useUi.getState().setPanelTab('preview')
+  window.dispatchEvent(new CustomEvent('reticle-preview-url', { detail: result.data }))
+  return true
+}
+
+/** Open a run's code files as editor tabs, leaving the first (best) one active. */
+export function openRunFiles(execId: string, files: readonly OutputFile[], order: readonly string[]): void {
+  const byPath = new Map(files.map((file) => [file.path, file]))
+  const chosen = order
+    .map((path) => byPath.get(path))
+    .filter((file): file is OutputFile => file !== undefined)
+    .slice(0, MAX_PRODUCT_TABS)
+  const ui = useUi.getState()
+  // Opening activates the tab, so go in reverse to end on the first one.
+  for (const file of [...chosen].reverse()) {
+    ui.openTab({
+      id: `output:${execId}:${file.path}`,
+      kind: 'file',
+      title: file.path.split('/').pop() ?? file.path,
+      subtitle: file.path,
+      content: file.content,
+    })
+  }
+  if (chosen.length < order.length) ui.setView('artifacts')
 }
 
 export async function revealInExplorer(path: string): Promise<void> {

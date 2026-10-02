@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { ExternalLink, RefreshCw } from 'lucide-react'
 import { IconButton } from '@/design/primitives'
+import { PREVIEW_URL_KEY } from '@/state/actions'
 import { bridge } from '@/state/bridge'
 
 const DEFAULT_URL = 'http://127.0.0.1:3000'
 
 export function PreviewPanel() {
-  const [input, setInput] = useState(() => localStorage.getItem('reticle.previewUrl') ?? DEFAULT_URL)
+  const [input, setInput] = useState(() => localStorage.getItem(PREVIEW_URL_KEY) ?? DEFAULT_URL)
   const [url, setUrl] = useState(() => normalizeLocalUrl(input) ?? DEFAULT_URL)
   const [reload, setReload] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -19,7 +20,7 @@ export function PreviewPanel() {
       setInput(next)
       setUrl(next)
       setError(null)
-      localStorage.setItem('reticle.previewUrl', next)
+      localStorage.setItem(PREVIEW_URL_KEY, next)
     }
     window.addEventListener('reticle-preview-url', discovered)
     return () => window.removeEventListener('reticle-preview-url', discovered)
@@ -34,7 +35,7 @@ export function PreviewPanel() {
     }
     setError(null)
     setUrl(next)
-    localStorage.setItem('reticle.previewUrl', next)
+    localStorage.setItem(PREVIEW_URL_KEY, next)
   }
 
   return (

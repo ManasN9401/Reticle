@@ -4,6 +4,7 @@ import { EmptyState } from '@/design/primitives'
 import { bridge } from '@/state/bridge'
 import { useStudio } from '@/state/store'
 import { useApplyTheme } from '@/state/theme'
+import { useRunNotifications } from '@/state/runNotifications'
 import { useLayoutPersistence } from '@/state/useLayoutPersistence'
 import { useUi } from '@/state/ui'
 import { ActivityRail } from './ActivityRail'
@@ -14,6 +15,7 @@ import { SideBar } from './SideBar'
 import { MainSurface } from './MainSurface'
 import { StatusBar } from './StatusBar'
 import { TitleBar } from './TitleBar'
+import { Toasts } from './Toasts'
 import { LaunchForgeDialog } from './LaunchForgeDialog'
 import { isEnabled, matchKeybinding, runCommand } from './commands'
 
@@ -38,6 +40,9 @@ export function Shell() {
 
   // Restores the last-used layout once settings load, then keeps it synced.
   useLayoutPersistence()
+
+  // Toast when a run finishes, with shortcuts to its preview and files.
+  useRunNotifications()
 
   useEffect(() => {
     let cleanup: (() => void) | undefined
@@ -154,6 +159,7 @@ export function Shell() {
       <StatusBar />
       <CommandPalette />
       <LaunchForgeDialog />
+      <Toasts />
     </div>
   )
 }
