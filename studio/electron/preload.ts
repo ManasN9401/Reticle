@@ -182,6 +182,11 @@ const bridge: ReticleBridge = {
       ipcRenderer.invoke(IPC.previewServeRun, execId, entry) as Promise<ApiResult<string>>,
   },
 
+  notify: {
+    runFinished: (message: { title: string; body: string }) =>
+      ipcRenderer.invoke(IPC.notifyRunFinished, message) as Promise<void>,
+  },
+
   terminal: {
     start: (request: TerminalStartRequest) =>
       ipcRenderer.invoke(IPC.terminalStart, request) as Promise<ApiResult<TerminalSession>>,

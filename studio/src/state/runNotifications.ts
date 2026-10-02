@@ -19,6 +19,11 @@ async function announce({ execId, outcome, run }: RunCompletion): Promise<void> 
   const when = duration ? ` in ${duration}` : ''
   const toasts = useToasts.getState()
   const id = `run:${execId}`
+  // The main process drops this while Studio is focused or the preference is off.
+  void bridge?.notify.runFinished({
+    title: outcome === 'failed' ? `Run failed${when}` : `Run finished${when}`,
+    body: outcome === 'failed' ? (run.failureReason ?? shortId(execId)) : `${totals.done}/${totals.total} nodes done. Open Studio to view the result.`,
+  })
 
   if (outcome === 'failed') {
     toasts.push({

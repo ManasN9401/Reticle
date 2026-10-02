@@ -62,6 +62,9 @@ function defaults(): StudioSettings {
       bufferSize: 50_000,
       followTail: true,
     },
+    notifications: {
+      runFinished: true,
+    },
   }
 }
 
@@ -191,7 +194,7 @@ function validate(value: StudioSettings): StudioSettings {
   ] as const) {
     if (!Number.isInteger(number) || number < min || number > max) throw new Error(`Invalid ${name}`)
   }
-  for (const flag of [value.connection.autoConnect, value.forge.isolated, value.forge.allModels, value.forge.native, value.logs.followTail]) {
+  for (const flag of [value.connection.autoConnect, value.forge.isolated, value.forge.allModels, value.forge.native, value.logs.followTail, value.notifications.runFinished]) {
     if (typeof flag !== 'boolean') throw new Error('Settings flags must be booleans')
   }
   if (typeof value.forge.cwd !== 'string' || typeof value.forge.binaryPath !== 'string') throw new Error('Forge paths must be strings')
@@ -223,6 +226,7 @@ export class SettingsStore {
         profiles: mergeSection(base.profiles, stored.profiles),
         tabLayouts: mergeSection(base.tabLayouts, stored.tabLayouts),
         logs: mergeSection(base.logs, stored.logs),
+        notifications: mergeSection(base.notifications, stored.notifications),
       })
     } catch {
       // Missing or corrupt settings must never block startup — fall back to
@@ -245,6 +249,7 @@ export class SettingsStore {
       profiles: mergeSection(this.current.profiles, patch.profiles),
       tabLayouts: mergeSection(this.current.tabLayouts, patch.tabLayouts),
       logs: mergeSection(this.current.logs, patch.logs),
+      notifications: mergeSection(this.current.notifications, patch.notifications),
     })
     this.persist()
     return this.current

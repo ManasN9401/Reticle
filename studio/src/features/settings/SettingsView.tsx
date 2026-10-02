@@ -94,6 +94,7 @@ type Patch = (next: SettingsPatch) => Promise<void>
 function AppearanceSection({ patch }: { patch: Patch }) {
   const appearance = useStudio((s) => s.settings!.appearance)
   const schemeCount = useStudio((s) => s.settings!.colorSchemes.schemes.length)
+  const notifications = useStudio((s) => s.settings!.notifications)
   return (
     <div className="flex flex-col">
       <Row
@@ -159,6 +160,17 @@ function AppearanceSection({ patch }: { patch: Patch }) {
           label="Reduce motion"
           checked={appearance.reduceMotion}
           onChange={(reduceMotion) => patch({ appearance: { reduceMotion } })}
+        />
+      </Row>
+
+      <Row
+        label="Run notifications"
+        description="Show a system notification when a run finishes while Studio is not the focused window. The in-app toast with shortcuts to the preview and files always appears."
+      >
+        <Toggle
+          label="Run notifications"
+          checked={notifications.runFinished}
+          onChange={(runFinished) => patch({ notifications: { runFinished } })}
         />
       </Row>
 

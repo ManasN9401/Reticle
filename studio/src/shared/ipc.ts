@@ -78,6 +78,9 @@ export const IPC = {
   // --- run preview ---------------------------------------------------------
   previewServeRun: 'preview:serve-run',
 
+  // --- notifications -------------------------------------------------------
+  notifyRunFinished: 'notify:run-finished',
+
   // --- integrated terminal -------------------------------------------------
   terminalStart: 'terminal:start',
   terminalWrite: 'terminal:write',
@@ -657,6 +660,10 @@ export interface StudioSettings {
     bufferSize: number
     followTail: boolean
   }
+  notifications: {
+    /** Show an OS notification when a run finishes while Studio is not focused. */
+    runFinished: boolean
+  }
 }
 
 export type SettingsPatch = {
@@ -855,6 +862,11 @@ export interface ReticleBridge {
   preview: {
     /** Serves a run's generated site on a loopback port and resolves the page URL. */
     serveRun(execId: string, entry?: string): Promise<ApiResult<string>>
+  }
+
+  notify: {
+    /** Asks the main process for an OS notification; it is dropped when Studio is focused or the preference is off. */
+    runFinished(message: { title: string; body: string }): Promise<void>
   }
 
   terminal: {

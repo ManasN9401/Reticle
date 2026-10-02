@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
-import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from 'electron'
 import { IPC } from '../src/shared/ipc'
 import type {
   ApiResult,
@@ -435,6 +435,21 @@ function registerIpc(): void {
   handle(IPC.previewServeRun, async (_e, execId: string, entry?: string): Promise<ApiResult<string>> => {
     const url = await previewServer.urlFor(String(execId), typeof entry === 'string' ? entry : undefined)
     return url ? { ok: true, data: url } : { ok: false, error: 'This run has no generated files to preview' }
+  })
+
+  handle(IPC.notifyRunFinished, (_e, message: { title?: unknown; body?: unknown }) => {
+    const window = mainWindow
+    if (!settings.get().notifications.runFinished || !Notification.isSupported()) return
+    if (!window || window.isDestroyed() || window.isFocused()) return
+    const clip = (value: unknown, limit: number) => (typeof value === 'string' ? value.slice(0, limit) : '')
+    const notification = new Notification({ title: clip(message?.title, 120) || 'Reticle', body: clip(message?.body, 300) })
+    notification.on('click', () => {
+      if (window.isDestroyed()) return
+      if (window.isMinimized()) window.restore()
+      window.show()
+      window.focus()
+    })
+    notification.show()
   })
 
   handle(IPC.terminalStart, (_e, request: TerminalStartRequest) =>
