@@ -52,5 +52,21 @@ class ToolArguments(unittest.TestCase):
         self.assertEqual(worker_sdk._local_tool_descriptor("read_file", "d", {}, None)["effect"], "no_effect")
 
 
+
+class IterationLimit(unittest.TestCase):
+    def test_default_depends_on_image_capability(self):
+        self.assertEqual(worker_sdk._iteration_limit({}, {"fs.write"}), 30)
+        self.assertEqual(worker_sdk._iteration_limit({}, {"image.local"}), 60)
+
+    def test_memory_value_is_honoured_and_clamped(self):
+        self.assertEqual(worker_sdk._iteration_limit({"llm_max_iterations": 45}, set()), 45)
+        self.assertEqual(worker_sdk._iteration_limit({"llm_max_iterations": 0}, set()), 1)
+        self.assertEqual(worker_sdk._iteration_limit({"llm_max_iterations": 5000}, set()), 200)
+
+    def test_invalid_value_falls_back_to_the_default(self):
+        self.assertEqual(worker_sdk._iteration_limit({"llm_max_iterations": "many"}, set()), 30)
+        self.assertEqual(worker_sdk._iteration_limit({"llm_max_iterations": None}, {"image.local"}), 60)
+
+
 if __name__ == "__main__":
     unittest.main()

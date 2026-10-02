@@ -334,7 +334,7 @@ def shared_memory_context(memory):
                 "ide_context", "prompt_attachments", "prompt_history", "global_effort",
                 "agent_complexity", "task_timeout_seconds", "llm_num_ctx",
                 "llm_max_tokens", "llm_temperature", "llm_first_token_timeout_seconds",
-                "ollama_keep_alive"}
+                "llm_max_iterations", "ollama_keep_alive"}
     facts = {key: value for key, value in memory.items() if key not in controls}
     if len(json.dumps(facts, ensure_ascii=False).encode("utf-8")) > 65536:
         raise ValueError("Shared memory exceeds 64 KiB: select fewer required_memory keys or use summaries/artifact references")
@@ -387,6 +387,20 @@ def _complete_with_rate_limit_retry(completion, started, **request):
                 raise
             _emit_llm("status", f"Rate limited by the provider; repeating the same request in {wait:.0f}s (retry {attempt + 1}/{len(RATE_LIMIT_WAITS)})")
             time.sleep(wait)
+
+DEFAULT_ITERATIONS = 30
+# Each model turn may issue several tool calls, but a gallery still needs many turns.
+IMAGE_ITERATIONS = 60
+MAX_ITERATIONS = 200
+
+def _iteration_limit(memory, capabilities):
+    """Model turns allowed per task: llm_max_iterations, clamped, else a capability default."""
+    default = IMAGE_ITERATIONS if "image.local" in capabilities else DEFAULT_ITERATIONS
+    try:
+        requested = int(memory.get("llm_max_iterations", default))
+    except (TypeError, ValueError):
+        requested = default
+    return max(1, min(requested, MAX_ITERATIONS))
 
 def generation_options(model, memory):
     """Return only the request options supported across the selected provider."""
@@ -539,7 +553,7 @@ def run(instructions, kind="coding"):
     started = time.monotonic()
     last_tool_signature = None
     repeated_tool_rounds = 0
-    for iteration in range(30):
+    for iteration in range(_iteration_limit(mem, capabilities)):
         if time.monotonic() - started > 3600:
             _emit_llm("status", "Stopped: agent time budget exhausted")
             if not effects_started:

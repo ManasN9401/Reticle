@@ -221,7 +221,7 @@ class WorkerContracts(unittest.TestCase):
         def completion(**kwargs):
             count.append(1)
             return SimpleNamespace(choices=[SimpleNamespace(message=message)])
-        req={"id":"fixture","memory":{"workspace_dir":"unused"},"parameters":{"llm_model":"ollama/fixture"}}
+        req={"id":"fixture","capabilities":[],"memory":{"workspace_dir":"unused"},"parameters":{"llm_model":"ollama/fixture"}}
         with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{"RETICLE_LOCAL_GPU_COORDINATION":"false"},clear=False),patch.object(comfy_tools,"ollama_model_loaded",return_value=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stdout",io.StringIO()) as output:
             with self.assertRaisesRegex(RuntimeError,"budget exhausted"):
                 worker_sdk.run("Fixture")
