@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron'
 import { IPC } from '../src/shared/ipc'
 import type {
+  ApiResult,
   ColorScheme,
   ColorToken,
   ConnectRequest,
@@ -37,7 +38,8 @@ import type {
 } from '../src/shared/ipc'
 import { COLOR_TOKENS, isSafeColorValue } from '../src/shared/ipc'
 import { installMenu } from './menu'
-import { findRepoRoot, setRepoRoot } from './paths'
+import { findRepoRoot, sessionsDir, setRepoRoot } from './paths'
+import { createPreviewServer } from './preview/server'
 import { TerminalManager } from './terminal/manager'
 import { SettingsStore, validateColorSchemes, validateNodeAppearance } from './settings'
 import { ForgeClient } from './forge/client'
@@ -56,6 +58,11 @@ const forge = new ForgeProcess()
 const rest = new ForgeRest()
 const store = new EventStore(settings.get().logs.bufferSize)
 const workspace = new WorkspaceReader(findRepoRoot())
+// Serves <session>/src for the Preview panel; started on first use.
+const previewServer = createPreviewServer((execId) => {
+  const root = findRepoRoot()
+  return root ? path.join(sessionsDir(root), execId, 'src') : null
+})
 const terminals = new TerminalManager(
   () => findRepoRoot(),
   (id, data) => send(IPC.pushTerminalData, { id, data }),
@@ -425,6 +432,11 @@ function registerIpc(): void {
     return result.canceled ? [] : result.filePaths
   })
 
+  handle(IPC.previewServeRun, async (_e, execId: string, entry?: string): Promise<ApiResult<string>> => {
+    const url = await previewServer.urlFor(String(execId), typeof entry === 'string' ? entry : undefined)
+    return url ? { ok: true, data: url } : { ok: false, error: 'This run has no generated files to preview' }
+  })
+
   handle(IPC.terminalStart, (_e, request: TerminalStartRequest) =>
     terminals.start(request.cwd, request.cols, request.rows),
   )
@@ -532,4 +544,5 @@ app.on('before-quit', () => {
   client.dispose()
   store.dispose()
   terminals.dispose()
+  void previewServer.close()
 })

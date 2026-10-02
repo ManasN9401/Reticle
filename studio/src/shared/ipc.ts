@@ -75,6 +75,9 @@ export const IPC = {
   workspacePickDirectory: 'workspace:pick-directory',
   workspacePickFiles: 'workspace:pick-files',
 
+  // --- run preview ---------------------------------------------------------
+  previewServeRun: 'preview:serve-run',
+
   // --- integrated terminal -------------------------------------------------
   terminalStart: 'terminal:start',
   terminalWrite: 'terminal:write',
@@ -847,6 +850,11 @@ export interface ReticleBridge {
     openExternal(url: string): Promise<void>
     pickDirectory(): Promise<string | null>
     pickFiles(): Promise<string[]>
+  }
+
+  preview: {
+    /** Serves a run's generated site on a loopback port and resolves the page URL. */
+    serveRun(execId: string, entry?: string): Promise<ApiResult<string>>
   }
 
   terminal: {

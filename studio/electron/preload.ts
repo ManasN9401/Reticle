@@ -177,6 +177,11 @@ const bridge: ReticleBridge = {
     pickFiles: () => ipcRenderer.invoke(IPC.workspacePickFiles) as Promise<string[]>,
   },
 
+  preview: {
+    serveRun: (execId: string, entry?: string) =>
+      ipcRenderer.invoke(IPC.previewServeRun, execId, entry) as Promise<ApiResult<string>>,
+  },
+
   terminal: {
     start: (request: TerminalStartRequest) =>
       ipcRenderer.invoke(IPC.terminalStart, request) as Promise<ApiResult<TerminalSession>>,
