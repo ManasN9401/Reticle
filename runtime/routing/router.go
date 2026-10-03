@@ -42,6 +42,10 @@ func (r *ModelRouter) ExplainNoRoute(modality string) string {
 			cooling++
 			continue
 		}
+		if !servesChatTasks(model) {
+			wrongModality++
+			continue
+		}
 		if model.Modality != modality && !(modality == "coding" && model.Modality == "text") && !(modality == "text" && r.AllowTextToCodingFallback && model.Modality == "coding") {
 			wrongModality++
 			continue
@@ -368,7 +372,7 @@ func (r *ModelRouter) SelectModelWithPolicy(taskID string, agentID string, effor
 	var capable []Model
 	now := time.Now()
 	available := func(m Model) bool {
-		return !policy.Excluded[m.Key()] && modelRouteAvailableLocked(m, now)
+		return !policy.Excluded[m.Key()] && servesChatTasks(m) && modelRouteAvailableLocked(m, now)
 	}
 	ModelsMutex.RLock()
 	for _, m := range AvailableModels {

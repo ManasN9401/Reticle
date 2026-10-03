@@ -40,7 +40,7 @@ func (r *ModelRouter) RouteAvailability(modality string, policy RoutePolicy) Rou
 		if modality == "coding" || (modality == "text" && r.AllowTextToCodingFallback) {
 			allowed = m.Modality != "image"
 		}
-		if !m.Enabled || !allowed || policy.Excluded[m.Key()] {
+		if !m.Enabled || !allowed || !servesChatTasks(m) || policy.Excluded[m.Key()] {
 			continue
 		}
 		result.Potential++
