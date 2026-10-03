@@ -166,6 +166,74 @@ class CompilerContractsTest(unittest.TestCase):
             generated = json.loads((root / "agents" / "generated" / "generated.yaml").read_text())
             self.assertEqual(generated["capabilities"], ["workspace.read", "workspace.write"])
 
+    def test_write_capable_agents_must_declare_outputs(self):
+        catalog = {"builder": {"workspace.read", "workspace.write"}, "reviewer": {"workspace.read"}}
+        dag = {
+            "agents": [{"id": "builder", "is_new": False}, {"id": "reviewer", "is_new": False}],
+            "nodes": [
+                {"id": "build", "agent_id": "builder", "input_files": [], "output_files": []},
+                {"id": "review", "agent_id": "reviewer", "input_files": [], "output_files": []},
+            ],
+            "edges": [{"from": "build", "to": "review"}],
+        }
+        with self.assertRaisesRegex(ValueError, "Node build .* declares no output_files"):
+            self.architect.validate_dag(dag, {"builder", "reviewer"}, set(), 5, None, None, catalog)
+        dag["nodes"][0]["output_files"] = ["site/index.html"]
+        # A review-only node on an agent without workspace.write stays valid with no outputs.
+        self.architect.validate_dag(dag, {"builder", "reviewer"}, set(), 5, None, None, catalog)
+        # Without a capability map nothing is assumed about registered agents.
+        dag["nodes"][0]["output_files"] = []
+        self.architect.validate_dag(dag, {"builder", "reviewer"}, set())
+
+    def test_generated_agent_capabilities_come_from_the_dag(self):
+        dag = self.fixture()
+        dag["nodes"][1]["output_files"] = []
+        with self.assertRaisesRegex(ValueError, "Node second .* declares no output_files"):
+            self.architect.validate_dag(dag, {"existing"}, set())
+        dag["agents"][1]["capabilities"] = ["workspace.read"]
+        self.architect.validate_dag(dag, {"existing"}, set())
+
+    def test_registered_agent_nodes_receive_their_own_task_prompt(self):
+        dag = self.fixture()
+        dag["agents"][0]["description"] = "builds the site"
+        dag["nodes"].append({"id": "third", "agent_id": "existing", "input_files": ["result.txt"], "output_files": ["final.md"]})
+        dag["edges"].append({"from": "second", "to": "third"})
+        dag["nodes"][2]["parameters"] = {"effort": "high"}
+        self.architect.attach_node_prompts(dag, "make a gallery")
+        first, second, third = dag["nodes"]
+        # A registered agent's node carries a prompt scoped to that node only.
+        self.assertIn("make a gallery", first["parameters"]["system_prompt"])
+        self.assertIn("plan.md", first["parameters"]["system_prompt"])
+        self.assertNotIn("final.md", first["parameters"]["system_prompt"])
+        self.assertIn("final.md", third["parameters"]["system_prompt"])
+        # Existing parameters survive, and generated agents (which bake the prompt into their worker) are untouched.
+        self.assertEqual(third["parameters"]["effort"], "high")
+        self.assertNotIn("parameters", second)
+
+    def test_node_prompt_does_not_override_or_trust_malformed_parameters(self):
+        dag = self.fixture()
+        dag["nodes"][0]["parameters"] = {"system_prompt": "custom"}
+        self.architect.attach_node_prompts(dag, "goal")
+        self.assertEqual(dag["nodes"][0]["parameters"]["system_prompt"], "custom")
+        dag = self.fixture()
+        dag["nodes"][0]["parameters"] = "not an object"
+        self.architect.attach_node_prompts(dag, "goal")
+        self.assertIn("goal", dag["nodes"][0]["parameters"]["system_prompt"])
+
+    def test_scaffolder_carries_the_node_prompt_into_the_workflow(self):
+        dag = self.fixture()
+        self.architect.attach_node_prompts(dag, "make fixture")
+        with tempfile.TemporaryDirectory() as tmp:
+            request = {"id": "scaff-1", "execution": "compile-fixture", "inputs": [{"name": "DAG JSON", "data": json.dumps(dag)}], "memory": {"workspace_dir": tmp}}
+            result = subprocess.run(
+                [sys.executable, str(COMPILER / "agents/scaffolder-agent/workers/scaffolder.py")],
+                input=json.dumps(request), text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            workflow = json.loads((Path(tmp) / "workflows" / "workflow_fixture.yaml").read_text())
+            first = next(node for node in workflow["nodes"] if node["id"] == "first")
+            self.assertIn("plan.md", first["parameters"]["system_prompt"])
+
     def test_context_window_option_is_only_sent_to_ollama(self):
         memory = {
             "llm_num_ctx": 8192,

@@ -68,10 +68,13 @@ def load_architect_catalog(raw):
         raise ValueError("architect_catalog contains malformed or duplicate agents/skills")
     return catalog, agent_ids, skill_ids, capability_ids, mcp_server_ids
 
-def build_agent_prompt(agent, data, user_prompt):
-    """Build a bounded worker prompt without another fallible model request."""
+def build_agent_prompt(agent, data, user_prompt, only_node_id=None):
+    """Build a bounded worker prompt without another fallible model request.
+
+    only_node_id scopes the prompt to one node, for agents that own several."""
     agent_id = agent["id"]
-    owned_nodes = [n for n in data.get("nodes", []) if n.get("agent_id") == agent_id]
+    owned_nodes = [n for n in data.get("nodes", []) if n.get("agent_id") == agent_id
+                   and (only_node_id is None or n.get("id") == only_node_id)]
     node_ids = [n["id"] for n in owned_nodes]
     inputs = sorted({p for n in owned_nodes for p in n.get("input_files", [])})
     outputs = sorted({p for n in owned_nodes for p in n.get("output_files", [])})
@@ -110,8 +113,29 @@ def build_agent_prompt(agent, data, user_prompt):
         "tools, then call mark_task_complete with a concise summary."
     )
 
+def attach_node_prompts(data, user_prompt):
+    """Give every node of a registered agent its own task prompt as a node parameter.
+
+    A registered agent keeps its maintained worker, so the prompt built for it
+    above is never baked into a generated script. Without this the node ran
+    knowing neither its declared output files nor its upstream files, and the
+    worker could not require the deliverables it was meant to create. The
+    worker reads parameters.system_prompt and parses the declared outputs
+    from it. Generated agents already carry their prompt in their own worker."""
+    agents = {a.get("id"): a for a in data.get("agents", []) if isinstance(a, dict)}
+    for node in data.get("nodes", []):
+        agent = agents.get(node.get("agent_id"))
+        if not agent or agent.get("is_new"):
+            continue
+        parameters = node.get("parameters")
+        if not isinstance(parameters, dict):
+            parameters = {}
+        parameters.setdefault("system_prompt", build_agent_prompt(agent, data, user_prompt, node.get("id")))
+        node["parameters"] = parameters
+
 def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexity=5,
-                 available_capability_ids=None, available_mcp_server_ids=None):
+                 available_capability_ids=None, available_mcp_server_ids=None,
+                 agent_capabilities=None):
     if not isinstance(data, dict):
         raise ValueError("DAG must be a JSON object")
     agents = data.get("agents")
@@ -128,6 +152,7 @@ def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexit
 
     agent_ids = set(available_agent_ids)
     declared_agent_ids = set()
+    declared_capabilities = {}
     for agent in agents:
         if not isinstance(agent, dict) or not agent.get("id"):
             raise ValueError("Every agent requires an id")
@@ -160,6 +185,8 @@ def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexit
             unknown_servers = sorted(set(mcp_servers) - set(available_mcp_server_ids))
             if unknown_servers:
                 raise ValueError(f"Agent {agent_id} references unavailable MCP servers: {', '.join(unknown_servers)}")
+        if capabilities:
+            declared_capabilities[agent_id] = set(capabilities)
         agent_ids.add(agent_id)
 
     node_by_id = {}
@@ -176,6 +203,19 @@ def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexit
             values = node.get(field, [])
             if not isinstance(values, list) or not all(isinstance(v, str) and v.strip() for v in values):
                 raise ValueError(f"Node {node_id} {field} must be an array of non-empty paths")
+        # A worker is only held to deliverables it was told about. A node whose
+        # agent can write files but declares none has no completion contract, and
+        # can "finish" after merely reading. Review-only roles stay valid by using
+        # an agent without workspace.write.
+        node_capabilities = declared_capabilities.get(node.get("agent_id"))
+        if node_capabilities is None and agent_capabilities:
+            node_capabilities = agent_capabilities.get(node.get("agent_id"))
+        if node_capabilities and "workspace.write" in node_capabilities and not node.get("output_files"):
+            raise ValueError(
+                f"Node {node_id} uses agent {node.get('agent_id')}, which can write files, but declares no "
+                "output_files. List the concrete files it creates, or give review-only work to an agent "
+                "without workspace.write"
+            )
         for path in node.get("output_files", []):
             if path in producers:
                 raise ValueError(f"Workspace output {path} has multiple producers")
@@ -243,6 +283,10 @@ def main():
     catalog, available_agent_ids, available_skill_ids, available_capability_ids, available_mcp_server_ids = load_architect_catalog(
         mem.get("architect_catalog", "")
     )
+    registered_capabilities = {
+        item["id"]: {c for c in item.get("capabilities") or [] if isinstance(c, str)}
+        for item in catalog["agents"] if isinstance(item, dict) and item.get("id")
+    }
 
     try:
         print(f"[{req_id}] Architecting DAG...", file=sys.stderr)
@@ -363,7 +407,7 @@ CRITICAL: Do NOT write the `system_prompt` yet. The system prompts will be gener
 CRITICAL: Every node in the `nodes` array MUST have a valid `agent_id` that EXACTLY matches the `id` of an agent defined in the `agents` list or the AVAILABLE AGENTS list. NEVER leave `agent_id` blank or null.
 CRITICAL: Node IDs MUST be highly descriptive, semantic, and human-readable (e.g. 'compile-frontend', 'research-sources', 'draft-outline'). DO NOT use generic IDs like 'node-1' or 'node-2'.
 CRITICAL: Every edge in the `edges` array MUST reference `from` and `to` nodes that EXACTLY match the `id` of a node defined in the `nodes` array. NEVER reference a node that does not exist.
-CRITICAL: Every node MUST declare `input_files` and `output_files`. If an input file is created by this workflow, its producer MUST be an upstream node connected through the edge graph; inputs already present in the workspace are allowed. Each output file may have only one producer. Use workspace-relative paths.
+CRITICAL: Every node MUST declare `input_files` and `output_files`. If an input file is created by this workflow, its producer MUST be an upstream node connected through the edge graph; inputs already present in the workspace are allowed. Each output file may have only one producer. Use workspace-relative paths. A node whose agent has the `workspace.write` capability MUST list at least one concrete output file; only review or validation nodes using an agent without `workspace.write` may leave `output_files` empty.
 CRITICAL: Every `output_files` entry MUST be a concrete file path with a real filename and extension (e.g. "src/backend/app.py", "Dockerfile", ".github/workflows/ci.yml") — NEVER a bare directory name or vague placeholder (e.g. "src/backend", "app-folder"). A worker is only considered done once these exact files exist, so a vague path can never be satisfied.
 CRITICAL: Keep your reasoning brief. Do NOT repeat instructions or rules. Output the JSON as soon as possible without getting stuck in a loop.
 
@@ -505,6 +549,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 validate_dag(
                     data, available_agent_ids, available_skill_ids, agent_complexity,
                     available_capability_ids, available_mcp_server_ids,
+                    registered_capabilities,
                 )
 
             except Exception as e:
@@ -547,6 +592,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         # pass verification without producing their declared deliverables.
         for agent in data.get("agents", []):
             agent["system_prompt"] = build_agent_prompt(agent, data, user_prompt)
+        attach_node_prompts(data, user_prompt)
 
         result = json.dumps(data, indent=2)
 

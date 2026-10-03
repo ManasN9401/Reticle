@@ -323,10 +323,16 @@ def _required_output_paths(instructions):
         return set()
     return {_normalized_workspace_path(p.strip()) for p in listed.split(",") if p.strip()}
 
+def _without_src_prefix(path):
+    # The terminal and tools work inside src/, so "src/index.html" and "index.html"
+    # name the same deliverable to a model even though they are different paths.
+    return path[4:] if path.startswith("src/") else path
+
 def _output_satisfied(required, written_paths):
+    required = _without_src_prefix(required)
     return any(
         w == required or w.startswith(required + "/") or required.startswith(w + "/")
-        for w in written_paths
+        for w in map(_without_src_prefix, written_paths)
     )
 
 def shared_memory_context(memory):
@@ -402,6 +408,11 @@ def _iteration_limit(memory, capabilities):
     except (TypeError, ValueError):
         requested = default
     return max(1, min(requested, MAX_ITERATIONS))
+
+# Roles whose purpose is to produce something. With no declared output files the generic
+# completion check is satisfied by merely reading a file, which once let a frontend node
+# "finish" a website by reading its design spec. They must change something first.
+BUILDER_KINDS = frozenset({"frontend"})
 
 # Image tools whose successful calls create workspace files that count as outputs.
 IMAGE_OUTPUT_TOOLS = frozenset({
@@ -565,7 +576,10 @@ def run(instructions, kind="coding"):
     verification = []
     pending_modified_paths = set()
     written_paths = set()
-    required_outputs = _required_output_paths(instructions)
+    # A registered agent keeps its maintained worker, so the architect delivers its
+    # node-specific prompt (goal, inputs, declared outputs) as a node parameter.
+    # That prompt, when present, is the more specific source of declared outputs.
+    required_outputs = _required_output_paths(str(req.get("parameters", {}).get("system_prompt", ""))) or _required_output_paths(instructions)
     effects_started = False
     def missing_outputs():
         return sorted(r for r in required_outputs if not _output_satisfied(r, written_paths))
@@ -814,6 +828,13 @@ def run(instructions, kind="coding"):
                     if not isinstance(result, str):
                         result = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
                 elif name == "mark_task_complete":
+                    if kind in BUILDER_KINDS and not required_outputs and not written_paths and not effects_started:
+                        raise ValueError(
+                            "This role builds something, but you have not created or changed anything yet; "
+                            "reading files does not complete the task. Create the deliverable files with "
+                            "write_file (images with generate_local_asset or generate_local_assets), verify them, "
+                            "then call mark_task_complete."
+                        )
                     if not verified:
                         still_missing = missing_outputs()
                         if still_missing:
