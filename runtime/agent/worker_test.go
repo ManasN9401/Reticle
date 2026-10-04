@@ -139,6 +139,8 @@ func TestRetriesRequireNoEffectProof(t *testing.T) {
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] 403 Forbidden", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] BadRequestError", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] Agent stalled: repeated identical tool requests", true},
+		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] Agent stalled: model returned empty responses for 3 consecutive iterations", true},
+		{"Agent stalled: model returned empty responses for 3 consecutive iterations", false},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] command failed", false},
 	} {
 		if retryableProviderFailure(&WorkerFailure{Reason: WorkerExitedNonZero, Stderr: fixture.text}) != fixture.want {

@@ -695,6 +695,7 @@ def run(instructions, kind="coding"):
     started = time.monotonic()
     last_tool_signature = None
     repeated_tool_rounds = 0
+    consecutive_empty_replies = 0
     for iteration in range(_iteration_limit(mem, capabilities)):
         if time.monotonic() - started > 3600:
             _emit_llm("status", "Stopped: agent time budget exhausted")
@@ -834,6 +835,20 @@ def run(instructions, kind="coding"):
                 last_tool_signature = None
                 repeated_tool_rounds = 0
             
+            # A reply with no text and no tool call (a reasoning-only turn, or a model
+            # that stalled) must never enter the history: strict providers reject an
+            # empty assistant message with a 400, which ended a run that had already
+            # written files and so could not be retried.
+            if "tool_calls" not in message_dict and not str(message_dict.get("content") or "").strip():
+                consecutive_empty_replies += 1
+                if consecutive_empty_replies >= MAX_EMPTY_REPLIES:
+                    _emit_llm("status", f"Stopped: model returned {MAX_EMPTY_REPLIES} consecutive empty responses")
+                    raise RuntimeError(
+                        f"Agent stalled: model returned empty responses for {MAX_EMPTY_REPLIES} consecutive iterations"
+                    )
+                messages.append({"role":"user","content":"Your last reply contained no text and no tool call. Call a tool to continue, or call mark_task_complete if the work is finished and verified."})
+                continue
+            consecutive_empty_replies = 0
             messages.append(message_dict)
             if "tool_calls" not in message_dict:
                 messages.append({"role":"user","content":"Use tools to verify and finish with mark_task_complete."})
@@ -985,7 +1000,8 @@ def run(instructions, kind="coding"):
                 _emit_llm("tool", f"\nFailed {name}: {detail}", name=name)
             else:
                 _emit_llm("tool", f"\nCompleted {name}", name=name)
-            messages.append({"role":"tool","tool_call_id":call.id,"content":result_text[:20000]})
+            # An empty tool message is rejected by some providers just like an empty reply.
+            messages.append({"role":"tool","tool_call_id":call.id,"content":result_text[:20000] or "(no output)"})
         # A weak local model can keep exploring with other tools long after
         # verification is already satisfied, never returning to
         # mark_task_complete on its own. Surface that state explicitly rather

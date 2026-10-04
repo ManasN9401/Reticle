@@ -216,7 +216,8 @@ class WorkerContracts(unittest.TestCase):
 
     def test_sdk_exhaustion_is_failure(self):
         import worker_sdk
-        message=SimpleNamespace(tool_calls=[],model_dump=lambda **kwargs:{"role":"assistant","content":"done"})
+        # A reply with text but no tool call, as a real response carries its text in .content.
+        message=SimpleNamespace(tool_calls=[],content="done",model_dump=lambda **kwargs:{"role":"assistant","content":"done"})
         count=[]
         def completion(**kwargs):
             count.append(1)

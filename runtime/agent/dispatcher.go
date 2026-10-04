@@ -621,7 +621,7 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 	if !strings.Contains(f.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]") {
 		return result
 	}
-	if containsAny("agent stalled: repeated identical tool requests", "agent iteration budget exhausted", "agent time budget exhausted") {
+	if containsAny("agent stalled: repeated identical tool requests", "agent stalled: model returned empty responses", "agent iteration budget exhausted", "agent time budget exhausted") {
 		return providerFailureDisposition{retryable: true, category: "model_behavior"}
 	}
 
