@@ -163,6 +163,20 @@ class CompilerContractsTest(unittest.TestCase):
             self.assertFalse((root / "agents" / "existing").exists())
             self.assertTrue((root / "agents" / "generated" / "workers" / "generated.py").is_file())
             self.assertTrue((root / "agents" / "generated" / "generated.yaml").is_file())
+            # A generated worker runs from its own copy of the SDK, so every sibling
+            # module the SDK imports must be copied too; a missing one crashes the
+            # worker before it starts and is not retried (image_tools once was missing).
+            worker_dir = root / "agents" / "generated" / "workers"
+            lib_modules = {path.stem for path in (COMPILER / "lib").glob("*.py")}
+            sdk_lines = (worker_dir / "worker_sdk.py").read_text(encoding="utf-8").splitlines()
+            imported = {
+                line.split()[1].split(".")[0]
+                for line in sdk_lines
+                if line.strip().startswith(("import ", "from ")) and len(line.split()) > 1
+            }
+            # rag_tools is only imported for the rag worker kind, which generated agents never use.
+            for module in sorted((imported & lib_modules) - {"rag_tools"}):
+                self.assertTrue((worker_dir / (module + ".py")).is_file(), module + " was not copied next to the generated worker")
             generated = json.loads((root / "agents" / "generated" / "generated.yaml").read_text())
             self.assertEqual(generated["capabilities"], ["workspace.read", "workspace.write"])
 

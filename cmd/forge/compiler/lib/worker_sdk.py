@@ -488,7 +488,6 @@ def run(instructions, kind="coding"):
             implementations[name] = getattr(rag_tools,name)
             tool_capabilities[name] = "rag.local"
     import comfy_tools
-    import image_tools
     import urllib.request, urllib.parse
     comfy_checkpoints = ""
     if "image.local" in capabilities:
@@ -504,6 +503,7 @@ def run(instructions, kind="coding"):
             pass
 
     if "image.local" in capabilities:
+        import image_tools
         definitions["generate_local_asset"]=(
             f"Generate an image using configured local ComfyUI. checkpoint, width and height are optional (width/height: multiples of 8 from 64 to 2048).{comfy_checkpoints}",
             {
