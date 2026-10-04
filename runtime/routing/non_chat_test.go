@@ -13,6 +13,7 @@ func TestNonChatModelIDs(t *testing.T) {
 		"openai/text-embedding-3-small":     true,
 		"cohere/rerank-v3.5":                true,
 		"openai/omni-moderation-latest":     true,
+		"mistral/mistral-ocr-latest":        true,
 		"groq/whisper-large-v3":             true,
 		"openai/gpt-4o-mini-tts":            true,
 		"cohere/command-a-plus-05-2026":     false,

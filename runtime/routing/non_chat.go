@@ -15,6 +15,7 @@ var nonChatTokens = map[string]bool{
 	"rerank": true, "reranker": true, "reranking": true,
 	"moderation": true, "moderations": true,
 	"whisper": true, "tts": true, "transcribe": true, "transcription": true,
+	"ocr": true,
 }
 
 func isNonChatModelID(id string) bool {
