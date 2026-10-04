@@ -359,10 +359,31 @@ def build_user_context(req, memory):
 # produced partial output and keeps the dispatcher's no-effects rules.
 RATE_LIMIT_WAITS = (10, 20, 40)
 MAX_RATE_LIMIT_ADVICE = 120
+# Phrases that mean waiting will not help. Keep them specific: provider messages
+# often end with an "upgrade your plan" link, so a bare word such as "billing"
+# (https://console.groq.com/settings/billing) once made a per-minute token limit
+# look like an exhausted account.
 NON_TRANSIENT_LIMITS = (
     "free-models-per-day", "openrouter_free_tier_daily", "insufficient",
-    "exceeded your current quota", "credit balance", "billing",
+    "exceeded your current quota", "credit balance",
 )
+_RETRY_HINT = re.compile(r"try again in ((?:\d+(?:\.\d+)?(?:ms|h|m|s))+)", re.IGNORECASE)
+_DURATION_PART = re.compile(r"(\d+(?:\.\d+)?)(ms|h|m|s)", re.IGNORECASE)
+_UNIT_SECONDS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
+
+def _advised_wait(error):
+    """The provider's own wait: a Retry-After header, else a "try again in 8.4s" message."""
+    headers = getattr(getattr(error, "response", None), "headers", None)
+    try:
+        return max(1.0, float(headers.get("retry-after")))
+    except (AttributeError, TypeError, ValueError):
+        pass
+    hint = _RETRY_HINT.search(str(error))
+    if not hint:
+        return None
+    seconds = sum(float(amount) * _UNIT_SECONDS[unit.lower()] for amount, unit in _DURATION_PART.findall(hint.group(1)))
+    # The window rarely clears the instant the provider says, so allow a margin.
+    return max(1.0, seconds) + 1.0
 
 def _rate_limit_wait(error, attempt):
     """Seconds to wait before repeating a transient 429, or None to give up."""
@@ -372,28 +393,75 @@ def _rate_limit_wait(error, attempt):
         return None
     if any(marker in str(error).lower() for marker in NON_TRANSIENT_LIMITS):
         return None
-    delay = RATE_LIMIT_WAITS[attempt]
-    headers = getattr(getattr(error, "response", None), "headers", None)
-    try:
-        advised = float(headers.get("retry-after"))
-    except (AttributeError, TypeError, ValueError):
-        advised = None
-    if advised is not None:
-        if advised > MAX_RATE_LIMIT_ADVICE:
-            return None
-        delay = max(1.0, advised)
-    return delay
+    advised = _advised_wait(error)
+    if advised is None:
+        return RATE_LIMIT_WAITS[attempt]
+    # A daily limit reports minutes or hours; only short waits are worth holding the worker.
+    return advised if advised <= MAX_RATE_LIMIT_ADVICE else None
 
-def _complete_with_rate_limit_retry(completion, started, **request):
-    for attempt in range(len(RATE_LIMIT_WAITS) + 1):
+# Gateway and connection failures are as safe to repeat as a 429: the request never
+# produced anything we kept. They are only retried here once the worker has changed
+# the workspace, because before that the dispatcher can reroute to another model,
+# which beats hammering a provider that is down or hung.
+TRANSIENT_WAITS = (5, 15)
+_TRANSIENT_CLASSES = frozenset({
+    "Timeout", "APITimeoutError", "APIConnectionError", "ServiceUnavailableError",
+    "BadGatewayError", "TimeoutError", "ConnectionError",
+})
+_TRANSIENT_STATUS = re.compile(r"(?:error code|status code|status)[: ]+50[234]\b|\b50[234] (?:bad gateway|service unavailable|gateway time-?out)", re.IGNORECASE)
+
+def _transient_wait(error, attempt):
+    """Seconds to wait before repeating a gateway timeout or connection failure, or None."""
+    if attempt >= len(TRANSIENT_WAITS):
+        return None
+    if _TRANSIENT_CLASSES & {cls.__name__ for cls in type(error).__mro__} or _TRANSIENT_STATUS.search(str(error)):
+        return TRANSIENT_WAITS[attempt]
+    return None
+
+def _start_within(completion, seconds, **request):
+    """completion(**request), failing if the provider has not begun responding in time.
+
+    The stream-silence timeout only starts once the response is open. A provider
+    that queues the request before sending headers was bounded only by the 1800s
+    request timeout, and one such request held a node for 28 minutes."""
+    outcome = {}
+
+    def call():
         try:
-            return completion(**request)
+            outcome["value"] = completion(**request)
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=call, name="reticle-llm-request", daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        raise TimeoutError(f"Timeout Error: the provider did not start responding within {seconds}s (timed out)")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"]
+
+def _complete_with_retries(completion, started, start_timeout, can_reroute, **request):
+    rate_limited = transient = 0
+    while True:
+        try:
+            return _start_within(completion, start_timeout, **request)
         except Exception as error:
-            wait = _rate_limit_wait(error, attempt)
+            wait = _rate_limit_wait(error, rate_limited)
+            if wait is not None:
+                rate_limited += 1
+                label = f"Rate limited by the provider; repeating the same request in {wait:.0f}s (retry {rate_limited}/{len(RATE_LIMIT_WAITS)})"
+            elif not can_reroute():
+                wait = _transient_wait(error, transient)
+                transient += 1
+                label = f"Provider unavailable ({type(error).__name__}); repeating the same request in {wait or 0:.0f}s (retry {transient}/{len(TRANSIENT_WAITS)})"
             if wait is None or time.monotonic() - started + wait > 3600:
                 raise
-            _emit_llm("status", f"Rate limited by the provider; repeating the same request in {wait:.0f}s (retry {attempt + 1}/{len(RATE_LIMIT_WAITS)})")
+            _emit_llm("status", label)
             time.sleep(wait)
+
+# Consecutive replies with neither text nor a tool call before the worker gives up.
+MAX_EMPTY_REPLIES = 3
 
 DEFAULT_ITERATIONS = 30
 # Each model turn may issue several tool calls, but a gallery still needs many turns.
@@ -650,7 +718,7 @@ def run(instructions, kind="coding"):
                 if local_model else nullcontext()
             )
             with session:
-                response = _complete_with_rate_limit_retry(completion, started, model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
+                response = _complete_with_retries(completion, started, first_event_timeout, lambda: not effects_started, model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
                 content_buffer = []
                 tool_calls_buffer = {}
                 if hasattr(response, "choices") and hasattr(response.choices[0], "message"):

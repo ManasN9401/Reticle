@@ -673,7 +673,7 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 	if containsAny("apiconnectionerror", "serviceunavailableerror", "internalservererror", "500 internal server error", "502 bad gateway", "503 service unavailable", "504 gateway timeout") {
 		return providerFailureDisposition{retryable: true, category: "provider_transient"}
 	}
-	if containsAny("midstreamfallbackerror", "timeout error", "a timeout occurred", "timed out") {
+	if containsAny("midstreamfallbackerror", "timeout error", "a timeout occurred", "timed out", "produced no stream event") {
 		return providerFailureDisposition{retryable: true, category: "timeout"}
 	}
 	return result

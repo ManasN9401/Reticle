@@ -134,6 +134,8 @@ func TestRetriesRequireNoEffectProof(t *testing.T) {
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] litellm.APIError: unexplained provider failure", false},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] RateLimitError", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] MidStreamFallbackError: A Timeout Occurred", true},
+		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] TimeoutError: Model produced no stream event within 180 seconds", true},
+		{"TimeoutError: Model produced no stream event within 180 seconds", false},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] 403 Forbidden", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] BadRequestError", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] Agent stalled: repeated identical tool requests", true},
