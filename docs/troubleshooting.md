@@ -26,7 +26,7 @@ Open Studio's Problems, Activity, and Logs views and find the last structural ev
 - An execution recovered as `interrupted` is not assumed successful. Reconcile it explicitly.
 - If the process is alive but no terminal event appears, preserve `runtime.log` and the relevant `.reticle/executions/state.json` before restarting.
 
-For a first end-to-end check, choose **single agent** under Workflow depth in Studio and submit a small file task. This still exercises dynamic compilation, model routing, generated-worker startup, workspace tools, verification and durable completion while avoiding unrelated image, RAG, deployment or human-approval dependencies. Use **balanced** for ordinary work and **deep** only when the task benefits from several independently owned outputs.
+For a first end-to-end check, choose **single agent** under Workflow depth in Studio and submit a small file task. This still exercises dynamic compilation, model routing, generated-worker startup, workspace tools, verification and durable completion while avoiding unrelated image, RAG, deployment or human-approval dependencies. Use **balanced** for ordinary work (2 to 5 nodes) and **deep** only when the task benefits from several independently owned outputs: the architect must then split the work into at least 3 and at most 16 nodes, and a graph with fewer is rejected.
 
 Restart Forge after rebuilding it. Running processes keep their loaded runtime code, and already compiled sessions keep a snapshot of the worker SDK and generated agents that existed when the session was created. A retry of an old session therefore cannot prove that a newly built router or compiler fix is active.
 

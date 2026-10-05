@@ -149,14 +149,15 @@ export function Composer() {
 
             <Select
               aria-label="Workflow depth"
+              title="Workflow depth: single agent uses one node, balanced 2 to 5, deep splits the work into 3 to 16 independent nodes"
               value={agentComplexity}
               disabled={!connected}
               onChange={(event) => setAgentComplexity(Number(event.target.value))}
               className="h-6 min-w-0 flex-1 border-none bg-transparent px-1 pr-3 text-2xs"
             >
               <option value={1}>single agent</option>
-              <option value={3}>balanced</option>
-              <option value={5}>deep</option>
+              <option value={3}>balanced (2-5)</option>
+              <option value={5}>deep (3+)</option>
             </Select>
           </div>
 

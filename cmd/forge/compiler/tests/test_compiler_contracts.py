@@ -92,7 +92,7 @@ class CompilerContractsTest(unittest.TestCase):
 
     def test_validates_file_dependencies_and_builds_bounded_prompt(self):
         dag = self.fixture()
-        self.architect.validate_dag(dag, {"existing"}, set())
+        self.architect.validate_dag(dag, {"existing"}, set(), agent_complexity=3)
         prompt = self.architect.build_agent_prompt(dag["agents"][1], dag, "make fixture")
         self.assertIn("plan.md", prompt)
         self.assertIn("result.txt", prompt)
@@ -114,7 +114,7 @@ class CompilerContractsTest(unittest.TestCase):
         dag = self.fixture()
         dag["agents"][1]["capabilities"].append("network.imaginary")
         with self.assertRaisesRegex(ValueError, "unavailable capabilities"):
-            self.architect.validate_dag(dag, {"existing"}, set(), 5, capabilities)
+            self.architect.validate_dag(dag, {"existing"}, set(), 3, capabilities)
 
     def test_build_agent_prompt_resolves_registered_agents_too(self):
         # The architect is told to leave every agent's system_prompt as "TBD"
@@ -125,7 +125,7 @@ class CompilerContractsTest(unittest.TestCase):
         # user's goal or its declared output files and can pass verification
         # without producing them.
         dag = self.fixture()
-        self.architect.validate_dag(dag, {"existing"}, set())
+        self.architect.validate_dag(dag, {"existing"}, set(), agent_complexity=3)
         prompt = self.architect.build_agent_prompt(dag["agents"][0], dag, "make fixture")
         self.assertNotEqual(prompt.strip(), "TBD")
         self.assertIn("plan.md", prompt)
@@ -135,7 +135,7 @@ class CompilerContractsTest(unittest.TestCase):
         dag = self.fixture()
         dag["edges"] = []
         with self.assertRaisesRegex(ValueError, "not an upstream dependency"):
-            self.architect.validate_dag(dag, {"existing"}, set())
+            self.architect.validate_dag(dag, {"existing"}, set(), agent_complexity=3)
 
     def test_single_agent_depth_rejects_multiple_nodes(self):
         with self.assertRaisesRegex(ValueError, "exactly one node"):
@@ -180,6 +180,41 @@ class CompilerContractsTest(unittest.TestCase):
             generated = json.loads((root / "agents" / "generated" / "generated.yaml").read_text())
             self.assertEqual(generated["capabilities"], ["workspace.read", "workspace.write"])
 
+    def three_node_dag(self):
+        dag = self.fixture()
+        dag["nodes"].append({"id": "third", "agent_id": "generated", "input_files": ["result.txt"], "output_files": ["final.md"]})
+        dag["edges"].append({"from": "second", "to": "third"})
+        return dag
+
+    def test_deep_depth_requires_a_decomposed_graph(self):
+        # "deep" used to say "choose the smallest graph", so a single node was valid.
+        single = self.fixture()
+        single["nodes"] = single["nodes"][:1]
+        single["edges"] = []
+        for depth in (4, 5):
+            for dag in (single, self.fixture()):
+                with self.assertRaisesRegex(ValueError, "Deep workflow depth requires at least 3 nodes"):
+                    self.architect.validate_dag(dag, {"existing"}, set(), agent_complexity=depth)
+            self.architect.validate_dag(self.three_node_dag(), {"existing"}, set(), agent_complexity=depth)
+
+    def test_shallower_depths_keep_their_limits(self):
+        # Balanced still allows two nodes, and single-agent still requires exactly one.
+        self.architect.validate_dag(self.fixture(), {"existing"}, set(), agent_complexity=3)
+        with self.assertRaisesRegex(ValueError, "exactly one node"):
+            self.architect.validate_dag(self.three_node_dag(), {"existing"}, set(), agent_complexity=1)
+
+    def test_depth_instructions_describe_each_graph_shape(self):
+        single = self.architect.depth_instruction(1)
+        balanced = self.architect.depth_instruction(3)
+        deep = self.architect.depth_instruction(5)
+        self.assertIn("EXACTLY 1 single agent", single)
+        self.assertIn("2-5 agents", balanced)
+        self.assertIn("DEEP workflow", deep)
+        self.assertIn("between 3 and 16 nodes", deep)
+        self.assertIn("Do NOT collapse the work into a single node", deep)
+        self.assertNotIn("smallest graph", deep)
+        self.assertEqual(self.architect.depth_instruction(4), deep)
+
     def test_write_capable_agents_must_declare_outputs(self):
         catalog = {"builder": {"workspace.read", "workspace.write"}, "reviewer": {"workspace.read"}}
         dag = {
@@ -191,21 +226,21 @@ class CompilerContractsTest(unittest.TestCase):
             "edges": [{"from": "build", "to": "review"}],
         }
         with self.assertRaisesRegex(ValueError, "Node build .* declares no output_files"):
-            self.architect.validate_dag(dag, {"builder", "reviewer"}, set(), 5, None, None, catalog)
+            self.architect.validate_dag(dag, {"builder", "reviewer"}, set(), 3, None, None, catalog)
         dag["nodes"][0]["output_files"] = ["site/index.html"]
         # A review-only node on an agent without workspace.write stays valid with no outputs.
-        self.architect.validate_dag(dag, {"builder", "reviewer"}, set(), 5, None, None, catalog)
+        self.architect.validate_dag(dag, {"builder", "reviewer"}, set(), 3, None, None, catalog)
         # Without a capability map nothing is assumed about registered agents.
         dag["nodes"][0]["output_files"] = []
-        self.architect.validate_dag(dag, {"builder", "reviewer"}, set())
+        self.architect.validate_dag(dag, {"builder", "reviewer"}, set(), agent_complexity=3)
 
     def test_generated_agent_capabilities_come_from_the_dag(self):
         dag = self.fixture()
         dag["nodes"][1]["output_files"] = []
         with self.assertRaisesRegex(ValueError, "Node second .* declares no output_files"):
-            self.architect.validate_dag(dag, {"existing"}, set())
+            self.architect.validate_dag(dag, {"existing"}, set(), agent_complexity=3)
         dag["agents"][1]["capabilities"] = ["workspace.read"]
-        self.architect.validate_dag(dag, {"existing"}, set())
+        self.architect.validate_dag(dag, {"existing"}, set(), agent_complexity=3)
 
     def test_registered_agent_nodes_receive_their_own_task_prompt(self):
         dag = self.fixture()

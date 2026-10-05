@@ -113,6 +113,28 @@ def build_agent_prompt(agent, data, user_prompt, only_node_id=None):
         "tools, then call mark_task_complete with a concise summary."
     )
 
+# A deep workflow is meant to be decomposed. It used to be told to "choose the smallest
+# graph", which let the architect return a single node for a request the user had
+# explicitly asked to be split, so "deep" produced fewer nodes than "balanced".
+MIN_DEEP_NODES = 3
+MAX_NODES = 16
+
+def depth_instruction(agent_complexity):
+    """The graph-shape requirement given to the architect for a workflow depth."""
+    if agent_complexity == 1:
+        return "CRITICAL REQUIREMENT: You MUST generate EXACTLY 1 single agent that does EVERYTHING linearly. Do NOT use multiple specialized agents. Do not decompose into branches. The graph MUST have exactly 1 node and 0 edges. Make sure to instruct this single agent to bundle all files into its final JSON payload."
+    if agent_complexity <= 3:
+        return "CRITICAL REQUIREMENT: You should generate a small graph of 2-5 agents to split the work, but keep individual responsibilities broad. Do NOT create massive parallel branches. A simple linear pipeline or small DAG is preferred."
+    return (
+        f"CRITICAL REQUIREMENT: The user asked for a DEEP workflow. Decompose the request into independent workstreams, "
+        f"each owned by one node, and generate between {MIN_DEEP_NODES} and {MAX_NODES} nodes; most requests fit 4 to 8. "
+        "Do NOT collapse the work into a single node or a single specialist. Split by subsystem or deliverable, for example "
+        "design and specification, asset creation, core implementation, interaction or animation, and integration and "
+        "verification. A node should own files that no other node writes. Parallelize nodes whose inputs, outputs and "
+        "writable files do not overlap, and make a node downstream of every node whose output it consumes. Add an "
+        "integration or review node only when it resolves real cross-node work."
+    )
+
 def attach_node_prompts(data, user_prompt):
     """Give every node of a registered agent its own task prompt as a node parameter.
 
@@ -143,12 +165,17 @@ def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexit
     edges = data.get("edges")
     if not isinstance(agents, list) or not isinstance(nodes, list) or not isinstance(edges, list):
         raise ValueError("agents, nodes and edges must be arrays")
-    if not nodes or len(nodes) > 16:
-        raise ValueError("Graph must contain between 1 and 16 nodes")
+    if not nodes or len(nodes) > MAX_NODES:
+        raise ValueError(f"Graph must contain between 1 and {MAX_NODES} nodes")
     if agent_complexity == 1 and len(nodes) != 1:
         raise ValueError("Single-agent workflow depth requires exactly one node")
     if agent_complexity <= 3 and len(nodes) > 5:
         raise ValueError("Balanced workflow depth permits at most five nodes")
+    if agent_complexity >= 4 and len(nodes) < MIN_DEEP_NODES:
+        raise ValueError(
+            f"Deep workflow depth requires at least {MIN_DEEP_NODES} nodes; split the request into "
+            "independent workstreams instead of one node"
+        )
 
     agent_ids = set(available_agent_ids)
     declared_agent_ids = set()
@@ -296,12 +323,7 @@ def main():
         catalog_prompt = json.dumps(catalog, indent=2, ensure_ascii=False)
 
         agent_complexity = int(mem.get("agent_complexity", 5))
-        if agent_complexity == 1:
-            complexity_prompt = "CRITICAL REQUIREMENT: You MUST generate EXACTLY 1 single agent that does EVERYTHING linearly. Do NOT use multiple specialized agents. Do not decompose into branches. The graph MUST have exactly 1 node and 0 edges. Make sure to instruct this single agent to bundle all files into its final JSON payload."
-        elif agent_complexity <= 3:
-            complexity_prompt = "CRITICAL REQUIREMENT: You should generate a small graph of 2-5 agents to split the work, but keep individual responsibilities broad. Do NOT create massive parallel branches. A simple linear pipeline or small DAG is preferred."
-        else:
-            complexity_prompt = "Choose the smallest graph that gives genuinely independent work clear ownership. Parallelize only nodes whose inputs, outputs, and writable files or subsystems do not overlap. A linear graph is valid when the work is sequential or tightly coupled. Add an integration or review node only when it resolves real cross-node work. The graph may contain at most 16 nodes."
+        complexity_prompt = depth_instruction(agent_complexity)
 
         auto_approve_flag = False  # Approval is a trusted runtime decision, never prompt text.
         hitl_rule = ""
