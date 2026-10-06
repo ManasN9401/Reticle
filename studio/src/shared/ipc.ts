@@ -579,6 +579,8 @@ export interface EditorTab {
   content?: string
   /** Path shown in the breadcrumb. */
   subtitle?: string
+  /** Set for a file a run produced: the execution and the path relative to its src folder. */
+  source?: { execId: string; path: string }
 }
 
 export interface LayoutSnapshot {

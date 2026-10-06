@@ -9,6 +9,7 @@ import type {
   WaitlistPayload,
   WireEdge,
   WorkerFailedPayload,
+  WorkerFilesWrittenPayload,
   WorkerFailureReason,
   WorkerLogPayload,
   WorkflowStartedPayload,
@@ -44,6 +45,11 @@ export interface ArtifactRef {
   /** Payloads are stripped before they reach the renderer; this records what was there. */
   hasData: boolean
   dataSize?: number
+  /**
+   * The text of a text-like artifact (the worker's summary), as far as it survived
+   * the main process's payload preview, so a row can open it.
+   */
+  text?: string
 }
 
 export interface NodeFailure {
@@ -75,6 +81,8 @@ export interface RunNode {
   /** Derived from repeated WorkerStarted on the same task id. */
   attempts: number
   artifacts: ArtifactRef[]
+  /** Files the node's final result reports it wrote, relative to the session src folder. */
+  files: string[]
   failure?: NodeFailure
   waiting?: WaitingState
   /** Compatibility flag for explicit mock output from external/historical workers. */
@@ -132,6 +140,7 @@ function createNode(execId: string, nodeId: string, taskId: string): RunNode {
     status: 'pending',
     attempts: 0,
     artifacts: [],
+    files: [],
     mocked: false,
     logCount: 0,
   }
@@ -158,7 +167,12 @@ function toArtifactRef(artifact: Artifact): ArtifactRef {
     createdAt: artifact.created_at ? Date.parse(artifact.created_at) : undefined,
     hasData,
     dataSize,
+    text: isTextArtifact(artifact.type) && typeof data === 'string' ? data : undefined,
   }
+}
+
+function isTextArtifact(type: string | undefined): boolean {
+  return type !== undefined && (type.startsWith('text/') || type.startsWith('document/'))
 }
 
 /**
@@ -207,7 +221,7 @@ function draftNode(
     return created
   }
   if (batch.clonedNodes.has(key)) return existing
-  const clone: RunNode = { ...existing, artifacts: existing.artifacts }
+  const clone: RunNode = { ...existing, artifacts: existing.artifacts, files: existing.files }
   run.nodes[nodeId] = clone
   batch.clonedNodes.add(key)
   return clone
@@ -345,6 +359,19 @@ function applyToBatch(batch: Batch, state: ProjectionState, event: RuntimeEvent)
       if (node.startedAt !== undefined) {
         node.durationMs = Math.max(0, event.timestamp - node.startedAt)
       }
+      return
+    }
+
+    case 'WorkerFilesWritten': {
+      const identity = identify(payload)
+      if (!identity) return
+      const files = (payload as WorkerFilesWrittenPayload | null)?.files
+      if (!Array.isArray(files)) return
+      const run = draftRun(batch, identity.execId)
+      const node = draftNode(batch, run, identity.nodeId, identity.taskId)
+      setAgent(node, identity.agentId)
+      // The latest report wins: a retry's list replaces an earlier attempt's.
+      node.files = files.filter((file): file is string => typeof file === 'string')
       return
     }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, FlaskConical, MousePointerSquareDashed, TriangleAlert } from 'lucide-react'
+import { Download, FileCode2, FlaskConical, Image as ImageIcon, MousePointerSquareDashed, TriangleAlert } from 'lucide-react'
 import { cn } from '@/design/cn'
 import { Badge, Button, EmptyState, IconButton, StatusPip } from '@/design/primitives'
 import {
@@ -9,6 +9,8 @@ import {
   formatDuration,
   formatFailureReason,
 } from '@/design/status'
+import { fileKindFor } from '@shared/fileKind'
+import { openArtifactText, openRunFile } from '@/state/actions'
 import { bridge } from '@/state/bridge'
 import { useActiveRun, useActiveNode, useStudio } from '@/state/store'
 import { useUi } from '@/state/ui'
@@ -16,6 +18,9 @@ import { compactToolLog } from './toolLog'
 import { buildLlmDiagnostics, type LlmDiagnosticKind } from './llmLog'
 
 type Tab = 'overview' | 'log' | 'llm'
+
+const ARTIFACT_ROW =
+  'flex w-full items-center gap-2 rounded-[var(--radius-control)] border border-line-1 bg-bg-2 px-2 py-1 text-left hover:bg-bg-3 focus-visible:outline-2 focus-visible:outline-accent'
 
 /**
  * Node inspector.
@@ -182,30 +187,71 @@ export function Inspector() {
               <div className="mb-1.5 text-2xs font-semibold tracking-wide text-fg-3 uppercase">
                 Artifacts produced
               </div>
-              {node.artifacts.length === 0 ? (
+              {node.artifacts.length === 0 && node.files.length === 0 ? (
                 <div className="text-2xs text-fg-4">None</div>
-              ) : (
+              ) : null}
+              {node.artifacts.length > 0 ? (
                 <ul className="flex flex-col gap-1">
-                  {node.artifacts.map((artifact) => (
-                    <li
-                      key={`${artifact.id}-${artifact.version ?? 0}`}
-                      className="flex items-center gap-2 rounded-[var(--radius-control)] border border-line-1 bg-bg-2 px-2 py-1"
-                    >
-                      <span className="mono truncate-1 min-w-0 flex-1 text-2xs text-fg-2">
-                        {artifact.name ?? artifact.id}
-                      </span>
-                      {artifact.type ? (
-                        <span className="shrink-0 text-[10px] text-fg-4">
-                          {artifact.type}
+                  {node.artifacts.map((artifact) => {
+                    const openable = artifact.text !== undefined
+                    const content = (
+                      <>
+                        <span className="mono truncate-1 min-w-0 flex-1 text-2xs text-fg-2">
+                          {artifact.name ?? artifact.id}
                         </span>
-                      ) : null}
-                      <span className="num shrink-0 text-[10px] text-fg-4">
-                        {formatBytes(artifact.dataSize)}
-                      </span>
-                    </li>
-                  ))}
+                        {artifact.type ? (
+                          <span className="shrink-0 text-[10px] text-fg-4">{artifact.type}</span>
+                        ) : null}
+                        <span className="num shrink-0 text-[10px] text-fg-4">
+                          {formatBytes(artifact.dataSize)}
+                        </span>
+                      </>
+                    )
+                    return (
+                      <li key={`${artifact.id}-${artifact.version ?? 0}`}>
+                        {openable ? (
+                          <button
+                            type="button"
+                            title="Open this artifact"
+                            onClick={() => openArtifactText(artifact)}
+                            className={ARTIFACT_ROW}
+                          >
+                            {content}
+                          </button>
+                        ) : (
+                          <div className={cn(ARTIFACT_ROW, 'cursor-default hover:bg-bg-2')}>{content}</div>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
-              )}
+              ) : null}
+
+              {node.files.length > 0 ? (
+                <>
+                  <div className="mt-3 mb-1.5 text-2xs font-semibold tracking-wide text-fg-3 uppercase">
+                    Files written ({node.files.length})
+                  </div>
+                  <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+                    {node.files.map((file) => {
+                      const Icon = fileKindFor(file) === 'image' ? ImageIcon : FileCode2
+                      return (
+                        <li key={file}>
+                          <button
+                            type="button"
+                            title={`Open ${file}`}
+                            onClick={() => void openRunFile(node.execId, file)}
+                            className={ARTIFACT_ROW}
+                          >
+                            <Icon size={12} strokeWidth={1.7} className="shrink-0 text-fg-3" />
+                            <span className="mono truncate-1 min-w-0 flex-1 text-2xs text-fg-2">{file}</span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </>
+              ) : null}
             </div>
           </div>
         ) : null}

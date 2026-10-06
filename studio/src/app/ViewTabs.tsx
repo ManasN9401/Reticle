@@ -1,4 +1,5 @@
-import { ChevronRight, FileCode2, PanelRight, Waypoints, X } from 'lucide-react'
+import { ChevronRight, FileCode2, Image as ImageIcon, PanelRight, Waypoints, X } from 'lucide-react'
+import { fileKindFor } from '@shared/fileKind'
 import { cn } from '@/design/cn'
 import { IconButton } from '@/design/primitives'
 import { useUi, type EditorTab } from '@/state/ui'
@@ -65,7 +66,12 @@ function Tab({
   onSelect: () => void
   onClose: () => void
 }) {
-  const Icon = tab.kind === 'graph' ? Waypoints : FileCode2
+  const Icon =
+    tab.kind === 'graph'
+      ? Waypoints
+      : tab.source && fileKindFor(tab.source.path) === 'image'
+        ? ImageIcon
+        : FileCode2
 
   return (
     <div

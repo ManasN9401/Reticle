@@ -55,6 +55,7 @@ const STRUCTURAL_LOG_EVENTS = new Set([
   'TaskDispatched',
   'WorkerStarted',
   'WorkerCompleted',
+  'WorkerFilesWritten',
   'WorkerVerificationRecorded',
   'WorkerFailed',
   'TaskFailed',
@@ -348,6 +349,8 @@ function describe(event: RuntimeEvent): string {
       return 'worker started'
     case 'WorkerCompleted':
       return 'worker completed'
+    case 'WorkerFilesWritten':
+      return `files written: ${Array.isArray(p.files) ? p.files.length : 0}`
     case 'WorkerVerificationRecorded':
       return `verification recorded: ${Array.isArray(p.evidence) ? p.evidence.length : 0} check(s)`
     case 'TaskFailed':

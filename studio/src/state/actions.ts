@@ -1,4 +1,6 @@
 import type { Attachment } from '@shared/events'
+import { fileKindFor } from '@shared/fileKind'
+import type { ArtifactRef } from '@shared/projection'
 import type { HitlResolveRequest, OutboundCommand, OutputFile } from '@shared/ipc'
 import { bridge } from './bridge'
 import { useStudio } from './store'
@@ -175,6 +177,51 @@ export function openRunFiles(execId: string, files: readonly OutputFile[], order
     })
   }
   if (chosen.length < order.length) ui.setView('artifacts')
+}
+
+const NOT_PREVIEWABLE =
+  'This file is too large, or not text, so it cannot be previewed here.\nOpen the run folder to see it on disk.'
+
+/** The main process cuts artifact payloads to this many characters (electron/forge/store.ts). */
+const ARTIFACT_PREVIEW_CHARS = 2_000
+
+/**
+ * Open one file a run produced. Images go to the image viewer, which streams them from
+ * the run's preview server; everything else opens as text in the editor.
+ */
+export async function openRunFile(execId: string, path: string): Promise<void> {
+  const ui = useUi.getState()
+  const tab = {
+    id: `output:${execId}:${path}`,
+    kind: 'file' as const,
+    title: path.split('/').pop() ?? path,
+    subtitle: path,
+    source: { execId, path },
+  }
+  if (fileKindFor(path) === 'image') {
+    ui.openTab(tab)
+    return
+  }
+  const outputs = bridge ? await bridge.api.outputs(execId) : undefined
+  const match = outputs?.ok ? outputs.data?.find((file) => file.path === path) : undefined
+  ui.openTab({ ...tab, content: match?.content ?? NOT_PREVIEWABLE })
+}
+
+/** Open the text of a node's summary artifact. */
+export function openArtifactText(artifact: ArtifactRef): void {
+  if (artifact.text === undefined) return
+  const name = artifact.name ?? artifact.id
+  const markdown = artifact.type?.endsWith('markdown') && !name.endsWith('.md')
+  const truncated = artifact.text.length >= ARTIFACT_PREVIEW_CHARS
+  useUi.getState().openTab({
+    id: `artifact:${artifact.id}:${artifact.version ?? 0}`,
+    kind: 'file',
+    title: name,
+    subtitle: markdown ? `${name}.md` : name,
+    content: truncated ? `${artifact.text}
+
+… (preview cut at ${ARTIFACT_PREVIEW_CHARS} characters)` : artifact.text,
+  })
 }
 
 export async function revealInExplorer(path: string): Promise<void> {

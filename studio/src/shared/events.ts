@@ -43,6 +43,7 @@ export type EventType =
   | 'WaitlistStateRequested'
   | 'WaitlistUpdated'
   | 'WorkerCompleted'
+  | 'WorkerFilesWritten'
   | 'WorkerVerificationRecorded'
   | 'WorkerFailed'
   | 'WorkerLog'
@@ -84,6 +85,7 @@ export const EVENT_TYPES: readonly EventType[] = [
   'WaitlistStateRequested',
   'WaitlistUpdated',
   'WorkerCompleted',
+  'WorkerFilesWritten',
   'WorkerVerificationRecorded',
   'WorkerFailed',
   'WorkerLog',
@@ -143,6 +145,15 @@ export interface TaskDispatchedPayload {
 export interface WorkerLifecyclePayload {
   task_id?: string
   worker_id?: string
+}
+
+/** Payload for WorkerFilesWritten: files the worker's final result reports, relative to the session src folder. */
+export interface WorkerFilesWrittenPayload {
+  task_id?: string
+  worker_id?: string
+  execution?: string
+  attempt_id?: string
+  files?: string[]
 }
 
 /** Payload for the WorkerLog event, containing streaming stderr from the worker. */

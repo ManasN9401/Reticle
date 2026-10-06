@@ -1,8 +1,9 @@
 import Editor from '@monaco-editor/react'
 import { useEffect, useState } from 'react'
-import { FolderOpen, Lock } from 'lucide-react'
+import { ExternalLink, FolderOpen, Lock, Maximize2, Minimize2 } from 'lucide-react'
 import { EmptyState, IconButton, Spinner, Tooltip } from '@/design/primitives'
 import { formatBytes } from '@/design/status'
+import { fileKindFor } from '@shared/fileKind'
 import { bridge } from '@/state/bridge'
 import { revealInExplorer } from '@/state/actions'
 import { useActiveColorScheme, useResolvedTheme } from '@/state/theme'
@@ -25,6 +26,94 @@ import {
  * inline, for files delivered by `GET /api/outputs/{execId}`.
  */
 export function FileViewer({
+  path,
+  inlineContent,
+  label,
+  source,
+}: {
+  path?: string
+  inlineContent?: string
+  label: string
+  source?: { execId: string; path: string }
+}) {
+  if (source && fileKindFor(source.path) === 'image') {
+    return <ImageViewer key={`${source.execId}|${source.path}`} source={source} />
+  }
+  return <TextViewer path={path} inlineContent={inlineContent} label={label} />
+}
+
+/**
+ * Shows an image a run produced. It is streamed from the run's loopback preview
+ * server, because the text-only file readers would turn the bytes into garbage.
+ */
+function ImageViewer({ source }: { source: { execId: string; path: string } }) {
+  const [state, setState] = useState<{ url?: string; error?: string } | null>(null)
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null)
+  const [fit, setFit] = useState(true)
+
+  useEffect(() => {
+    if (!bridge) return
+    let cancelled = false
+    void bridge.preview.serveRun(source.execId, source.path).then((result) => {
+      if (cancelled) return
+      setState(result.ok && result.data ? { url: result.data } : { error: result.error ?? 'Could not load this image.' })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [source.execId, source.path])
+
+  const url = state?.url
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-inset">
+      <div className="flex h-[var(--h-toolbar)] shrink-0 items-center gap-2 border-b border-line-1 bg-bg-1 px-2">
+        <span className="mono truncate-1 min-w-0 text-2xs text-fg-3" title={source.path}>
+          {source.path}
+        </span>
+        {dimensions ? (
+          <span className="num shrink-0 text-2xs text-fg-4">
+            {dimensions.width} × {dimensions.height}
+          </span>
+        ) : null}
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <Tooltip content={fit ? 'Show at actual size' : 'Fit to window'}>
+            <IconButton label={fit ? 'Actual size' : 'Fit to window'} size="sm" active={!fit} onClick={() => setFit((value) => !value)}>
+              {fit ? <Maximize2 size={13} strokeWidth={1.7} /> : <Minimize2 size={13} strokeWidth={1.7} />}
+            </IconButton>
+          </Tooltip>
+          {url ? (
+            <IconButton label="Open in default browser" size="sm" onClick={() => void bridge?.workspace.openExternal(url)}>
+              <ExternalLink size={13} strokeWidth={1.7} />
+            </IconButton>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="relative min-h-0 flex-1 overflow-auto [background-image:repeating-conic-gradient(var(--color-bg-2)_0%_25%,transparent_0%_50%)] [background-size:16px_16px]">
+        {state?.error ? (
+          <EmptyState title="Could not open image" description={state.error} />
+        ) : !url ? (
+          <div className="flex h-full items-center justify-center gap-2 text-xs text-fg-3">
+            <Spinner /> Opening…
+          </div>
+        ) : (
+          <div className={fit ? 'flex h-full w-full items-center justify-center p-4' : 'inline-block min-h-full min-w-full p-4'}>
+            <img
+              src={url}
+              alt={source.path}
+              onLoad={(event) => setDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+              onError={() => setState({ error: 'The preview server could not deliver this image.' })}
+              className={fit ? 'max-h-full max-w-full object-contain shadow-lg' : 'max-w-none shadow-lg'}
+              draggable={false}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TextViewer({
   path,
   inlineContent,
   label,

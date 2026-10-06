@@ -55,6 +55,7 @@ export function MainSurface() {
                 key={activeTab.id}
                 path={activeTab.path}
                 inlineContent={activeTab.content}
+                source={activeTab.source}
                 label={activeTab.subtitle ?? activeTab.title}
               />
             </Suspense>
