@@ -928,7 +928,7 @@ def run(instructions, kind="coding"):
                                 "verify them, before calling mark_task_complete again."
                             )
                         raise ValueError("No successful verification has been recorded. Re-read every changed file with read_file, or run it/test it successfully with execute_terminal_command, before calling mark_task_complete again.")
-                    sys.stdout.write(json.dumps({"id":req["id"],"memory":memory_updates,"graph_mutation":graph_mutation,"verification":verification,"artifact":{"id":req["id"]+"_output","name":kind+" output","type":"document/markdown","data":args["summary"]}})+"\n")
+                    sys.stdout.write(json.dumps({"id":req["id"],"memory":memory_updates,"graph_mutation":graph_mutation,"verification":verification,"files":sorted(written_paths),"artifact":{"id":req["id"]+"_output","name":kind+" output","type":"document/markdown","data":args["summary"]}})+"\n")
                     return
                 elif name in ("remember", "remember_if_version"):
                     if not args["key"] or len(args["key"]) > 120 or len(args["value_json"]) > 65536:

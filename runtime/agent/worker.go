@@ -96,6 +96,46 @@ type TaskResponse struct {
 	GraphMutation *GraphMutation         `json:"graph_mutation,omitempty"`
 	Memory        []MemoryMutation       `json:"memory,omitempty"`
 	Verification  []VerificationEvidence `json:"verification,omitempty"`
+	// Files lists the workspace files the worker created or changed, relative to
+	// the session's src directory. Informational: it never fails a task.
+	Files []string `json:"files,omitempty"`
+}
+
+const (
+	maxReportedFiles    = 500
+	maxReportedFilePath = 512
+)
+
+// cleanReportedFiles keeps the well-formed, unique relative paths a worker
+// reported. Anything else is dropped rather than rejected, because the list only
+// feeds the UI and a quirk in it must never fail a finished task.
+func cleanReportedFiles(files []string) []string {
+	cleaned := make([]string, 0, len(files))
+	seen := make(map[string]bool, len(files))
+	for _, file := range files {
+		if len(cleaned) >= maxReportedFiles {
+			break
+		}
+		if file == "" || len(file) > maxReportedFilePath || seen[file] {
+			continue
+		}
+		if strings.ContainsAny(file, "\\:\x00") || strings.HasPrefix(file, "/") {
+			continue
+		}
+		unsafe := false
+		for _, segment := range strings.Split(file, "/") {
+			if segment == "" || segment == "." || segment == ".." {
+				unsafe = true
+				break
+			}
+		}
+		if unsafe {
+			continue
+		}
+		seen[file] = true
+		cleaned = append(cleaned, file)
+	}
+	return cleaned
 }
 
 // VerificationEvidence records deterministic proof (like a successful read) that the worker checked its work.
@@ -265,6 +305,7 @@ func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEn
 			return fail(WorkerProtocolError, fmt.Errorf("invalid verification evidence"))
 		}
 	}
+	resp.Files = cleanReportedFiles(resp.Files)
 	// Commit memory and artifact as one acknowledged durable result.
 	entries := make([]memory.MemoryEntry, 0, len(resp.Memory))
 	for _, mut := range resp.Memory {
@@ -297,6 +338,9 @@ func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEn
 	}
 	if len(resp.Verification) > 0 {
 		w.Bus.Publish("WorkerVerificationRecorded", "worker", map[string]any{"task_id": req.ID, "worker_id": w.ID, "execution": req.ExecutionID, "attempt_id": req.AttemptID, "evidence": resp.Verification})
+	}
+	if len(resp.Files) > 0 {
+		w.Bus.Publish("WorkerFilesWritten", "worker", map[string]any{"task_id": req.ID, "worker_id": w.ID, "execution": req.ExecutionID, "attempt_id": req.AttemptID, "files": resp.Files})
 	}
 	return &resp, nil
 }

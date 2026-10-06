@@ -297,6 +297,12 @@ func TestWorkerChild(t *testing.T) {
 		fmt.Println(`{"id":"wrong","result":"x"}`)
 	case "large":
 		fmt.Print(string(make([]byte, 11*1024*1024)))
+	case "files", "no-files":
+		resp := TaskResponse{ID: req.ID, Result: "ok"}
+		if mode == "files" {
+			resp.Files = []string{"index.html", "assets/a.png", "assets/a.png", "src/index.html", "../escape.txt", "/abs.txt", "a/../b.txt", "c:/win.txt", "back\\slash.txt", "", "dir//double.txt"}
+		}
+		json.NewEncoder(os.Stdout).Encode(resp)
 	case "broker-secret":
 		fmt.Fprintln(os.Stderr, os.Getenv("RETICLE_TOOL_BROKER_TOKEN"))
 		os.Exit(3)
@@ -601,5 +607,60 @@ func TestGraphMutationRequiresActiveAttemptAndBudget(t *testing.T) {
 	execution := engine.Executions["mutation-run"]
 	if len(execution.Workflow.Nodes) != 2 || execution.GraphRevision != 1 {
 		t.Fatalf("expected exactly one committed mutation: nodes=%d revision=%d", len(execution.Workflow.Nodes), execution.GraphRevision)
+	}
+}
+
+func TestCleanReportedFilesKeepsOnlyWellFormedRelativePaths(t *testing.T) {
+	got := cleanReportedFiles([]string{"index.html", "assets/a.png", "assets/a.png", "src/index.html", "../escape.txt", "/abs.txt", "a/../b.txt", "c:/win.txt", "back\\slash.txt", "", "dir//double.txt", "nul\x00.txt"})
+	want := []string{"index.html", "assets/a.png", "src/index.html"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("kept %q, want %q", got, want)
+	}
+	many := make([]string, maxReportedFiles+50)
+	for i := range many {
+		many[i] = fmt.Sprintf("f/%d.txt", i)
+	}
+	if len(cleanReportedFiles(many)) != maxReportedFiles {
+		t.Fatalf("file list is not capped at %d", maxReportedFiles)
+	}
+	if len(cleanReportedFiles([]string{strings.Repeat("a", maxReportedFilePath+1)})) != 0 {
+		t.Fatal("over-long path accepted")
+	}
+}
+
+func TestWorkerPublishesFilesWrittenOnlyWhenReported(t *testing.T) {
+	for _, mode := range []string{"files", "no-files"} {
+		t.Run(mode, func(t *testing.T) {
+			bus := events.NewBus("test")
+			defer bus.Close()
+			memory.NewManager(memory.NewArtifactStore(), memory.NewRuntimeState(), memory.NewSessionState("test"), bus)
+			published := make(chan map[string]any, 1)
+			bus.Subscribe("WorkerFilesWritten", func(event events.RuntimeEvent) { published <- event.Payload.(map[string]any) })
+			exe, _ := os.Executable()
+			w := NewWorker("test", exe, []string{"-test.run=^TestWorkerChild$"}, []string{"RETICLE_TEST_CHILD=" + mode}, &logger.Logger{}, bus)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			result, failure := w.ExecuteWithEnvironment(ctx, Task{ID: "test|node", ExecutionID: "test", AttemptID: "attempt-1"}, nil)
+			if failure != nil {
+				t.Fatalf("worker failed: %v", failure)
+			}
+			select {
+			case payload := <-published:
+				if mode == "no-files" {
+					t.Fatalf("event published without a files list: %#v", payload)
+				}
+				files, _ := payload["files"].([]string)
+				if strings.Join(files, "|") != "index.html|assets/a.png|src/index.html" || payload["task_id"] != TaskID("test|node") || payload["execution"] != "test" || payload["attempt_id"] != "attempt-1" {
+					t.Fatalf("unexpected payload: %#v", payload)
+				}
+				if strings.Join(result.Files, "|") != "index.html|assets/a.png|src/index.html" {
+					t.Fatalf("response files not cleaned: %q", result.Files)
+				}
+			case <-time.After(300 * time.Millisecond):
+				if mode == "files" {
+					t.Fatal("WorkerFilesWritten was not published")
+				}
+			}
+		})
 	}
 }
