@@ -6,6 +6,9 @@ import { RotateCcw, Square } from 'lucide-react'
 import { IconButton } from '@/design/primitives'
 import { bridge } from '@/state/bridge'
 import { useActiveRun } from '@/state/store'
+import { useResolvedTheme } from '@/state/theme'
+import { ANSI_PALETTES } from './terminalPalette'
+import type { TerminalThemeName } from './terminalPalette'
 
 export function TerminalPanel() {
   const run = useActiveRun()
@@ -14,6 +17,10 @@ export function TerminalPanel() {
   const sessionRef = useRef<string | null>(null)
   const [cwd, setCwd] = useState('Resolving workspace…')
   const [generation, setGeneration] = useState(0)
+  const appTheme = useResolvedTheme()
+  // Read when a terminal is created, so a new session starts in the current theme
+  // without a theme change tearing down the running one.
+  const themeRef = useRef<TerminalThemeName>(appTheme)
 
   useEffect(() => {
     const host = hostRef.current
@@ -26,7 +33,7 @@ export function TerminalPanel() {
       fontSize: 12,
       lineHeight: 1.25,
       scrollback: 5000,
-      theme: terminalTheme(),
+      theme: terminalTheme(themeRef.current),
     })
     const fit = new FitAddon()
     terminal.loadAddon(fit)
@@ -102,6 +109,18 @@ export function TerminalPanel() {
     }
   }, [run?.execId, generation])
 
+  // Re-theme a running terminal when the app theme changes. The shell writes
+  // data-theme in an effect that runs after this one, so wait a frame before
+  // reading the colour tokens.
+  useEffect(() => {
+    themeRef.current = appTheme
+    const frame = requestAnimationFrame(() => {
+      const terminal = terminalRef.current
+      if (terminal) terminal.options.theme = terminalTheme(appTheme)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [appTheme])
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-inset">
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line-1 px-2 text-2xs text-fg-4">
@@ -125,15 +144,17 @@ export function TerminalPanel() {
   )
 }
 
-function terminalTheme() {
+function terminalTheme(name: TerminalThemeName) {
   const css = getComputedStyle(document.documentElement)
-  const token = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback
+  const token = (property: string, fallback: string) => css.getPropertyValue(property).trim() || fallback
+  const dark = name === 'dark'
   return {
-    background: token('--color-bg-inset', '#08090b'),
-    foreground: token('--color-fg-2', '#d3d7df'),
-    cursor: token('--color-accent', '#68a7ff'),
-    selectionBackground: token('--color-accent-weak', '#29476e'),
-    black: '#17191d', red: '#e06c75', green: '#98c379', yellow: '#e5c07b',
-    blue: '#61afef', magenta: '#c678dd', cyan: '#56b6c2', white: '#d7dae0',
+    // --color-inset is the token; the old name (--color-bg-inset) never existed, so the
+    // terminal always fell back to its dark colours, whatever the theme.
+    background: token('--color-inset', dark ? '#08090b' : '#ffffff'),
+    foreground: token('--color-fg-1', dark ? '#e4e7ec' : '#14171c'),
+    cursor: token('--color-accent', dark ? '#68a7ff' : '#1a5fd0'),
+    selectionBackground: token('--color-accent-weak', dark ? '#29476e' : '#c9dcf7'),
+    ...ANSI_PALETTES[name],
   }
 }

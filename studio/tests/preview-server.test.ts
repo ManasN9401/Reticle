@@ -106,6 +106,21 @@ test('traversal, encoded traversal, dotfiles and other runs are refused', async 
   }
 })
 
+test('error pages are HTML that follows the app theme, not bare light text', async () => {
+  const f = await fixture()
+  try {
+    const missing = await raw(f.base, '/exec-a/nope.html')
+    assert.equal(missing.status, 404)
+    assert.equal(missing.headers['content-type'], 'text/html; charset=utf-8')
+    assert.match(missing.body, /<meta name="color-scheme" content="dark light">/)
+    assert.match(missing.body, /Not found/)
+    // Successful responses are untouched.
+    assert.equal((await raw(f.base, '/exec-a/style.css')).headers['content-type'], 'text/css; charset=utf-8')
+  } finally {
+    await f.cleanup()
+  }
+})
+
 test('only GET and HEAD are allowed, and HEAD sends no body', async () => {
   const f = await fixture()
   try {

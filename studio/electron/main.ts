@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
-import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { IPC } from '../src/shared/ipc'
 import type {
   ApiResult,
@@ -469,6 +469,10 @@ function registerIpc(): void {
 
   handle(IPC.themeBackground, (_e, theme: ResolvedTheme) => {
     mainWindow?.setBackgroundColor(groundColor(theme))
+    // Native surfaces (form-control popups, scrollbars, menus) and the
+    // prefers-color-scheme seen by pages in the preview follow the app theme,
+    // not the operating system's.
+    nativeTheme.themeSource = theme === 'light' ? 'light' : 'dark'
   })
 
   handle(IPC.nativeAction, (_e, action: NativeAction) => {

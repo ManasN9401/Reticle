@@ -178,6 +178,28 @@ body {
   line-height: 1.45;
 }
 
+/*
+ * Native controls. The option list of a <select> is drawn by the browser, and
+ * left alone it can keep a light palette in the dark theme: pale text from our
+ * foreground token on a white list. Colour the options from the same tokens so
+ * both themes (and custom schemes) agree.
+ */
+select,
+option,
+optgroup {
+  color-scheme: inherit;
+}
+
+option,
+optgroup {
+  background-color: var(--color-bg-2);
+  color: var(--color-fg-1);
+}
+
+option:disabled {
+  color: var(--color-fg-4);
+}
+
 /* Counters, timings, ids and anything that updates in place must not jitter. */
 .num {
   font-variant-numeric: tabular-nums;

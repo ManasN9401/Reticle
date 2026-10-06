@@ -64,19 +64,32 @@ function within(root: string, target: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
+function errorPage(status: number, message: string): string {
+  return (
+    '<!doctype html><meta charset="utf-8"><meta name="color-scheme" content="dark light">' +
+    `<title>${status}</title>` +
+    '<body style="font:14px system-ui,sans-serif;margin:0;padding:32px">' +
+    `<h1 style="font-size:16px;margin:0 0 8px">${status}</h1>` +
+    `<p style="margin:0;opacity:.7">${message}</p>`
+  )
+}
+
 export function createPreviewServer(rootFor: (execId: string) => string | null): PreviewServer {
   let server: http.Server | null = null
   let starting: Promise<number> | null = null
   let port = 0
 
   const respond = (res: http.ServerResponse, status: number, message: string, headers: http.OutgoingHttpHeaders = {}) => {
+    // Errors are shown inside the Preview iframe. A bare text/plain page there is
+    // always light; declaring both schemes lets it follow the app theme.
+    const page = status >= 400
     res.writeHead(status, {
-      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Type': page ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
       'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'no-store',
       ...headers,
     })
-    res.end(message)
+    res.end(page ? errorPage(status, message) : message)
   }
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
