@@ -33,6 +33,11 @@ export async function connect(): Promise<void> {
   await bridge.connection.connect({ host, port })
 }
 
+/** Connect to a specific orchestrator address; the main process also saves it as the default. */
+export async function connectTo(host: string, port: number): Promise<void> {
+  await bridge?.connection.connect({ host, port })
+}
+
 export async function disconnect(): Promise<void> {
   await bridge?.connection.disconnect()
 }

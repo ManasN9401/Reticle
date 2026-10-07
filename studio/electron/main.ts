@@ -365,8 +365,14 @@ function registerIpc(): void {
     const state = forge.start(request, settings.get())
     // Give the telemetry server a moment to bind before attaching.
     if (state.phase === 'running') {
+      // The launcher's port is the one the user means. Remember it and retarget the
+      // REST client too, so a restart, a reconnect and the REST calls all agree
+      // instead of falling back to the previously saved port.
+      const { host } = settings.get().connection
+      const next = settings.patch({ connection: { host, port: request.port } })
+      rest.setTarget(host, request.port)
+      send(IPC.pushSettings, next)
       setTimeout(() => {
-        const { host } = settings.get().connection
         client.connect(host, request.port)
       }, 1_200)
     }
