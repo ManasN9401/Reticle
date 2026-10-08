@@ -48,6 +48,7 @@ class BuilderRoles(unittest.TestCase):
             tool_response("mark_task_complete", {"summary": "premature: only read the spec"}),
             tool_response("write_file", {"path": "index.html", "content": "<h1>gallery</h1>"}),
             tool_response("read_file", {"path": "index.html"}),
+            tool_response("check_web_page", {}),
             tool_response("mark_task_complete", {"summary": "built the site"}),
         ]
         summary, remaining, written = self.run_worker("frontend", script, self.NO_OUTPUTS)
@@ -72,6 +73,7 @@ class BuilderRoles(unittest.TestCase):
             tool_response("mark_task_complete", {"summary": "premature"}),
             tool_response("write_file", {"path": "site.html", "content": "<p>x</p>"}),
             tool_response("read_file", {"path": "site.html"}),
+            tool_response("check_web_page", {}),
             tool_response("mark_task_complete", {"summary": "done"}),
         ]
         instructions = "Create or update exactly these workspace files: site.html.\n"
