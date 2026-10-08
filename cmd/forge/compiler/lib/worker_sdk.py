@@ -328,6 +328,11 @@ def _without_src_prefix(path):
     # name the same deliverable to a model even though they are different paths.
     return path[4:] if path.startswith("src/") else path
 
+WEB_SUFFIXES = (".html", ".htm", ".js", ".mjs", ".css")
+
+def _is_web_file(path):
+    return path.lower().endswith(WEB_SUFFIXES)
+
 def _output_satisfied(required, written_paths):
     required = _without_src_prefix(required)
     return any(
@@ -366,7 +371,31 @@ MAX_RATE_LIMIT_ADVICE = 120
 NON_TRANSIENT_LIMITS = (
     "free-models-per-day", "openrouter_free_tier_daily", "insufficient",
     "exceeded your current quota", "credit balance",
+    # One request larger than the provider's per-minute token cap can never succeed,
+    # however long we wait. Groq reports it as a rate limit.
+    "request too large", "reduce your message size",
 )
+_TOO_LARGE_MARKERS = ("request too large", "reduce your message size", "maximum context length", "context_length_exceeded")
+# Progressively tighter caps, in characters, for old tool results and assistant text.
+COMPACTION_CAPS = (2000, 500)
+
+def _is_request_too_large(error):
+    return any(marker in str(error).lower() for marker in _TOO_LARGE_MARKERS)
+
+def _compact_messages(messages, cap):
+    """Shorten old tool results and assistant text in place, keeping the system prompt,
+    the task context and the most recent turn intact. Returns how many characters were cut."""
+    saved = 0
+    for message in messages[2:-1]:
+        content = message.get("content")
+        if message.get("role") not in ("tool", "assistant") or not isinstance(content, str) or len(content) <= cap:
+            continue
+        # Already shortened to this cap: the removal note itself must not be cut again.
+        if "characters removed to fit the model's request limit]" in content and len(content) <= cap + 120:
+            continue
+        message["content"] = content[:cap] + f"\n[... {len(content) - cap} characters removed to fit the model's request limit]"
+        saved += len(content) - cap
+    return saved
 _RETRY_HINT = re.compile(r"try again in ((?:\d+(?:\.\d+)?(?:ms|h|m|s))+)", re.IGNORECASE)
 _DURATION_PART = re.compile(r"(\d+(?:\.\d+)?)(ms|h|m|s)", re.IGNORECASE)
 _UNIT_SECONDS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
@@ -442,11 +471,19 @@ def _start_within(completion, seconds, **request):
     return outcome["value"]
 
 def _complete_with_retries(completion, started, start_timeout, can_reroute, **request):
-    rate_limited = transient = 0
+    rate_limited = transient = compactions = 0
     while True:
         try:
             return _start_within(completion, start_timeout, **request)
         except Exception as error:
+            # Before any change the dispatcher reroutes a too-large request to another
+            # model. After files were written it cannot, so shrink the history instead.
+            if _is_request_too_large(error) and not can_reroute() and compactions < len(COMPACTION_CAPS):
+                saved = _compact_messages(request["messages"], COMPACTION_CAPS[compactions])
+                compactions += 1
+                if saved > 0:
+                    _emit_llm("status", f"Request too large for the model; shortened earlier turns by {saved} characters and repeating it (attempt {compactions}/{len(COMPACTION_CAPS)})")
+                    continue
             wait = _rate_limit_wait(error, rate_limited)
             if wait is not None:
                 rate_limited += 1
@@ -570,6 +607,12 @@ def run(instructions, kind="coding"):
         except Exception:
             pass
 
+    if "workspace.read" in capabilities:
+        definitions["check_web_page"]=(
+            "Check a generated web page the way a browser would load it, without running one. Reports blocking problems: a script that uses import/export but is loaded as a classic script, bare module imports with no import map, referenced files that do not exist, a renderer canvas that is not a <canvas>. path is the .html file relative to the workspace; omit it to check every page. Run it after writing web files and fix every problem before finishing.",
+            {"path":{"type":"string","optional":True}}
+        )
+        tool_capabilities["check_web_page"] = "workspace.read"
     if "image.local" in capabilities:
         import image_tools
         definitions["generate_local_asset"]=(
@@ -649,6 +692,10 @@ def run(instructions, kind="coding"):
     # That prompt, when present, is the more specific source of declared outputs.
     required_outputs = _required_output_paths(str(req.get("parameters", {}).get("system_prompt", ""))) or _required_output_paths(instructions)
     effects_started = False
+    # Web files written since the page was last checked clean. A frontend node may not
+    # finish with unchecked web output: generated pages have repeatedly been dead on arrival.
+    web_written = False
+    web_checked = False
     def missing_outputs():
         return sorted(r for r in required_outputs if not _output_satisfied(r, written_paths))
     def record_verification(tool, target, checked_path=None, covers_changes=False):
@@ -911,6 +958,12 @@ def run(instructions, kind="coding"):
                     if not isinstance(result, str):
                         result = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
                 elif name == "mark_task_complete":
+                    if kind in BUILDER_KINDS and web_written and not web_checked:
+                        raise ValueError(
+                            "You wrote web files but have not checked that the page can run. Call check_web_page, "
+                            "fix every problem it reports, and run it again until it reports no blocking problems; "
+                            "then call mark_task_complete."
+                        )
                     if kind in BUILDER_KINDS and not required_outputs and not written_paths and not effects_started:
                         raise ValueError(
                             "This role builds something, but you have not created or changed anything yet; "
@@ -946,6 +999,19 @@ def run(instructions, kind="coding"):
                         raise ValueError("Invalid agent identifier")
                     graph_mutation = {"action":"delegate","target_agent":args["target_agent"],"return_to_supervisor":True}
                     result = "Delegation will be committed with the final response"
+                elif name == "check_web_page":
+                    import web_tools
+                    result, blocking = web_tools.run_check(workspace, args.get("path"))
+                    if blocking == 0:
+                        web_checked = True
+                        checked_any = False
+                        for pending in [p for p in sorted(pending_modified_paths) if _is_web_file(p)]:
+                            record_verification(name, pending, checked_path=pending)
+                            checked_any = True
+                        if not checked_any:
+                            record_verification(name, args.get("path") or "site")
+                    else:
+                        web_checked = False
                 elif name in implementations:
                     result=implementations[name](workspace_dir=workspace,**args)
                     if not str(result).startswith("Error"):
@@ -978,6 +1044,8 @@ def run(instructions, kind="coding"):
                         written_path = _normalized_workspace_path(args["path"])
                         pending_modified_paths.add(written_path)
                         written_paths.add(written_path)
+                        if _is_web_file(written_path):
+                            web_written, web_checked = True, False
                 elif name == "replace_file_content":
                     result = toolset.replace_file_content(workspace_dir=workspace, **args)
                     if result.startswith("Successfully"):
@@ -985,6 +1053,8 @@ def run(instructions, kind="coding"):
                         written_path = _normalized_workspace_path(args["path"])
                         pending_modified_paths.add(written_path)
                         written_paths.add(written_path)
+                        if _is_web_file(written_path):
+                            web_written, web_checked = True, False
                 else:
                     result = getattr(toolset,name)(workspace_dir=workspace, **args)
                     if not result.startswith("Error"):

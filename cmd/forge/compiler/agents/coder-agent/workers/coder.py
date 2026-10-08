@@ -35,7 +35,7 @@ def main():
             raise ValueError("Aliased generated worker path")
         target.mkdir(parents=True, exist_ok=True)
         (target / f"{agent_id}.py").write_text("from worker_sdk import run\n\nif __name__ == '__main__':\n    run(" + repr(instructions) + ")\n", encoding="utf-8")
-        for name in ("forge_utils.py", "worker_sdk.py", "comfy_tools.py", "image_tools.py"):
+        for name in ("forge_utils.py", "worker_sdk.py", "comfy_tools.py", "image_tools.py", "web_tools.py"):
             (target / name).write_bytes((LIB / name).read_bytes())
     (workspace / "src").mkdir(exist_ok=True)
     print(json.dumps({"id":req["id"],"artifact":{"id":req["id"]+"_output","name":"Python Files","type":"application/json","data":"{}"}}))
