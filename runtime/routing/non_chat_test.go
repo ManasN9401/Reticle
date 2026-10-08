@@ -8,21 +8,26 @@ import (
 
 func TestNonChatModelIDs(t *testing.T) {
 	for id, want := range map[string]bool{
-		"mistral/mistral-embed":             true,
-		"mistral/mistral-embed-2312":        true,
-		"openai/text-embedding-3-small":     true,
-		"cohere/rerank-v3.5":                true,
-		"openai/omni-moderation-latest":     true,
-		"mistral/mistral-ocr-latest":        true,
-		"groq/whisper-large-v3":             true,
-		"openai/gpt-4o-mini-tts":            true,
-		"cohere/command-a-plus-05-2026":     false,
-		"mistral/magistral-medium-latest":   false,
-		"nvidia/nemotron-3-ultra-550b-a55b": false,
-		"ollama/embedded-systems-coder:7b":  false,
-		"llm7/claude-opus-5-5":              false,
-		"openrouter/qwen/qwen3-coder":       false,
-		"groq/llama-guard-4-12b":            false,
+		"mistral/mistral-embed":                true,
+		"mistral/mistral-embed-2312":           true,
+		"openai/text-embedding-3-small":        true,
+		"cohere/rerank-v3.5":                   true,
+		"openai/omni-moderation-latest":        true,
+		"mistral/mistral-ocr-latest":           true,
+		"gemini/veo-3.1-fast-generate-preview": true,
+		"gemini/nano-banana-pro-preview":       true,
+		"gemini/imagen-4.0-generate-001":       true,
+		"openai/gpt-image-1":                   true,
+		"gemini/gemini-2.5-flash-image":        true,
+		"groq/whisper-large-v3":                true,
+		"openai/gpt-4o-mini-tts":               true,
+		"cohere/command-a-plus-05-2026":        false,
+		"mistral/magistral-medium-latest":      false,
+		"nvidia/nemotron-3-ultra-550b-a55b":    false,
+		"ollama/embedded-systems-coder:7b":     false,
+		"llm7/claude-opus-5-5":                 false,
+		"openrouter/qwen/qwen3-coder":          false,
+		"groq/llama-guard-4-12b":               false,
 	} {
 		if got := isNonChatModelID(id); got != want {
 			t.Errorf("isNonChatModelID(%q) = %v, want %v", id, got, want)
@@ -64,5 +69,14 @@ func TestEmbeddingModelsAreNeverRoutedForChatTasks(t *testing.T) {
 	ModelsMutex.Unlock()
 	if got := r.SelectModel("task", "agent", 2, .9, "text"); got != nil {
 		t.Fatalf("an embedding-only catalog still produced a route: %#v", got)
+	}
+}
+
+func TestImageModalityModelsStayRoutableForImageTasks(t *testing.T) {
+	if !servesChatTasks(Model{ID: "openai/dall-e-3", Modality: "image"}) {
+		t.Fatal("an image-modality model was excluded from image routing")
+	}
+	if servesChatTasks(Model{ID: "gemini/veo-3.1-fast-generate-preview", Modality: "text"}) {
+		t.Fatal("a video generator filed as text is still routable for chat")
 	}
 }

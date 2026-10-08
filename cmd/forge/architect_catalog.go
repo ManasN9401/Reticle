@@ -65,6 +65,7 @@ func buildArchitectCatalog(reg *agent.Registry, brokerTools ...[]toolbroker.Desc
 			{ID: "read_file", Capability: "workspace.read", Description: "Read a workspace text file."},
 			{ID: "list_dir", Capability: "workspace.read", Description: "List a workspace directory."},
 			{ID: "search_codebase", Capability: "workspace.read", Description: "Search workspace text."},
+			{ID: "check_web_page", Capability: "workspace.read", Description: "Statically check a generated web page and its scripts for problems a browser would hit (classic scripts using import, bare module imports, missing files)."},
 			{ID: "write_file", Capability: "workspace.write", Description: "Create a workspace text file."},
 			{ID: "replace_file_content", Capability: "workspace.write", Description: "Replace previously read file content."},
 			{ID: "read_url", Capability: "network.public", Description: "Read public HTTP documentation."},
