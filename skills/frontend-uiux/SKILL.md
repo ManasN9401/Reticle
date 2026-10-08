@@ -19,6 +19,34 @@ This skill equips the agent to act as a World-Class Frontend Designer and Engine
 - **Thumbnails and Resizing:** Do not regenerate an image to make a smaller copy. Use `make_thumbnails` (one call for a whole directory), `resize_image`, `convert_image` or `crop_image` on the files you already generated.
 - **Patience:** Asset generation takes time. Wait patiently for each tool call to complete, and check the `generated` and `failed` lists a batch call returns.
 
-## 3. Technology Stack
+## 3. Make The Page Actually Run
+A generated page that is dead on arrival is a failure, however good it looks. Pages have repeatedly shipped with a script the browser refuses to run, so nothing animated and the images never showed.
+- **Never mix module syntax with a classic script.** A plain `<script src="main.js">` cannot contain `import` or `export`: the browser stops at the first line ("Cannot use import statement outside a module") and nothing runs. Pick one:
+  - **Simplest (preferred):** load libraries from a CDN as globals and write plain script code with no `import` lines. Three.js r128 from cdnjs gives a global `THREE`; GSAP gives `gsap`.
+  - **Or modules:** `<script type="module" src="main.js">` plus an import map in the page for every bare name you import (`"three"`, `"gsap"`). A bare `import ... from 'three'` with no import map also fails.
+- **A renderer needs a real canvas.** `new THREE.WebGLRenderer({ canvas: el })` requires `el` to be a `<canvas>` element, not a `<div>`.
+- **Every generated image must appear in the page.** Reference each file you create from the HTML, CSS, or script (for example as a texture or an `<img>`), using a path relative to the page.
+- **Check before you finish.** After writing web files, call `check_web_page`, fix every problem it reports, and run it again until it reports none. You cannot complete the task with unchecked web output.
+
+A minimal page that runs (three.js from a CDN as a global, no imports):
+```html
+<canvas id="stage"></canvas>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="main.js"></script>
+```
+```js
+// main.js - a classic script: no import/export
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('stage'), antialias: true });
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 100);
+camera.position.z = 5;
+new THREE.TextureLoader().load('assets/gallery-01.png', (texture) => {
+  scene.add(new THREE.Mesh(new THREE.PlaneGeometry(3, 2), new THREE.MeshBasicMaterial({ map: texture })));
+});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setAnimationLoop(() => { scene.rotation.y += 0.003; renderer.render(scene, camera); });
+```
+
+## 4. Technology Stack
 - You are free to use Vanilla HTML/CSS/JS for simple immersive pages, or Next.js/React/Tailwind if a full web app architecture is required by the prompt.
 - If using Vanilla, utilize CDNs for external animation libraries (e.g., Anime.js).

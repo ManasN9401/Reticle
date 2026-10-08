@@ -17,6 +17,11 @@ import {
   setupMonaco,
 } from './monacoSetup'
 
+// Register the local Monaco copy and both themes as soon as this module loads. They used
+// to be registered from an effect, which runs after the editor's first render: an editor
+// that mounted first fell back to Monaco's default light theme and never switched.
+setupMonaco()
+
 /**
  * Read-only source viewer.
  *
@@ -196,6 +201,10 @@ function TextViewer({
         ) : (
           <Editor
             height="100%"
+            beforeMount={() => {
+              setupMonaco()
+              if (activeScheme) defineCustomMonacoTheme(activeScheme)
+            }}
             theme={useCustomTheme ? RETICLE_CUSTOM : theme === 'light' ? RETICLE_LIGHT : RETICLE_DARK}
             language={languageFor(path ?? label)}
             value={content}
