@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { isLlmLog } from '@shared/ids'
+import { mergeLogRecords } from '@shared/logMerge'
 import type { RuntimeEvent } from '@shared/events'
 import type {
   ConnectionState,
@@ -171,7 +172,19 @@ export const useStudio = create<StudioStore>((set, get) => ({
 
   selectRun(execId) {
     set({ selectedExecId: execId, selectedNodeId: null, scrubEventId: null })
-    void bridge?.logs.scope(execId ? { execId } : {})
+    // Scoping narrows the live log stream to this run, but anything the run logged
+    // before it was selected was never delivered (it was filtered out). Fetch that
+    // history, otherwise a run viewed after it started shows no model output or tool
+    // activity at all, permanently.
+    void bridge?.logs.scope(execId ? { execId } : {}).then(async () => {
+      if (!execId || !bridge) return
+      const history = await bridge.logs.query({ execId, includeUnscoped: false, limit: LOG_LIMIT })
+      if (get().selectedExecId !== execId) return
+      set((prev) => ({
+        logs: mergeLogRecords(prev.logs, history.records, LOG_LIMIT),
+        logsTruncated: prev.logsTruncated || history.truncated,
+      }))
+    })
   },
 
   selectNode(nodeId) {

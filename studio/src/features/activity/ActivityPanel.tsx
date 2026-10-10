@@ -14,6 +14,7 @@ import { compactToolLog } from '@/features/graph/toolLog'
 import { useActiveRun, useStudio } from '@/state/store'
 import type { LogRecord } from '@shared/ipc'
 import { buildDependencyOperations, type DependencyOperation } from './dependencyActivity'
+import { buildToolCalls, type ToolCall } from './toolActivity'
 
 type ActivityTab = 'progress' | 'dependencies' | 'tools'
 
@@ -26,10 +27,7 @@ export function ActivityPanel() {
   const [tab, setTab] = useState<ActivityTab>('progress')
 
   const dependencies = useMemo(() => buildDependencyOperations(logs), [logs])
-  const tools = useMemo(
-    () => logs.filter((record) => !record.isLlm && /\[TOOL\]/i.test(record.message)),
-    [logs],
-  )
+  const tools = useMemo(() => buildToolCalls(logs), [logs])
   const activity = useMemo(
     () => logs.filter((record) => !record.isLlm && (record.eventType || DEPENDENCY_MESSAGE.test(record.message))).slice(-80).reverse(),
     [logs],
@@ -66,7 +64,7 @@ export function ActivityPanel() {
       <div className="min-h-0 flex-1 overflow-auto">
         {tab === 'progress' ? <ProgressView records={activity} /> : null}
         {tab === 'dependencies' ? <DependenciesView operations={dependencies} /> : null}
-        {tab === 'tools' ? <ToolsView records={tools} /> : null}
+        {tab === 'tools' ? <ToolsView calls={tools} /> : null}
       </div>
     </div>
   )
@@ -184,9 +182,27 @@ function DependenciesView({ operations }: { operations: DependencyOperation[] })
   )
 }
 
-function ToolsView({ records }: { records: LogRecord[] }) {
-  if (records.length === 0) {
+function ToolsView({ calls }: { calls: ToolCall[] }) {
+  if (calls.length === 0) {
     return <EmptyState icon={<TerminalSquare size={20} />} title="No tool activity" description="File, terminal, browser and other worker tool calls will appear here." />
   }
-  return <div>{records.slice().reverse().map((record) => <ActivityRow key={record.seq} record={record} />)}</div>
+  return <div>{calls.slice().reverse().map((call) => <ToolRow key={call.seq} call={call} />)}</div>
+}
+
+function ToolRow({ call }: { call: ToolCall }) {
+  const color = call.status === 'failed' ? 'var(--color-st-failed)' : call.status === 'running' ? 'var(--color-st-running)' : 'var(--color-st-done)'
+  return (
+    <div className="flex items-start gap-2 border-b border-line-1 px-3 py-1.5">
+      <span className="num mt-px shrink-0 text-[10px] text-fg-4">{formatClock(call.at)}</span>
+      <StatusPip className="mt-1" size={6} color={color} pulse={call.status === 'running'} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className={cn('mono text-xs', call.status === 'failed' ? 'text-st-failed' : 'text-fg-1')}>{call.name}</span>
+          <span className="text-[10px] text-fg-4">{call.status === 'running' ? 'running' : call.status === 'failed' ? 'failed' : ''}</span>
+        </div>
+        {call.detail ? <div className="mt-0.5 text-2xs break-words text-fg-3">{call.detail}</div> : null}
+        {call.agentId ?? call.nodeId ? <div className="mono mt-0.5 text-[10px] text-fg-4">{call.agentId ?? call.nodeId}</div> : null}
+      </div>
+    </div>
+  )
 }
