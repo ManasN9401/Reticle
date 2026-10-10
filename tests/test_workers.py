@@ -244,7 +244,9 @@ class WorkerContracts(unittest.TestCase):
                     raise RuntimeError("RateLimitError")
                 with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{"RETICLE_LOCAL_GPU_COORDINATION":"false"},clear=False),patch.object(comfy_tools,"ollama_model_loaded",return_value=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stderr",io.StringIO()) as error:
                     with self.assertRaisesRegex(RuntimeError,"RateLimitError"): worker_sdk.run("fixture")
-                    self.assertEqual("RETICLE_RETRY_SAFE" in error.getvalue(),not mutate)
+                    # A workspace file write may be built on by a retry on another route; nothing was written otherwise.
+                    self.assertIn("FILE_EFFECTS_ONLY" if mutate else "NO_EFFECTS",error.getvalue())
+                    self.assertNotIn("NO_EFFECTS" if mutate else "FILE_EFFECTS_ONLY",error.getvalue())
 
     def test_rag_snapshot_replaces_stale_sources(self):
         import rag_tools

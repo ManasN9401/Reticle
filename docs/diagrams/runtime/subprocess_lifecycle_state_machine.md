@@ -26,4 +26,4 @@ stateDiagram-v2
     Cancelled --> [*]: AttemptFinished
 ```
 
-The Go `Worker.Execute` implementation owns process creation, bounded stdout/stderr capture, protocol validation, and acknowledged result commit. The dispatcher owns attempt identity and retry policy. Provider libraries do not perform hidden retries. A failed attempt can be retried only when it is classified as transient and the worker proves that no effect started.
+The Go `Worker.Execute` implementation owns process creation, bounded stdout/stderr capture, protocol validation, and acknowledged result commit. The dispatcher owns attempt identity and retry policy. Provider libraries do not perform hidden retries. A failed attempt can be retried only when it is classified as transient and the worker proves that no effect started, or that it changed only replay-safe workspace files, in which case the next attempt resumes from them.

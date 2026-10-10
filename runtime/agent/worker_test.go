@@ -141,6 +141,8 @@ func TestRetriesRequireNoEffectProof(t *testing.T) {
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] Agent stalled: repeated identical tool requests", true},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] Agent stalled: model returned empty responses for 3 consecutive iterations", true},
 		{"Agent stalled: model returned empty responses for 3 consecutive iterations", false},
+		{"[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY] Agent stalled: completion repeatedly rejected (6 times with no progress)", true},
+		{"Agent stalled: completion repeatedly rejected (6 times with no progress)", false},
 		{"[RETICLE_RETRY_SAFE: NO_EFFECTS] command failed", false},
 	} {
 		if retryableProviderFailure(&WorkerFailure{Reason: WorkerExitedNonZero, Stderr: fixture.text}) != fixture.want {
@@ -280,6 +282,34 @@ func TestWorkerChild(t *testing.T) {
 		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "adjusted route completed", Artifact: &memory.Artifact{ID: "route-fixture", Name: "route-fixture", Type: "text/plain", Data: "verified fixture output"}})
 	case "route-reject":
 		fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nBadRequestError: unsupported parameter")
+		os.Exit(1)
+	case "resume-files":
+		// The first attempt wrote files and then lost its provider; the retry must be told.
+		if req.Memory["resumed_after_files"] != true {
+			fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]\nAPIConnectionError: connection reset by peer")
+			os.Exit(1)
+		}
+		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "resumed from the files already written"})
+	case "resume-rejected":
+		if req.Memory["resumed_after_files"] != true {
+			fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]\nAgent stalled: completion repeatedly rejected (6 times with no progress)")
+			os.Exit(1)
+		}
+		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "another model verified the existing files"})
+	case "resume-stall":
+		fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]\nAgent stalled: repeated identical tool requests")
+		os.Exit(1)
+	case "fresh-attempt":
+		// A node that changed nothing must never be told it is a resume.
+		if req.Memory["resumed_after_files"] != nil {
+			fmt.Fprintln(os.Stderr, "unexpected resume flag")
+			os.Exit(2)
+		}
+		if req.Memory["llm_max_tokens"] == float64(8192) {
+			json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "fresh"})
+			break
+		}
+		fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nBadRequestError: max_tokens must be less than or equal to 8192")
 		os.Exit(1)
 	case "effect-stall":
 		fmt.Fprintln(os.Stderr, "Agent iteration budget exhausted without verified completion")

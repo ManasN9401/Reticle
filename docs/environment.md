@@ -80,8 +80,10 @@ Workflow state is stored in `.reticle/executions/state.json`; external operation
 
 Forge's `-retries` option is a total per-node attempt budget (default 3, range
 1–15), not a promise to try every provider. Recognized failures require explicit
-no-effects proof before the dispatcher can restart the worker. Unknown failures
-and stalled workers that have already produced effects remain terminal.
+no-effects proof before the dispatcher can restart the worker, or file-effects-only
+proof (workspace writes through replay-safe tools) before it resumes the node on
+another route. Unknown failures, workers that ran terminal or brokered tools, and
+stalled workers that have already produced effects remain terminal.
 
 The router remembers rejected requests for the current task, favours untried
 eligible routes and moves away from providers with repeated catalog/request
@@ -99,5 +101,5 @@ adding a key alone does not establish model/tool compatibility.
 
 Explicit billing failures such as `Insufficient balance`, `insufficient_quota`
 and HTTP 402 are classified as exhausted quota on the selected credential.
-Other eligible routes can use the remaining attempt budget. The no-effects
+Other eligible routes can use the remaining attempt budget. The retry-safety
 requirement still applies; a generic `APIError` alone does not authorize replay.

@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-09-19
+updated: 2026-10-08
 ---
 
 # Studio IPC architecture
@@ -19,7 +19,7 @@ The main-process `EventStore` in `studio/electron/forge/store.ts`:
 3. folds structural events through `studio/src/shared/projection.ts`;
 4. stores bounded event and log rings;
 5. batches projection and log pushes to the renderer;
-6. scopes logs by selected execution and node.
+6. scopes logs by selected execution and node. The scope applies to live pushes only, so selecting a run also queries the ring for that run's earlier records (`logs.query`) and the renderer merges them by sequence number.
 
 Current structural lifecycle names come from `docs/specifications/event-taxonomy/v1/001-events.md`, including `WorkflowStarted`, `WorkflowSnapshot`, `NodeReady`, `TaskDispatched`, `WorkerStarted`, `WorkerCompleted`, `WorkerFailed`, `WorkflowCompleted`, and `WorkflowFailed`. Provisioning events carry operation and execution identity. Raw worker stdout is reserved for the one final protocol response; progress and model streaming arrive through `WorkerLog` events derived from stderr.
 

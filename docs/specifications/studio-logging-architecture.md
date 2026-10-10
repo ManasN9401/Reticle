@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-09-19
+updated: 2026-10-08
 ---
 
 # Studio Logging Architecture & Recent Fixes
@@ -24,7 +24,14 @@ When a user clicks on a node in the graph, the `Inspector.tsx` component selects
 
 - **Overview Tab**: Displays high-level status, inputs/outputs, and critical failures. If the node crashes (exit code > 0), the Go backend attaches the entire raw stderr buffer to `node.failure.stderr`. To prevent the UI from being cluttered with raw JSON LLM token streams, `Inspector.tsx` actively filters out lines starting with `[LLM_STREAM]` before rendering the red failure box.
 - **Log Tab**: Displays standard application logs, filtering `records.filter(r => !r.isLlm)`.
-- **LLM Tab**: Parses `records.filter(r => r.isLlm)` and separates provider-supplied reasoning, response text, tool requests and model status. Adjacent token events of the same kind are joined for readability. Historical string-only `[LLM_STREAM]` records and `[LLM]` records remain supported.
+- **LLM Tab**: Parses `records.filter(r => r.isLlm)` and separates provider-supplied reasoning, response text, tool requests and model status. Adjacent token events of the same kind are joined for readability, in the renderer; the runtime publishes one `WorkerLog` per stderr line. Historical string-only `[LLM_STREAM]` records and `[LLM]` records remain supported.
+- **Artifacts produced**: lists the node's summary artifact and, under it, the workspace files its final result reported (`WorkerFilesWritten`). Every row opens its content in an editor tab; image files open in an image viewer streamed from the run's loopback preview server instead of being read as text. Only the final attempt's files are listed.
+
+### Activity tools and run scope
+
+The Activity panel's Tools tab is built from the same structured tool diagnostics: a `Requested` record opens a call and the following `Completed` or `Failed` record for the same node closes it, so a call shows as running, done or failed with the bounded first-line error. Lines containing `[TOOL]` (printed by the approval step) are listed too. Before this, the tab listed only `[TOOL]` lines and stayed empty for model tool calls.
+
+Selecting a run narrows the main process's live log push to that execution. Records the run logged before it was selected were never delivered, so selecting a run also queries the main-process log ring for that execution and merges the result with the live stream by sequence number. This keeps the contract above: model output and tool activity stay available for any run still held in the bounded ring. When the ring has evicted old records, the log views are marked truncated.
 
 ### 3. Worker LLM Diagnostic Protocol
 
@@ -34,7 +41,7 @@ The architect and generated workers request streaming responses. They publish re
 
 Tool argument bodies and successful tool output are not copied into diagnostics because they can contain large file contents or sensitive values. The LLM tab reports the requested tool name and whether it completed. For a failed tool call, it also shows a bounded first-line error so path and validation mistakes can be diagnosed without dumping file contents.
 
-Workers also report whether each tool completed or failed without copying successful tool output into the diagnostic stream. If a model requests the same canonical set of tools with the same arguments for three consecutive iterations before starting any external effect, the worker stops the loop with an explicit side-effect-free stall classification. The dispatcher records the model failure and routes the next configured attempt normally. Iteration and time-budget exhaustion receive the same treatment only when the worker proves that no external effect started.
+Workers also report whether each tool completed or failed without copying successful tool output into the diagnostic stream. If a model requests the same canonical set of tools with the same arguments for three consecutive iterations before starting any external effect, the worker stops the loop with an explicit side-effect-free stall classification. The dispatcher records the model failure and routes the next configured attempt normally. Iteration and time-budget exhaustion receive the same treatment only when the worker proves that no external effect started. A reply with neither text nor a tool call, typically the end of a reasoning-only turn, is never added to the conversation, because strict providers reject an empty assistant message. The model is told once per occurrence, and three in a row stop the worker with the same side-effect-free stall classification.
 
 ---
 

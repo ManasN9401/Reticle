@@ -43,7 +43,7 @@ def index_directory(path, workspace_dir):
             if not file.is_file() or any(p in {".git",".reticle","node_modules","__pycache__",".venv"} for p in file.parts):
                 continue
             rel=file.relative_to(Path(workspace_dir).resolve()/"src").as_posix()
-            file=safe_path(workspace_dir,rel)
+            file=safe_path(workspace_dir,rel,literal=True)
             if file.stat().st_size>MAX_FILE or file.suffix not in {".py",".js",".ts",".tsx",".jsx",".md",".go",".yaml",".yml",".json",".txt",".html",".css"}:
                 continue
             try:text=file.read_text(encoding="utf-8")

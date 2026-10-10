@@ -58,9 +58,27 @@ def _expand_short_name(path):
     length = ctypes.windll.kernel32.GetLongPathNameW(str(path), buffer, len(buffer))
     return Path(buffer.value) if 0 < length < len(buffer) else path
 
-def safe_path(workspace, relative, *, base="src"):
+def canonical_workspace_path(relative):
+    """The path a tool means. A node works inside the session's src folder, but the architect
+    names deliverables as src/index.html, so models write both src/main.js and index.html.
+    Without this they landed in different places (src/src/main.js beside src/index.html) and the
+    page could not find its own script. One leading src/ is the folder itself; bare "src" is
+    the folder."""
+    if not isinstance(relative, str):
+        return relative
+    parts = Path(relative).parts
+    if parts and parts[0] == "src" and not Path(relative).is_absolute():
+        return Path(*parts[1:]).as_posix() if len(parts) > 1 else "."
+    return relative
+
+def safe_path(workspace, relative, *, base="src", literal=False):
+    """Resolve a workspace-relative path inside the workspace. For the default src base a
+    leading src/ is stripped (see canonical_workspace_path); literal=True resolves the path
+    exactly as given, for re-resolving a path that was read from the disk."""
     if not isinstance(relative, str) or "\\" in relative or ":" in relative:
         raise ValueError("A workspace-relative path is required")
+    if base == "src" and not literal:
+        relative = canonical_workspace_path(relative)
     rel = Path(relative)
     if rel.is_absolute() or ".." in rel.parts:
         raise ValueError("Path escapes workspace")
@@ -83,14 +101,10 @@ def read_file(path, workspace_dir):
     try:
         target = safe_path(workspace_dir, path)
         if not target.exists() and isinstance(path, str) and path.startswith("src/"):
-            # safe_path already resolves every path under a workspace-internal
-            # "src" root (base="src" above); a model that also includes a
-            # "src/" prefix of its own — a reasonable but wrong assumption
-            # about the layout — ends up doubled to ".../src/src/...". Retry
-            # once with that redundant prefix stripped before giving up.
-            stripped = safe_path(workspace_dir, path[len("src/"):])
-            if stripped.exists():
-                target = stripped
+            # Sessions written before paths were canonicalised can hold src/src/...; read those too.
+            literal = safe_path(workspace_dir, path, literal=True)
+            if literal.exists():
+                target = literal
         with target.open("r", encoding="utf-8") as stream:
             return stream.read(MAX_FILE)
     except Exception as exc:
@@ -162,7 +176,7 @@ def search_codebase(regex_pattern, workspace_dir):
             break
         try:
             rel = str(target.relative_to(root)).replace("\\", "/")
-            checked = safe_path(workspace_dir, rel)
+            checked = safe_path(workspace_dir, rel, literal=True)
             if checked.is_file() and checked.stat().st_size <= MAX_FILE:
                 for number, line in enumerate(checked.read_text(encoding="utf-8").splitlines(), 1):
                     if regex_pattern in line:

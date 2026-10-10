@@ -116,6 +116,24 @@ def _tool_argument_error(name, properties, args):
         return ", ".join(f"{key} ({declared[key][0]['type']})" for key in keys) or "(none)"
     return f"Invalid arguments for '{name}': {'; '.join(problems)}. Required: {listing(required)}. Optional: {listing(optional)}."
 
+# Effectful tools that are safe to run again after a restart on another model: they only
+# touch workspace files, and write_file refuses to overwrite, replace_file_content fails once
+# its target text is gone, and generated or edited images are rewritten from the same inputs.
+# Everything else (terminal commands, RAG index changes, brokered tools) may have had an effect
+# that replaying would repeat, so it keeps the original no-replay rule.
+REPLAY_SAFE_LOCAL_TOOLS = frozenset({
+    "write_file", "replace_file_content", "generate_local_asset", "generate_local_assets",
+    "resize_image", "make_thumbnails", "convert_image", "crop_image",
+})
+
+def _print_retry_marker(effects_started, unsafe_effects):
+    """Tell the dispatcher what a failed attempt did, so it knows whether it may start the
+    node again on another route. Nothing is printed once an effect that cannot be replayed ran."""
+    if unsafe_effects:
+        return
+    marker = "FILE_EFFECTS_ONLY" if effects_started else "NO_EFFECTS"
+    print(f"[RETICLE_RETRY_SAFE: {marker}]", file=sys.stderr, flush=True)
+
 def _local_tool_descriptor(name, description, properties, required_capability):
     declared = {key: _tool_property(spec) for key, spec in properties.items()}
     schema = {
@@ -301,7 +319,11 @@ def _direct_script_verification_path(parts):
     return None
 
 def _normalized_workspace_path(path):
-    return Path(os.path.normpath(path)).as_posix()
+    """One form for every path the worker tracks (written, pending, verified, required), the
+    same one the file tools resolve: a leading src/ is the workspace folder itself."""
+    normalized = Path(os.path.normpath(path)).as_posix()
+    canonical = getattr(toolset, "canonical_workspace_path", None)
+    return canonical(normalized) if canonical else normalized
 
 def _required_output_paths(instructions):
     """Extract a node's declared output files straight out of the fixed
@@ -346,7 +368,7 @@ def shared_memory_context(memory):
                 "ide_context", "prompt_attachments", "prompt_history", "global_effort",
                 "agent_complexity", "task_timeout_seconds", "llm_num_ctx",
                 "llm_max_tokens", "llm_temperature", "llm_first_token_timeout_seconds",
-                "llm_max_iterations", "ollama_keep_alive"}
+                "llm_max_iterations", "resumed_after_files", "ollama_keep_alive"}
     facts = {key: value for key, value in memory.items() if key not in controls}
     if len(json.dumps(facts, ensure_ascii=False).encode("utf-8")) > 65536:
         raise ValueError("Shared memory exceeds 64 KiB: select fewer required_memory keys or use summaries/artifact references")
@@ -378,9 +400,52 @@ NON_TRANSIENT_LIMITS = (
 _TOO_LARGE_MARKERS = ("request too large", "reduce your message size", "maximum context length", "context_length_exceeded")
 # Progressively tighter caps, in characters, for old tool results and assistant text.
 COMPACTION_CAPS = (2000, 500)
+# Tried in order, one per "too large" error: lossless first, then progressively lossier.
+REDUCTION_STAGES = ("max_tokens", *COMPACTION_CAPS, "drop_turns")
+MIN_REPLY_TOKENS = 256
+_LIMIT_AND_REQUESTED = re.compile(r"limit\s+(\d+)\s*,\s*requested\s+(\d+)", re.IGNORECASE)
 
 def _is_request_too_large(error):
     return any(marker in str(error).lower() for marker in _TOO_LARGE_MARKERS)
+
+def _progress_note(written_paths):
+    """A callable describing the files written so far, for when old turns are dropped."""
+    def note():
+        files = sorted(written_paths)[:40]
+        return ("Files you have written so far: " + ", ".join(files) + ".") if files else ""
+    return note
+
+def _clamp_max_tokens(request, error, options=None):
+    """Lower max_tokens by the overshoot the provider reported ("Limit 8000, Requested 8498").
+    Returns a description of the change, or "" when there is nothing to lower."""
+    current = request.get("max_tokens")
+    found = _LIMIT_AND_REQUESTED.search(str(error))
+    if not isinstance(current, int) or isinstance(current, bool) or not found:
+        return ""
+    limit, requested = int(found.group(1)), int(found.group(2))
+    lowered = current - (requested - limit) - 128
+    if requested <= limit or lowered < MIN_REPLY_TOKENS:
+        return ""
+    request["max_tokens"] = lowered
+    if options is not None:
+        options["max_tokens"] = lowered
+    return f"lowered the reply budget from {current} to {lowered} tokens"
+
+def _drop_old_turns(messages, progress):
+    """Replace everything between the task context and the last two assistant turns with a
+    short note, cutting only at turn boundaries so every tool call keeps its result."""
+    assistants = [i for i, m in enumerate(messages) if i >= 2 and m.get("role") == "assistant"]
+    if len(assistants) < 3:
+        return ""
+    keep_from = assistants[-2]
+    if keep_from <= 2:
+        return ""
+    dropped = keep_from - 2
+    note = "Earlier turns were removed to fit the model's request limit."
+    if progress:
+        note += " " + progress
+    messages[2:keep_from] = [{"role": "user", "content": note}]
+    return f"dropped {dropped} earlier messages"
 
 def _compact_messages(messages, cap):
     """Shorten old tool results and assistant text in place, keeping the system prompt,
@@ -470,25 +535,47 @@ def _start_within(completion, seconds, **request):
         raise outcome["error"]
     return outcome["value"]
 
-def _complete_with_retries(completion, started, start_timeout, can_reroute, **request):
-    rate_limited = transient = compactions = 0
+def _complete_with_retries(completion, started, start_timeout, can_reroute, progress=None, options=None, **request):
+    """Call the model; once the worker has changed the workspace, absorb what is safe to absorb.
+
+    The dispatcher owns recovery policy (docs/specifications/runtime-orchestration.md): before
+    any change it can reroute to another route or model, so every error is raised to it
+    untouched. After a change it cannot replay the worker, so only then is the failed request
+    itself repaired here, within the bounds below. No tool call is ever repeated.
+
+    progress() describes work already done (used if old turns must be dropped);
+    options is the dict the request's generation options came from, so a lowered
+    max_tokens also applies to the turns that follow."""
+    rate_limited = transient = reductions = 0
     while True:
         try:
             return _start_within(completion, start_timeout, **request)
         except Exception as error:
-            # Before any change the dispatcher reroutes a too-large request to another
-            # model. After files were written it cannot, so shrink the history instead.
-            if _is_request_too_large(error) and not can_reroute() and compactions < len(COMPACTION_CAPS):
-                saved = _compact_messages(request["messages"], COMPACTION_CAPS[compactions])
-                compactions += 1
-                if saved > 0:
-                    _emit_llm("status", f"Request too large for the model; shortened earlier turns by {saved} characters and repeating it (attempt {compactions}/{len(COMPACTION_CAPS)})")
+            if can_reroute():
+                raise
+            # "Request too large" counts the reply budget (max_tokens) as well as the prompt.
+            # Lowering max_tokens by the overshoot loses nothing, so it is tried first; the
+            # later stages progressively shorten the history.
+            if _is_request_too_large(error) and reductions < len(REDUCTION_STAGES):
+                changed = ""
+                while reductions < len(REDUCTION_STAGES) and not changed:
+                    stage = REDUCTION_STAGES[reductions]
+                    reductions += 1
+                    if stage == "max_tokens":
+                        changed = _clamp_max_tokens(request, error, options)
+                    elif stage == "drop_turns":
+                        changed = _drop_old_turns(request["messages"], progress() if progress else "")
+                    else:
+                        saved = _compact_messages(request["messages"], stage)
+                        changed = f"shortened earlier turns by {saved} characters" if saved > 0 else ""
+                if changed:
+                    _emit_llm("status", f"Request too large for the model; {changed} and repeating it")
                     continue
             wait = _rate_limit_wait(error, rate_limited)
             if wait is not None:
                 rate_limited += 1
                 label = f"Rate limited by the provider; repeating the same request in {wait:.0f}s (retry {rate_limited}/{len(RATE_LIMIT_WAITS)})"
-            elif not can_reroute():
+            else:
                 wait = _transient_wait(error, transient)
                 transient += 1
                 label = f"Provider unavailable ({type(error).__name__}); repeating the same request in {wait or 0:.0f}s (retry {transient}/{len(TRANSIENT_WAITS)})"
@@ -499,6 +586,13 @@ def _complete_with_retries(completion, started, start_timeout, can_reroute, **re
 
 # Consecutive replies with neither text nor a tool call before the worker gives up.
 MAX_EMPTY_REPLIES = 3
+# Identical rejections of mark_task_complete, with no change to the work between them, before
+# the worker stops. One run repeated the same rejection 25 times until its turn budget ran out.
+MAX_REJECTED_COMPLETIONS = 6
+
+class _CompletionStall(BaseException):
+    """Raised from inside the per-call error handler's blind spot: an ordinary Exception there
+    becomes a tool result the model can ignore, but this must end the run."""
 
 DEFAULT_ITERATIONS = 30
 # Each model turn may issue several tool calls, but a gallery still needs many turns.
@@ -692,6 +786,9 @@ def run(instructions, kind="coding"):
     # That prompt, when present, is the more specific source of declared outputs.
     required_outputs = _required_output_paths(str(req.get("parameters", {}).get("system_prompt", ""))) or _required_output_paths(instructions)
     effects_started = False
+    # Set once something that cannot be replayed ran: a terminal command, a RAG index change
+    # or a brokered tool. File writes alone leave it False.
+    unsafe_effects = False
     # Web files written since the page was last checked clean. A frontend node may not
     # finish with unchecked web output: generated pages have repeatedly been dead on arrival.
     web_written = False
@@ -711,7 +808,15 @@ def run(instructions, kind="coding"):
         prompt_instructions = _compact_local_instructions(instructions)
         if prompt_instructions != instructions:
             _emit_llm("status", f"Compacted skill references from {len(instructions)} to {len(prompt_instructions)} characters for the local context window")
-    messages = [{"role":"system", "content": prompt_instructions + "\n" + req.get("parameters",{}).get("system_prompt","") + "\nUse workspace-relative paths. Terminal cwd is src. Finish only after checking your work. An exhausted loop is a failure."},
+    resume_note = ""
+    if mem.get("resumed_after_files"):
+        resume_note = (
+            "\nThis task is being resumed. An earlier attempt on a different model already created or changed "
+            "files in the workspace before a provider error stopped it. Do not start over: list and read the "
+            "existing files first, keep what is correct, and create or fix only what is missing or wrong. "
+            "write_file will not overwrite an existing file; use replace_file_content to change one."
+        )
+    messages = [{"role":"system", "content": prompt_instructions + "\n" + req.get("parameters",{}).get("system_prompt","") + "\nUse workspace-relative paths. Terminal cwd is src. Finish only after checking your work. An exhausted loop is a failure." + resume_note},
                 {"role":"user", "content":json.dumps(build_user_context(req, mem))}]
     kwargs = generation_options(model, mem)
     key_name = req.get("parameters", {}).get("api_key")
@@ -743,11 +848,11 @@ def run(instructions, kind="coding"):
     last_tool_signature = None
     repeated_tool_rounds = 0
     consecutive_empty_replies = 0
+    completion_rejections, last_rejection_state = 0, None
     for iteration in range(_iteration_limit(mem, capabilities)):
         if time.monotonic() - started > 3600:
             _emit_llm("status", "Stopped: agent time budget exhausted")
-            if not effects_started:
-                print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr, flush=True)
+            _print_retry_marker(effects_started, unsafe_effects)
             raise TimeoutError("Agent time budget exhausted")
         try:
             extra_headers = {
@@ -766,7 +871,7 @@ def run(instructions, kind="coding"):
                 if local_model else nullcontext()
             )
             with session:
-                response = _complete_with_retries(completion, started, first_event_timeout, lambda: not effects_started, model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
+                response = _complete_with_retries(completion, started, first_event_timeout, lambda: not effects_started, _progress_note(written_paths), kwargs, model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
                 content_buffer = []
                 tool_calls_buffer = {}
                 if hasattr(response, "choices") and hasattr(response.choices[0], "message"):
@@ -919,8 +1024,7 @@ def run(instructions, kind="coding"):
                 message.tool_calls.append(mtc)
 
         except Exception:
-            if not effects_started:
-                print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr, flush=True)
+            _print_retry_marker(effects_started, unsafe_effects)
             raise
         for call in message.tool_calls:
             name = call.function.name
@@ -947,40 +1051,64 @@ def run(instructions, kind="coding"):
                         raise ValueError(argument_error)
                 if name in EFFECTFUL_LOCAL_TOOLS:
                     effects_started = True
+                    if name not in REPLAY_SAFE_LOCAL_TOOLS:
+                        unsafe_effects = True
                 if broker_descriptor is not None:
                     if not isinstance(args, dict):
                         raise ValueError(f"Invalid arguments for '{name}': expected an object.")
                     if broker_descriptor.get("effect") != "no_effect":
-                        effects_started = True
+                        effects_started = unsafe_effects = True
                     result, broker_effect = _broker_call(broker_descriptor, call.id, args)
                     if broker_effect != "no_effect":
-                        effects_started = True
+                        effects_started = unsafe_effects = True
                     if not isinstance(result, str):
                         result = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
                 elif name == "mark_task_complete":
+                    rejection = None
                     if kind in BUILDER_KINDS and web_written and not web_checked:
-                        raise ValueError(
+                        rejection = (
                             "You wrote web files but have not checked that the page can run. Call check_web_page, "
                             "fix every problem it reports, and run it again until it reports no blocking problems; "
                             "then call mark_task_complete."
                         )
-                    if kind in BUILDER_KINDS and not required_outputs and not written_paths and not effects_started:
-                        raise ValueError(
+                    elif kind in BUILDER_KINDS and not required_outputs and not written_paths and not effects_started:
+                        rejection = (
                             "This role builds something, but you have not created or changed anything yet; "
                             "reading files does not complete the task. Create the deliverable files with "
                             "write_file (images with generate_local_asset or generate_local_assets), verify them, "
                             "then call mark_task_complete."
                         )
-                    if not verified:
+                    elif not verified:
                         still_missing = missing_outputs()
                         if still_missing:
-                            raise ValueError(
+                            rejection = (
                                 "You have not created your required output files yet: "
                                 f"{', '.join(still_missing)}. Reading or verifying an unrelated file "
                                 "does not satisfy this — use write_file to create each of these, then "
                                 "verify them, before calling mark_task_complete again."
                             )
-                        raise ValueError("No successful verification has been recorded. Re-read every changed file with read_file, or run it/test it successfully with execute_terminal_command, before calling mark_task_complete again.")
+                        else:
+                            unchecked = sorted(pending_modified_paths)
+                            listing = ", ".join(unchecked[:12]) + (f" and {len(unchecked) - 12} more" if len(unchecked) > 12 else "")
+                            rejection = (
+                                "No successful verification has been recorded. "
+                                + (f"Call read_file on each file you changed that has not been re-read yet: {listing}. " if unchecked else "Call read_file on a file you wrote, or run a test or build command that succeeds. ")
+                                + "Listing a directory or running ls/cat does not count. Then call mark_task_complete again."
+                            )
+                    if rejection is not None:
+                        # The same rejection repeating with nothing changed is a loop, not progress.
+                        state = (len(pending_modified_paths), len(written_paths), len(verification), web_checked, tuple(missing_outputs()))
+                        completion_rejections = completion_rejections + 1 if state == last_rejection_state else 1
+                        last_rejection_state = state
+                        if completion_rejections >= MAX_REJECTED_COMPLETIONS:
+                            _emit_llm("status", f"Stopped: completion was rejected {completion_rejections} times with no change")
+                            _print_retry_marker(effects_started, unsafe_effects)
+                            raise _CompletionStall(
+                                f"Agent stalled: completion repeatedly rejected ({completion_rejections} times with no progress). Last reason: {rejection}"
+                            )
+                        if completion_rejections >= 3:
+                            rejection += f" (This is rejection {completion_rejections} of {MAX_REJECTED_COMPLETIONS} with no change; the task stops at {MAX_REJECTED_COMPLETIONS}.)"
+                        raise ValueError(rejection)
                     sys.stdout.write(json.dumps({"id":req["id"],"memory":memory_updates,"graph_mutation":graph_mutation,"verification":verification,"files":sorted(written_paths),"artifact":{"id":req["id"]+"_output","name":kind+" output","type":"document/markdown","data":args["summary"]}})+"\n")
                     return
                 elif name in ("remember", "remember_if_version"):
@@ -1081,8 +1209,7 @@ def run(instructions, kind="coding"):
         if verified:
             messages.append({"role":"user","content":"Verification is already satisfied. Call mark_task_complete now instead of taking further actions."})
     _emit_llm("status", "Stopped: agent iteration budget exhausted without verified completion")
-    if not effects_started:
-        print("[RETICLE_RETRY_SAFE: NO_EFFECTS]", file=sys.stderr, flush=True)
+    _print_retry_marker(effects_started, unsafe_effects)
     raise RuntimeError("Agent iteration budget exhausted without verified completion")
 
 if __name__ == "__main__":

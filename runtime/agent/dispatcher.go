@@ -288,6 +288,8 @@ func (d *Dispatcher) Start() {
 			lastFailure := &WorkerFailure{Reason: "cancelled", ExitCode: -1, Stderr: "Execution cancelled"}
 			lastDisposition := providerFailureDisposition{}
 			routes := newRetryRoutes()
+			// Once an attempt has left files behind, every later attempt resumes from them.
+			resumeAfterFiles := false
 			stopReason := "attempt_budget_exhausted"
 			originalTokens, hadTokens := t.Memory["llm_max_tokens"]
 			var attemptModel *routing.Model
@@ -385,6 +387,10 @@ func (d *Dispatcher) Start() {
 				if t.Memory == nil {
 					t.Memory = make(map[string]any)
 				}
+				delete(t.Memory, "resumed_after_files")
+				if resumeAfterFiles {
+					t.Memory["resumed_after_files"] = true
+				}
 				delete(t.Memory, "llm_max_tokens")
 				if hadTokens {
 					t.Memory["llm_max_tokens"] = originalTokens
@@ -479,6 +485,10 @@ func (d *Dispatcher) Start() {
 					stopReason = "failure_not_retry_safe_or_unclassified"
 					break
 				}
+				if disposition.afterFileEffects && !resumeAfterFiles {
+					resumeAfterFiles = true
+					d.Logger.Info("Attempt failed after writing workspace files; the next attempt resumes from them on another route.", "worker_id", w.ID, "task_id", t.ID)
+				}
 				// Failed attempt
 				d.Logger.Error("Worker execution failed (attempt)", "worker_id", w.ID, "attempt", attempt, "reason", failure.Reason, "stderr", failure.Stderr)
 				lastFailure = failure
@@ -491,12 +501,15 @@ func (d *Dispatcher) Start() {
 				if d.Router != nil {
 					if disposition.penalizeProvider {
 						if apiKeyEnv, ok := t.Parameters["api_key"].(string); ok && apiKeyEnv != "" {
-							d.Router.PenalizeProviderFor(string(w.ID), apiKeyEnv, disposition.category, disposition.category)
+							// A provider that says when its quota resets is believed, so an exhausted
+							// daily limit is not probed again every 15 minutes.
+							resetAt := routing.QuotaResetAt(failure.Stderr, time.Now())
+							d.Router.PenalizeProviderForUntil(string(w.ID), apiKeyEnv, disposition.category, disposition.category, resetAt)
 						}
 						if disposition.penalizeFamily {
 							if modelID, ok := t.Parameters["llm_model"].(string); ok {
 								if separator := strings.IndexByte(modelID, '/'); separator > 0 {
-									d.Router.PenalizeProviderFamily(modelID[:separator])
+									d.Router.PenalizeProviderFamilyUntil(modelID[:separator], routing.QuotaResetAt(failure.Stderr, time.Now()))
 								}
 							}
 						}
@@ -595,14 +608,42 @@ func deterministicWorker(id WorkerID) bool {
 }
 
 type providerFailureDisposition struct {
-	retryable        bool
+	retryable bool
+	// afterFileEffects is set when the failed attempt had already written workspace files
+	// (and nothing that cannot be replayed), so the next attempt resumes rather than restarts.
+	afterFileEffects bool
 	penalizeProvider bool
 	penalizeFamily   bool
 	disableModel     bool
 	category         string
 }
 
+const (
+	retrySafeNoEffects   = "[RETICLE_RETRY_SAFE: NO_EFFECTS]"
+	retrySafeFileEffects = "[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]"
+)
+
+// classifyProviderFailure decides whether a failed attempt may be tried again on another
+// route. NO_EFFECTS proves the worker changed nothing. FILE_EFFECTS_ONLY proves it changed
+// only workspace files, which an attempt on another model can safely build on (the tools
+// that wrote them never overwrite or repeat an effect), so a provider or request failure
+// may resume the node. A stall or exhausted budget with files written is not resumed: that
+// is the model's own behaviour and another attempt would redo the same loop at more cost.
 func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
+	disposition := classifyFailureByText(f)
+	if !disposition.retryable || f == nil {
+		return disposition
+	}
+	if !strings.Contains(f.Stderr, retrySafeNoEffects) && strings.Contains(f.Stderr, retrySafeFileEffects) {
+		if disposition.category == "model_behavior" {
+			return providerFailureDisposition{}
+		}
+		disposition.afterFileEffects = true
+	}
+	return disposition
+}
+
+func classifyFailureByText(f *WorkerFailure) providerFailureDisposition {
 	var result providerFailureDisposition
 	if f == nil || f.Reason != WorkerExitedNonZero {
 		return result
@@ -618,8 +659,14 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 	}
 
 	// A stalled conversation does not prove that replaying its tools is safe.
-	if !strings.Contains(f.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]") {
+	if !strings.Contains(f.Stderr, retrySafeNoEffects) && !strings.Contains(f.Stderr, retrySafeFileEffects) {
 		return result
+	}
+	// A model that cannot get its work accepted, with every file already on disk, is a good
+	// case for another model to take over: it only has to verify and finish. Unlike the other
+	// stalls this one is cheap (the worker stops it after a few rejections) and resumable.
+	if containsAny("agent stalled: completion repeatedly rejected") {
+		return providerFailureDisposition{retryable: true, category: "completion_rejected"}
 	}
 	if containsAny("agent stalled: repeated identical tool requests", "agent stalled: model returned empty responses", "agent iteration budget exhausted", "agent time budget exhausted") {
 		return providerFailureDisposition{retryable: true, category: "model_behavior"}

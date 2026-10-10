@@ -57,15 +57,23 @@ class RateLimitRetry(unittest.TestCase):
         self.assertEqual(result["artifact"]["data"], "done")
 
     def test_retry_after_header_sets_the_wait(self):
-        script = [RateLimitError(retry_after="7"), tool_response("write_file", {"path": "report.md", "content": "x"}), tool_response("read_file", {"path": "report.md"}), tool_response("mark_task_complete", {"summary": "ok"})]
+        script = [tool_response("write_file", {"path": "report.md", "content": "x"}), RateLimitError(retry_after="7"), tool_response("read_file", {"path": "report.md"}), tool_response("mark_task_complete", {"summary": "ok"})]
         _, sleeps, error = self.run_worker(script)
         self.assertIsNone(error)
         self.assertEqual(sleeps, [7.0])
 
     def test_waits_are_bounded_then_the_original_error_surfaces(self):
-        _, sleeps, error = self.run_worker([RateLimitError() for _ in range(4)])
+        _, sleeps, error = self.run_worker([tool_response("write_file", {"path": "report.md", "content": "x"})] + [RateLimitError() for _ in range(4)])
         self.assertIsInstance(error, RateLimitError)
         self.assertEqual(sleeps, [10, 20, 40])
+
+    def test_before_any_change_a_rate_limit_goes_to_the_dispatcher_to_reroute(self):
+        # Docs: the dispatcher owns retry policy, and with the no-effects proof it reroutes
+        # (cooling the key) instead of the worker sitting on a limited route.
+        error = RateLimitError(retry_after="7")
+        _, sleeps, failure = self.run_worker([error, tool_response("read_file", {"path": "x"})])
+        self.assertIs(failure, error)
+        self.assertEqual(sleeps, [])
 
     def test_quota_and_other_errors_are_not_waited_on(self):
         for failure in (RateLimitError("RateLimitError: openrouter_free_tier_daily"), RateLimitError("insufficient balance"), RateLimitError(retry_after="3600"), ValueError("429 too many requests")):
@@ -84,7 +92,7 @@ class RateLimitRetry(unittest.TestCase):
         # The upgrade link once matched a "billing" marker and the worker gave up.
         error = RateLimitError(self.GROQ_TPM)
         self.assertAlmostEqual(worker_sdk._rate_limit_wait(error, 0), 9.3775, places=3)
-        script = [error, tool_response("write_file", {"path": "report.md", "content": "x"}), tool_response("read_file", {"path": "report.md"}), tool_response("mark_task_complete", {"summary": "ok"})]
+        script = [tool_response("write_file", {"path": "report.md", "content": "x"}), error, tool_response("read_file", {"path": "report.md"}), tool_response("mark_task_complete", {"summary": "ok"})]
         result, sleeps, failure = self.run_worker(script)
         self.assertIsNone(failure)
         self.assertEqual(len(sleeps), 1)

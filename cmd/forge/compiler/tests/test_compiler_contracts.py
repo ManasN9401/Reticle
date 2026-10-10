@@ -259,6 +259,64 @@ class CompilerContractsTest(unittest.TestCase):
         self.assertEqual(third["parameters"]["effort"], "high")
         self.assertNotIn("parameters", second)
 
+    def two_node_generated_agent_dag(self):
+        # The observed shape: one generated agent owns the first and the last node.
+        agent = lambda name: {"id": name, "description": f"{name} work", "is_new": True, "system_prompt": "TBD",
+                              "inputs": [], "outputs": [], "memory": [], "skills": [], "capabilities": ["workspace.read", "workspace.write"]}
+        return {
+            "agents": [agent("designer"), agent("assets"), agent("backend")],
+            "nodes": [
+                {"id": "design", "agent_id": "designer", "input_files": [], "output_files": ["src/spec.md"]},
+                {"id": "thumbs", "agent_id": "assets", "input_files": ["src/spec.md"], "output_files": ["src/thumbs.json"]},
+                {"id": "api", "agent_id": "backend", "input_files": ["src/spec.md"], "output_files": ["src/server.js"]},
+                {"id": "assemble", "agent_id": "designer", "input_files": ["src/thumbs.json", "src/server.js"], "output_files": ["src/index.html"]},
+            ],
+            "edges": [{"from": "design", "to": "thumbs"}, {"from": "design", "to": "api"},
+                      {"from": "thumbs", "to": "assemble"}, {"from": "api", "to": "assemble"}],
+        }
+
+    def test_an_agent_owning_several_nodes_is_not_given_a_merged_prompt(self):
+        dag = self.two_node_generated_agent_dag()
+        designer = dag["agents"][0]
+        merged = self.architect.build_agent_prompt(designer, dag, "make a gallery")
+        # What used to be baked into the agent: every node's files, with both neighbours on both sides.
+        self.assertIn("src/index.html", merged)
+        self.assertIn("src/spec.md", merged)
+        generic = self.architect.build_agent_prompt(designer, dag, "make a gallery", generic=True)
+        for path in ("src/index.html", "src/spec.md", "src/thumbs.json", "Upstream nodes", "Downstream nodes"):
+            self.assertNotIn(path, generic)
+        self.assertIn("make a gallery", generic)
+        self.assertIn("once for each workflow node", generic)
+
+    def test_each_node_of_a_multi_node_generated_agent_gets_only_its_own_task(self):
+        dag = self.two_node_generated_agent_dag()
+        self.architect.attach_node_prompts(dag, "make a gallery")
+        design, thumbs, api, assemble = dag["nodes"]
+        first = design["parameters"]["system_prompt"]
+        last = assemble["parameters"]["system_prompt"]
+        # The first node builds only the specification and has nothing upstream.
+        self.assertIn("exactly these workspace files: src/spec.md", first)
+        self.assertNotIn("index.html", first)
+        self.assertIn("Upstream nodes are: none declared", first)
+        self.assertIn("Downstream nodes are: api, thumbs", first)
+        # The last node assembles from its two inputs and has nothing downstream.
+        self.assertIn("exactly these workspace files: src/index.html", last)
+        self.assertIn("Read these workspace files: src/server.js, src/thumbs.json", last)
+        self.assertIn("Upstream nodes are: api, thumbs", last)
+        self.assertIn("Downstream nodes are: none declared", last)
+        # Agents that own a single node keep their prompt in their own script and are not duplicated.
+        self.assertNotIn("parameters", thumbs)
+        self.assertNotIn("parameters", api)
+
+    def test_the_architect_bakes_a_generic_prompt_only_for_multi_node_agents(self):
+        dag = self.two_node_generated_agent_dag()
+        for agent in dag["agents"]:
+            agent["system_prompt"] = self.architect.build_agent_prompt(agent, dag, "g", generic=self.architect.owns_several_nodes(dag, agent["id"]))
+        by_id = {agent["id"]: agent["system_prompt"] for agent in dag["agents"]}
+        self.assertNotIn("src/index.html", by_id["designer"])
+        self.assertIn("exactly these workspace files: src/thumbs.json", by_id["assets"])
+        self.assertIn("exactly these workspace files: src/server.js", by_id["backend"])
+
     def test_node_prompt_does_not_override_or_trust_malformed_parameters(self):
         dag = self.fixture()
         dag["nodes"][0]["parameters"] = {"system_prompt": "custom"}

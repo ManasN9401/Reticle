@@ -1,7 +1,7 @@
 ---
 status: draft
 owner: Reticle Project
-updated: 2026-10-01
+updated: 2026-10-08
 ---
 
 # RFC-052: Request-Level Inference Recovery
@@ -9,7 +9,8 @@ updated: 2026-10-01
 ## Motivation and status
 
 Reticle currently routes a model when the dispatcher starts a worker. A recognized
-provider failure can restart that worker only with explicit no-effects evidence.
+provider failure can restart that worker with explicit no-effects evidence, or resume
+it when it changed only replay-safe workspace files (see runtime-orchestration.md).
 This is unnecessarily expensive when only an inference call failed, and cannot
 safely recover a provider outage after the worker has already executed tools.
 
@@ -36,12 +37,41 @@ Context overflow is not treated as an output bound. Unknown failures stay termin
 The existing total attempts (default 3, maximum 15) and task deadline remain.
 Terminal diagnostics state the stop reason and remaining/untried route counts.
 
-The worker SDK additionally repeats a provider 429 on the same route, up to three
-times after 10, 20 and 40 seconds (or a `Retry-After` of at most 120 seconds),
-within the task deadline. It applies only to the request rejected before streaming
-begins, so it is safe after earlier tool rounds, and it excludes account quotas,
-billing errors and stream failures. This is not failover: when the waits are
-exhausted the original error reaches the dispatcher, whose no-effects rules apply.
+## Interim worker-local recovery (implemented subset)
+
+The worker SDK implements a bounded subset of this proposal for one case the
+dispatcher cannot cover: a request that fails after the worker has already changed
+the workspace. Before any change, every provider error is raised untouched so the
+dispatcher reroutes under the rules above; the worker never competes with it.
+After a change, and only for the request that was rejected before any output was
+kept (so no tool call is repeated):
+
+- A rate limit is repeated after the provider's own wait (`Retry-After`, or "try
+  again in ...", plus a margin) or 10, 20 and 40 seconds, giving up when the wait
+  exceeds two minutes (a daily limit) or the error is an exhausted account quota.
+- A gateway timeout, 502/503/504 or connection failure is repeated after 5 and 15
+  seconds.
+- A provider that does not start responding within the first-event deadline is
+  abandoned; that failure then follows the two rules above.
+- A request over the provider's token limit ("Request too large", where the
+  provider counts the reply budget) is repeated after lowering `max_tokens` by the
+  reported overshoot, then with older tool and assistant text cut to 2,000 and 500
+  characters, then with older turns replaced by a note listing the files written.
+  Cuts happen only at turn boundaries and never touch the system prompt, the task
+  context or the latest turn.
+
+The worker-local repairs above are tried first because they keep the conversation. When
+they are exhausted, or the failure is an account quota that no wait can clear, the worker
+exits with the file-effects proof and the dispatcher resumes the node on another route.
+That resume restarts the worker, so the conversation is lost and the model re-reads the
+files; it is the interim substitute for the failover this RFC proposes. A worker that ran a
+terminal command or a brokered tool still cannot be resumed.
+
+None of this switches model or credential inside a worker, uses request identities or a side
+channel, or draws on the dispatcher's attempt budget. The last point departs from
+the budget rule below, and the missing failover is the main reason the full
+proposal remains open: a provider that stays down after files were written still
+fails the node.
 
 ## Proposed authority and transport
 

@@ -53,14 +53,14 @@ class ReportedFiles(unittest.TestCase):
         ])
         self.assertEqual(response["files"], ["assets/gallery-01.png", "index.html", "js/main.js"])
 
-    def test_paths_are_reported_as_written_so_they_match_the_disk(self):
-        # write_file("src/x.html") lands at src/src/x.html, so the prefix must be kept.
+    def test_paths_are_reported_in_the_one_canonical_form_the_tools_resolve(self):
+        # The workspace folder is src, so write_file("src/x.html") is x.html (it used to land at src/src/).
         response = self.run_worker([
             tool_response("write_file", {"path": "src/page.html", "content": "<p>x</p>"}),
             tool_response("read_file", {"path": "src/page.html"}),
             tool_response("mark_task_complete", {"summary": "done"}),
         ])
-        self.assertEqual(response["files"], ["src/page.html"])
+        self.assertEqual(response["files"], ["page.html"])
 
     def test_a_worker_that_wrote_nothing_reports_an_empty_list(self):
         response = self.run_worker([

@@ -60,6 +60,11 @@ func TestDispatcherRecoveryScenarios(t *testing.T) {
 		{"route-reject", 2, 2, []string{"bad/a", "bad/b"}, "attempt_budget_exhausted"},
 		{"route-reject", 15, 4, []string{"bad/a", "bad/b", "good/a", "bad/c"}, "no_eligible_route"},
 		{"effect-stall", 5, 1, []string{"bad/a"}, "failure_not_retry_safe_or_unclassified"},
+		// File-only effects may resume on another route; a model-behaviour stall may not.
+		{"resume-files", 5, 2, []string{"bad/a", "good/a"}, ""},
+		{"resume-stall", 5, 1, []string{"bad/a"}, "failure_not_retry_safe_or_unclassified"},
+		{"resume-rejected", 5, 2, []string{"bad/a", "bad/b"}, ""},
+		{"fresh-attempt", 5, 2, []string{"bad/a", "bad/a"}, ""},
 	} {
 		t.Run(fmt.Sprintf("%s-%d", scenario.mode, scenario.budget), func(t *testing.T) {
 			t.Setenv("RETICLE_ROOT", t.TempDir())
@@ -131,6 +136,33 @@ func TestDispatcherRecoveryScenarios(t *testing.T) {
 				}
 			case <-time.After(15 * time.Second):
 				t.Fatal("dispatcher failed to terminate")
+			}
+		})
+	}
+}
+
+func TestFileEffectProofResumesOnlyProviderFailures(t *testing.T) {
+	const file = "[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]\n"
+	for _, test := range []struct {
+		name, stderr string
+		retryable    bool
+		resume       bool
+	}{
+		{"provider rate limit", file + "RateLimitError: Request too large", true, true},
+		{"gateway timeout", file + "litellm.Timeout: Timeout Error: OpenAIException - Error code: 504", true, true},
+		{"account quota", file + "RateLimitError: free-models-per-day", true, true},
+		{"rejected request", file + "BadRequestError: invalid message", true, true},
+		{"stall after files", file + "Agent stalled: repeated identical tool requests", false, false},
+		{"empty replies after files", file + "Agent stalled: model returned empty responses", false, false},
+		{"completion rejected repeatedly after files", file + "Agent stalled: completion repeatedly rejected (6 times with no progress)", true, true},
+		{"budget exhausted after files", file + "Agent iteration budget exhausted without verified completion", false, false},
+		{"no marker means an effect that cannot be replayed", "RateLimitError: boom", false, false},
+		{"no effects", "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nRateLimitError: boom", true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := classifyProviderFailure(&WorkerFailure{Reason: WorkerExitedNonZero, Stderr: test.stderr})
+			if got.retryable != test.retryable || got.afterFileEffects != test.resume {
+				t.Fatalf("retryable=%v resume=%v, want %v/%v", got.retryable, got.afterFileEffects, test.retryable, test.resume)
 			}
 		})
 	}

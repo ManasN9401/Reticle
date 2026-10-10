@@ -68,11 +68,29 @@ def load_architect_catalog(raw):
         raise ValueError("architect_catalog contains malformed or duplicate agents/skills")
     return catalog, agent_ids, skill_ids, capability_ids, mcp_server_ids
 
-def build_agent_prompt(agent, data, user_prompt, only_node_id=None):
+def owns_several_nodes(data, agent_id):
+    return sum(1 for n in data.get("nodes", []) if n.get("agent_id") == agent_id) > 1
+
+def build_agent_prompt(agent, data, user_prompt, only_node_id=None, generic=False):
     """Build a bounded worker prompt without another fallible model request.
 
-    only_node_id scopes the prompt to one node, for agents that own several."""
+    only_node_id scopes the prompt to one node, for agents that own several. generic omits the
+    file lists entirely: an agent that owns several nodes runs the same script for each of them,
+    so what it can be told at agent level is only its role and goal. A merged prompt used to list
+    the union of every node's files and call the same nodes both upstream and downstream, which
+    made the first node responsible for the whole job."""
     agent_id = agent["id"]
+    if generic:
+        description = str(agent.get("description", "Complete the assigned work")).strip()
+        return (
+            f"You are {agent_id}. Your responsibility is: {description}.\n"
+            f"The user's goal is: {user_prompt}\n"
+            "You are run once for each workflow node assigned to you. The task for the current node, "
+            "the files to read and the files to create are given with it; do only that node's work. "
+            "Use the language and framework requested by the user or established by upstream artifacts. "
+            "Verify every changed file with the available read or validation tools, then call "
+            "mark_task_complete with a concise summary."
+        )
     owned_nodes = [n for n in data.get("nodes", []) if n.get("agent_id") == agent_id
                    and (only_node_id is None or n.get("id") == only_node_id)]
     node_ids = [n["id"] for n in owned_nodes]
@@ -147,7 +165,9 @@ def attach_node_prompts(data, user_prompt):
     agents = {a.get("id"): a for a in data.get("agents", []) if isinstance(a, dict)}
     for node in data.get("nodes", []):
         agent = agents.get(node.get("agent_id"))
-        if not agent or agent.get("is_new"):
+        # A generated single-node agent carries its prompt in its own script; one that owns several
+        # nodes runs that script for each of them, so every node needs its own.
+        if not agent or (agent.get("is_new") and not owns_several_nodes(data, agent["id"])):
             continue
         parameters = node.get("parameters")
         if not isinstance(parameters, dict):
@@ -613,7 +633,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
         # context — those nodes then had no way to know what to build and would
         # pass verification without producing their declared deliverables.
         for agent in data.get("agents", []):
-            agent["system_prompt"] = build_agent_prompt(agent, data, user_prompt)
+            agent["system_prompt"] = build_agent_prompt(agent, data, user_prompt, generic=owns_several_nodes(data, agent["id"]))
         attach_node_prompts(data, user_prompt)
 
         result = json.dumps(data, indent=2)
