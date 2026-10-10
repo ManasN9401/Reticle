@@ -32,7 +32,8 @@ The preload bridge exposes narrow typed groups rather than generic channel names
 - models, artifacts, uploads, and approvals;
 - MCP server and plugin lifecycle through authenticated runtime REST calls;
 - guarded workspace summary/tree/file operations;
-- settings and theme.
+- settings and theme;
+- system notifications: a finished run (`notify.runFinished`) and a node waiting for a human decision (`notify.approval`, which also flashes the taskbar and reports a click back to the renderer with the execution and node so the review opens). The main process drops both while Studio is focused or the matching preference (`notifications.runFinished`, `notifications.approvalNeeded`) is off; the in-app toast does not depend on them.
 - pseudo-terminal lifecycle, text input/output and resize operations.
 
 Channel constants and request/response types live in `studio/src/shared/ipc.ts`. Privileged handlers live under `studio/electron/`. The renderer runs with Node integration disabled, context isolation enabled, and sandboxing enabled.
@@ -44,6 +45,7 @@ Channel constants and request/response types live in `studio/src/shared/ipc.ts`.
 - Integrated shells execute only in an existing directory inside that checkout. The main process owns each pseudo-terminal and terminates it at Studio shutdown; terminal data crosses IPC as typed text events.
 - Embedded preview navigation is renderer-local and limited to loopback HTTP(S) addresses. Preview frames are sandboxed and do not receive the preload bridge.
 - Scheduled Explorer refreshes wait for the previous scan to finish. Results carry an in-renderer generation and stale responses are discarded.
+- The approval screen builds its plan view in the renderer from the run projection (the checkpoint's parents and the steps reachable from it), the agent manifests (`workspace.agents`), the run's output files (`api.outputs`) and the JSON block of the request file. The request file is otherwise audit-only, and the decision stays bound to its hash. Model text is shown through a small Markdown reader that produces React elements, never HTML.
 - Environment Activity keys operations by `operation_id`; selected-run log scope uses the event's execution identity.
 - Shared memory is not mirrored as a generic renderer-accessible blackboard. Studio learns about artifacts and lifecycle state through typed events and APIs.
 - MCP and plugin settings are runtime state, not Electron preferences. The main process authenticates requests; the renderer receives status and environment-variable names but never control tokens, attempt credentials or resolved secret values.

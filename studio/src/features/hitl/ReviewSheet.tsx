@@ -5,15 +5,18 @@ import { bridge } from '@/state/bridge'
 import { resolveApproval } from '@/state/actions'
 import { useActiveRun } from '@/state/store'
 import { useUi } from '@/state/ui'
+import { useNow } from '@/state/useNow'
+import { PlanView } from './PlanView'
+import { formatWaiting } from './planModel'
 import type { HitlCheckpoint } from '@shared/ipc'
 
 /**
- * Human-in-the-loop approval (RFC-038).
+ * Human-in-the-loop approval.
  *
- * The hitl-agent writes a markdown checkpoint, prints `[UI_STATE: WAITING_HUMAN]`
- * and polls that file every 2s for a `STATUS:` change. Approving here writes
- * `STATUS: APPROVED` back to the file the agent named in its own log, so the
- * DAG resumes within one poll interval — no backend change required.
+ * The hitl-agent writes a request file, prints `[UI_STATE: WAITING_HUMAN]` and waits, with no
+ * expiry, for a decision bound to that file's hash. The sheet explains what is being approved
+ * (the goal, the previous step's result and what runs next, see PlanView); the request file
+ * itself is kept behind "Raw request" for audit.
  */
 export function ReviewSheet({ nodeId }: { nodeId: string }) {
   const run = useActiveRun()
@@ -25,6 +28,8 @@ export function ReviewSheet({ nodeId }: { nodeId: string }) {
   const [feedback, setFeedback] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showRaw, setShowRaw] = useState(false)
+  const now = useNow(true, 30_000)
 
   useEffect(() => {
     if (!path || !bridge) return
@@ -58,12 +63,17 @@ export function ReviewSheet({ nodeId }: { nodeId: string }) {
       <div
         role="dialog"
         aria-label="Approval checkpoint"
-        className="flex max-h-full w-[min(760px,100%)] flex-col overflow-hidden rounded-[var(--radius-card)] border border-line-2 bg-bg-2 shadow-[var(--shadow-modal)]"
+        className="flex max-h-full w-[min(920px,100%)] flex-col overflow-hidden rounded-[var(--radius-card)] border border-line-2 bg-bg-2 shadow-[var(--shadow-modal)]"
       >
         <header className="flex shrink-0 items-center gap-2 border-b border-line-1 bg-st-waiting-weak px-4 py-2.5">
           <FileWarning size={14} strokeWidth={1.8} className="text-st-waiting" />
           <span className="text-sm font-medium text-fg-1">Human approval required</span>
           <span className="mono text-2xs text-fg-3">{node?.label ?? nodeId}</span>
+          {node?.waiting?.since ? (
+            <span className="text-2xs text-fg-4" title="An approval request never expires; it waits until you decide.">
+              waiting {formatWaiting(now - node.waiting.since)} · no expiry
+            </span>
+          ) : null}
           <button
             type="button"
             onClick={close}
@@ -91,6 +101,24 @@ export function ReviewSheet({ nodeId }: { nodeId: string }) {
               The checkpoint file is gone, which means the agent has already accepted a
               decision and deleted it. This node should resume shortly.
             </p>
+          ) : run && node ? (
+            <div className="-mx-4 -my-3 bg-bg-1">
+              <PlanView run={run} node={node} checkpointText={checkpoint.content} />
+              <div className="border-t border-line-1 px-4 py-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRaw((value) => !value)}
+                  className="text-2xs text-fg-3 underline-offset-2 hover:text-fg-1 hover:underline"
+                >
+                  {showRaw ? 'Hide raw request' : 'Raw request (exact text the decision is bound to)'}
+                </button>
+                {showRaw ? (
+                  <pre className="mono mt-2 max-h-72 overflow-auto text-code leading-relaxed whitespace-pre-wrap text-fg-3">
+                    {checkpoint.content}
+                  </pre>
+                ) : null}
+              </div>
+            </div>
           ) : (
             <pre className="mono text-code leading-relaxed whitespace-pre-wrap text-fg-2">
               {checkpoint.content}

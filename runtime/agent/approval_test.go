@@ -137,3 +137,60 @@ func TestWorkerEnvironmentOnlySelectedCredential(t *testing.T) {
 		t.Fatal("configured provider credential was not passed to its worker")
 	}
 }
+
+// The request file is read by people, so it opens with the goal and the input text as text,
+// and the exact JSON the decision is bound to follows it.
+func TestApprovalRequestIsReadableAndKeepsOneJSONBlock(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
+	defer cancel()
+	var body string
+	task := Task{
+		ID:     "fixture|approval",
+		Memory: map[string]any{"user_prompt": "Build a gallery\nwith depth"},
+		Inputs: []TaskInput{
+			// A fenced block inside an input must not be mistaken for the request's own JSON block.
+			{ArtifactID: "fixture|design_output", Name: "design summary", Data: "### Files\n- spec.md\n```json\n{\"fake\": true}\n```"},
+			{ArtifactID: "fixture|scene", Data: map[string]any{"walls": 4}},
+			{ArtifactID: "fixture|huge", Name: "huge", Data: strings.Repeat("x", maxQuotedInput+500)},
+		},
+	}
+	_ = AwaitApproval(ctx, t.TempDir(), task, func(line string) {
+		const prefix = "[TOOL] Checkpoint file created at: "
+		if strings.HasPrefix(line, prefix) {
+			b, err := os.ReadFile(strings.TrimPrefix(line, prefix))
+			if err != nil {
+				t.Fatal(err)
+			}
+			body = string(b)
+		}
+	})
+	for _, want := range []string{"## Goal", "> Build a gallery\n> with depth", "### design summary", "> - spec.md", "### fixture|scene", `>   "walls": 4`, "500 more characters"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("request is missing %q:\n%s", want, body)
+		}
+	}
+	// Exactly one unquoted json fence: the real request, which still carries the full input.
+	var fences int
+	for _, line := range strings.Split(body, "\n") {
+		if line == "```json" {
+			fences++
+		}
+	}
+	if fences != 1 {
+		t.Fatalf("%d json blocks, want exactly one", fences)
+	}
+	start := strings.Index(body, "\n```json\n") + len("\n```json\n")
+	end := strings.Index(body[start:], "\n```\n")
+	var request struct {
+		Inputs []struct {
+			Data any `json:"data"`
+		} `json:"inputs"`
+		Prompt string `json:"prompt"`
+	}
+	if err := json.Unmarshal([]byte(body[start:start+end]), &request); err != nil {
+		t.Fatalf("the json block is not parseable: %v", err)
+	}
+	if request.Prompt != "Build a gallery\nwith depth" || len(request.Inputs) != 3 || len(request.Inputs[2].Data.(string)) != maxQuotedInput+500 {
+		t.Fatalf("the exact request lost data: %+v", request)
+	}
+}

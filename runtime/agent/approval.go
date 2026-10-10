@@ -8,8 +8,64 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
+
+// maxQuotedInput bounds how much of one input is copied into the readable part of a request.
+const maxQuotedInput = 4000
+
+// requestPreface is the human-readable part of an approval request: the goal and the text of
+// each input, quoted line by line. The exact request follows it as JSON; Studio builds its
+// plan view from that JSON, and this part is for anyone reading the file directly. Quoting
+// with "> " keeps a code fence inside an input from being mistaken for the JSON block.
+func requestPreface(req Task) string {
+	var out strings.Builder
+	out.WriteString("# Approval required\n\nReview what is being approved below. The decision is stored separately and is bound to the exact text of this file.\n\n")
+	if prompt, ok := req.Memory["user_prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+		out.WriteString("## Goal\n\n")
+		out.WriteString(quoteLines(prompt, maxQuotedInput))
+		out.WriteString("\n")
+	}
+	if len(req.Inputs) > 0 {
+		out.WriteString("## Inputs\n\n")
+	}
+	for _, input := range req.Inputs {
+		name := input.Name
+		if name == "" {
+			name = input.ArtifactID
+		}
+		fmt.Fprintf(&out, "### %s\n\n", strings.ReplaceAll(name, "\n", " "))
+		text, ok := input.Data.(string)
+		if !ok {
+			if encoded, err := json.MarshalIndent(input.Data, "", "  "); err == nil {
+				text = string(encoded)
+			}
+		}
+		out.WriteString(quoteLines(text, maxQuotedInput))
+		out.WriteString("\n")
+	}
+	out.WriteString("## Exact request\n\n")
+	return out.String()
+}
+
+// quoteLines prefixes every line with "> ", keeping at most limit characters of text.
+func quoteLines(text string, limit int) string {
+	more := 0
+	if runes := []rune(text); len(runes) > limit {
+		more = len(runes) - limit
+		text = string(runes[:limit])
+	}
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = "> " + line
+	}
+	quoted := strings.Join(lines, "\n") + "\n"
+	if more > 0 {
+		quoted += fmt.Sprintf("> … %d more characters are in the JSON below.\n", more)
+	}
+	return quoted
+}
 
 // awaitsHuman reports whether a worker is the approval checkpoint. A person decides when
 // they decide, so this node is not bound by the task deadline other workers run under.
@@ -47,7 +103,7 @@ func AwaitApproval(ctx context.Context, root string, req Task, log func(string))
 	}
 	// Fresh request identity prevents an old approval authorizing a retry.
 	target := filepath.Join(dir, fmt.Sprintf("approval_req_%s_%d.md", digest[:16], time.Now().UnixNano()))
-	content := []byte("# Approval required\n\nReview the exact task inputs below. The decision is stored separately.\n\n```json\n" + string(payload) + "\n```\n")
+	content := []byte(requestPreface(req) + "```json\n" + string(payload) + "\n```\n")
 	if err = os.WriteFile(target, content, 0600); err != nil {
 		return err
 	}
