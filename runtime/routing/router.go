@@ -617,6 +617,13 @@ func (r *ModelRouter) PenalizeProvider(agentID, apiKeyEnv string) {
 // Only actual rate limits reduce predictive capacity. Authentication remains
 // unavailable until credentials are refreshed; quotas receive a later probe.
 func (r *ModelRouter) PenalizeProviderFor(agentID, apiKeyEnv, category, reason string) {
+	r.PenalizeProviderForUntil(agentID, apiKeyEnv, category, reason, time.Time{})
+}
+
+// PenalizeProviderForUntil is PenalizeProviderFor for a provider that reported when
+// an exhausted quota resets: the credential stays unavailable until then instead of
+// being probed again after the default 15 minutes.
+func (r *ModelRouter) PenalizeProviderForUntil(agentID, apiKeyEnv, category, reason string, resetAt time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ModelsMutex.Lock()
@@ -636,6 +643,9 @@ func (r *ModelRouter) PenalizeProviderFor(agentID, apiKeyEnv, category, reason s
 	case "provider_quota", "provider_account_quota":
 		status = KeyQuotaExhausted
 		retryAt = now.Add(15 * time.Minute)
+		if resetAt.After(retryAt) {
+			retryAt = resetAt
+		}
 	case "provider_rate_limit":
 		if r.ProviderPenaltyUntil == nil {
 			r.ProviderPenaltyUntil = make(map[string]time.Time)
@@ -668,6 +678,11 @@ func (r *ModelRouter) PenalizeProviderFor(agentID, apiKeyEnv, category, reason s
 // provider reports an account-wide limit. Rotating variable names cannot evade
 // limits such as OpenRouter's free-model daily allowance.
 func (r *ModelRouter) PenalizeProviderFamily(provider string) {
+	r.PenalizeProviderFamilyUntil(provider, time.Time{})
+}
+
+// PenalizeProviderFamilyUntil also honours a provider-reported quota reset time.
+func (r *ModelRouter) PenalizeProviderFamilyUntil(provider string, resetAt time.Time) {
 	if provider == "" {
 		return
 	}
@@ -685,7 +700,11 @@ func (r *ModelRouter) PenalizeProviderFamily(provider string) {
 		}
 	}
 	for key := range keys {
-		health := KeyHealth{Key: key, Status: KeyQuotaExhausted, Reason: provider + " reported an account-wide quota limit", ObservedAt: now.UTC(), RetryAt: now.Add(15 * time.Minute)}
+		retryAt := now.Add(15 * time.Minute)
+		if resetAt.After(retryAt) {
+			retryAt = resetAt
+		}
+		health := KeyHealth{Key: key, Status: KeyQuotaExhausted, Reason: provider + " reported an account-wide quota limit", ObservedAt: now.UTC(), RetryAt: retryAt}
 		found := false
 		for i := range KeyHealthStates {
 			if KeyHealthStates[i].Key == key {
