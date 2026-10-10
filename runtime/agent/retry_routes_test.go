@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -165,5 +168,60 @@ func TestFileEffectProofResumesOnlyProviderFailures(t *testing.T) {
 				t.Fatalf("retryable=%v resume=%v, want %v/%v", got.retryable, got.afterFileEffects, test.retryable, test.resume)
 			}
 		})
+	}
+}
+
+// The approval checkpoint waits for a person, so the task deadline other workers run under must not end it.
+func TestHumanCheckpointOutlivesTheTaskDeadline(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("RETICLE_ROOT", root)
+	bus := events.NewBus("hitl-test")
+	defer bus.Close()
+	log := &logger.Logger{}
+	state := memory.NewRuntimeState()
+	memory.NewManager(memory.NewArtifactStore(), state, memory.NewSessionState("hitl-test"), bus)
+	d := NewDispatcher(log, bus, nil, nil, state)
+	d.Start()
+	defer d.running.Wait()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.RegisterWorker(NewWorker("hitl-agent", exe, nil, nil, log, bus))
+	done := make(chan string, 1)
+	bus.Subscribe("WorkerCompleted", func(events.RuntimeEvent) { done <- "completed" })
+	bus.Subscribe("WorkerFailed", func(e events.RuntimeEvent) { done <- fmt.Sprint(e.Payload.(map[string]any)["stderr"]) })
+	decide := make(chan string, 1)
+	bus.Subscribe("WorkerLog", func(e events.RuntimeEvent) {
+		if payload, ok := e.Payload.(map[string]any); ok {
+			if line, _ := payload["log"].(string); strings.HasPrefix(line, "[TOOL] Checkpoint file created at: ") {
+				decide <- strings.TrimPrefix(line, "[TOOL] Checkpoint file created at: ")
+			}
+		}
+	})
+	// A one second task deadline; the person takes three seconds to decide.
+	bus.Publish("TaskCreated", "test", Task{ID: "run|approve", AgentID: "hitl-agent", ExecutionID: "run", Memory: map[string]any{"task_timeout_seconds": 1}})
+	select {
+	case path := <-decide:
+		time.Sleep(3 * time.Second)
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(body)
+		data, _ := json.Marshal(map[string]string{"hash": hex.EncodeToString(sum[:]), "decision": "APPROVED"})
+		if err := os.WriteFile(path+".decision.json", data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the checkpoint never started waiting")
+	}
+	select {
+	case message := <-done:
+		if message != "completed" {
+			t.Fatalf("the checkpoint was ended before the person decided: %s", message)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the approved checkpoint never completed")
 	}
 }

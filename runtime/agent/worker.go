@@ -200,7 +200,7 @@ func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEn
 		return fail(WorkerProtocolError, err)
 	}
 	w.Bus.Publish("WorkerStarted", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "attempt_id": req.AttemptID})
-	if w.ID == "hitl-agent" {
+	if awaitsHuman(w) {
 		err := AwaitApproval(ctx, os.Getenv("RETICLE_ROOT"), req, func(line string) {
 			w.Bus.Publish("WorkerLog", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "log": line})
 		})

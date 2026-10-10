@@ -18,6 +18,7 @@ import type {
   ConnectRequest,
   ConnectionState,
   EnvKeyEntry,
+  NotifyTarget,
   FileExportResult,
   ProfileImportResult,
   SettingsProfile,
@@ -185,6 +186,9 @@ const bridge: ReticleBridge = {
   notify: {
     runFinished: (message: { title: string; body: string }) =>
       ipcRenderer.invoke(IPC.notifyRunFinished, message) as Promise<void>,
+    approval: (message: { title: string; body: string; target: NotifyTarget }) =>
+      ipcRenderer.invoke(IPC.notifyApproval, message) as Promise<void>,
+    onClick: (handler: (target: NotifyTarget) => void) => subscribe<NotifyTarget>(IPC.pushNotifyClick, handler),
   },
 
   terminal: {

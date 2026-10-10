@@ -251,6 +251,11 @@ func (d *Dispatcher) Start() {
 			timeout = 7200
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+		if awaitsHuman(worker) {
+			// Waiting for a person is not work that can overrun: only a kill ends it.
+			cancel()
+			ctx, cancel = context.WithCancel(context.Background())
+		}
 		d.activeTasksMu.Lock()
 		if d.cancelled[task.ExecutionID] || d.activeTasks[task.ExecutionID][task.ID] != nil {
 			d.activeTasksMu.Unlock()

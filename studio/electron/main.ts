@@ -443,10 +443,16 @@ function registerIpc(): void {
     return url ? { ok: true, data: url } : { ok: false, error: 'This run has no generated files to preview' }
   })
 
-  handle(IPC.notifyRunFinished, (_e, message: { title?: unknown; body?: unknown }) => {
+  // A system notification, only while Studio is in the background and the preference allows it.
+  // Returns the window when one was shown, so an urgent caller can also flash the taskbar.
+  const showBackgroundNotification = (
+    enabled: boolean,
+    message: { title?: unknown; body?: unknown },
+    onClick?: () => void,
+  ): BrowserWindow | null => {
     const window = mainWindow
-    if (!settings.get().notifications.runFinished || !Notification.isSupported()) return
-    if (!window || window.isDestroyed() || window.isFocused()) return
+    if (!enabled || !Notification.isSupported()) return null
+    if (!window || window.isDestroyed() || window.isFocused()) return null
     const clip = (value: unknown, limit: number) => (typeof value === 'string' ? value.slice(0, limit) : '')
     const notification = new Notification({ title: clip(message?.title, 120) || 'Reticle', body: clip(message?.body, 300) })
     notification.on('click', () => {
@@ -454,8 +460,28 @@ function registerIpc(): void {
       if (window.isMinimized()) window.restore()
       window.show()
       window.focus()
+      onClick?.()
     })
     notification.show()
+    return window
+  }
+
+  handle(IPC.notifyRunFinished, (_e, message: { title?: unknown; body?: unknown }) => {
+    showBackgroundNotification(settings.get().notifications.runFinished, message)
+  })
+
+  // A node is waiting for a person. Unlike a finished run this blocks the workflow, so it also
+  // flashes the taskbar (until Studio is focused) and, when clicked, opens that review.
+  handle(IPC.notifyApproval, (_e, message: { title?: unknown; body?: unknown; target?: { execId?: unknown; nodeId?: unknown } }) => {
+    const execId = message?.target?.execId
+    const nodeId = message?.target?.nodeId
+    const target = typeof execId === 'string' && typeof nodeId === 'string' ? { execId, nodeId } : null
+    const window = showBackgroundNotification(
+      settings.get().notifications.approvalNeeded,
+      message,
+      target ? () => send(IPC.pushNotifyClick, target) : undefined,
+    )
+    window?.flashFrame(true)
   })
 
   handle(IPC.terminalStart, (_e, request: TerminalStartRequest) =>

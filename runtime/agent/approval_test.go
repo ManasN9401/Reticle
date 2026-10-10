@@ -50,6 +50,62 @@ func TestApprovalDecisionBinding(t *testing.T) {
 	}
 }
 
+// Approvals used to lapse after 30 minutes, throwing away the decision of anyone who stepped away.
+func TestApprovalNeverExpires(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	err := AwaitApproval(ctx, root, Task{ID: "fixture|approval", Memory: map[string]any{"user_prompt": "go"}}, func(line string) {
+		const prefix = "[TOOL] Checkpoint file created at: "
+		if !strings.HasPrefix(line, prefix) {
+			return
+		}
+		path := strings.TrimPrefix(line, prefix)
+		body, e := os.ReadFile(path)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if strings.Contains(string(body), "expires_at") {
+			t.Fatal("the request still carries an expiry")
+		}
+		// The request has been waiting for two hours when the person finally decides.
+		old := time.Now().Add(-2 * time.Hour)
+		if e = os.Chtimes(path, old, old); e != nil {
+			t.Fatal(e)
+		}
+		sum := sha256.Sum256(body)
+		data, _ := json.Marshal(map[string]string{"hash": hex.EncodeToString(sum[:]), "decision": "APPROVED"})
+		if e = os.WriteFile(path+".decision.json", data, 0600); e != nil {
+			t.Fatal(e)
+		}
+	})
+	if err != nil {
+		t.Fatalf("an old approval request was refused: %v", err)
+	}
+}
+
+func TestApprovalWaitEndsOnlyWhenTheRunIsKilled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		result <- AwaitApproval(ctx, t.TempDir(), Task{ID: "fixture|approval"}, func(string) {})
+	}()
+	select {
+	case err := <-result:
+		t.Fatalf("returned without a decision or a kill: %v", err)
+	case <-time.After(800 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("a killed run was reported as approved")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a kill did not end the wait")
+	}
+}
+
 func TestWorkerEnvironmentOnlySelectedCredential(t *testing.T) {
 	routing.ModelsMutex.Lock()
 	previousModels := routing.AvailableModels

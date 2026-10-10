@@ -33,6 +33,15 @@ export async function connect(): Promise<void> {
   await bridge.connection.connect({ host, port })
 }
 
+/** Bring a node that is waiting for a decision into view and open its review. */
+export function openApproval(execId: string, nodeId: string): void {
+  useStudio.getState().selectRun(execId)
+  useStudio.getState().selectNode(nodeId)
+  const ui = useUi.getState()
+  ui.setView('graph')
+  ui.setReviewNode(nodeId)
+}
+
 /** Connect to a specific orchestrator address; the main process also saves it as the default. */
 export async function connectTo(host: string, port: number): Promise<void> {
   await bridge?.connection.connect({ host, port })

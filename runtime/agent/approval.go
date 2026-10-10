@@ -11,20 +11,31 @@ import (
 	"time"
 )
 
+// awaitsHuman reports whether a worker is the approval checkpoint. A person decides when
+// they decide, so this node is not bound by the task deadline other workers run under.
+func awaitsHuman(w *Worker) bool {
+	return w != nil && w.ID == "hitl-agent"
+}
+
 // AwaitApproval uses a separate decision document, never status text in a plan.
 // Only the trusted local control UI should write decisions; native execution is
 // explicitly trusted host execution, not an OS security boundary.
+//
+// It waits until a decision is written or ctx is cancelled (the run is killed). There is
+// deliberately no expiry: a request used to lapse after 30 minutes, which discarded the
+// approval of anyone who stepped away. An old decision still cannot authorize a later
+// retry, because every attempt writes a new request file with its own identity and only
+// the worker polling that exact file reads its decision.
 func AwaitApproval(ctx context.Context, root string, req Task, log func(string)) error {
 	if root == "" {
 		return fmt.Errorf("approval root is not configured")
 	}
 	payload, err := json.Marshal(struct {
-		Task      TaskID      `json:"task"`
-		Inputs    []TaskInput `json:"inputs"`
-		Prompt    any         `json:"prompt"`
-		Action    any         `json:"protected_action,omitempty"`
-		ExpiresAt time.Time   `json:"expires_at"`
-	}{req.ID, req.Inputs, req.Memory["user_prompt"], req.Parameters["protected_action"], time.Now().UTC().Add(30 * time.Minute)})
+		Task   TaskID      `json:"task"`
+		Inputs []TaskInput `json:"inputs"`
+		Prompt any         `json:"prompt"`
+		Action any         `json:"protected_action,omitempty"`
+	}{req.ID, req.Inputs, req.Memory["user_prompt"], req.Parameters["protected_action"]})
 	if err != nil {
 		return err
 	}
@@ -50,11 +61,6 @@ func AwaitApproval(ctx context.Context, root string, req Task, log func(string))
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			// Expiry is deliberately checked against the request file timestamp so
-			// an old decision cannot authorize a later retry.
-			if info, statErr := os.Stat(target); statErr == nil && time.Since(info.ModTime()) > 30*time.Minute {
-				return fmt.Errorf("approval expired")
-			}
 			b, err := os.ReadFile(target + ".decision.json")
 			if os.IsNotExist(err) {
 				continue

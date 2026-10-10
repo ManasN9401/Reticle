@@ -64,6 +64,7 @@ function defaults(): StudioSettings {
     },
     notifications: {
       runFinished: true,
+      approvalNeeded: true,
     },
   }
 }
@@ -194,7 +195,7 @@ function validate(value: StudioSettings): StudioSettings {
   ] as const) {
     if (!Number.isInteger(number) || number < min || number > max) throw new Error(`Invalid ${name}`)
   }
-  for (const flag of [value.connection.autoConnect, value.forge.isolated, value.forge.allModels, value.forge.native, value.logs.followTail, value.notifications.runFinished]) {
+  for (const flag of [value.connection.autoConnect, value.forge.isolated, value.forge.allModels, value.forge.native, value.logs.followTail, value.notifications.runFinished, value.notifications.approvalNeeded]) {
     if (typeof flag !== 'boolean') throw new Error('Settings flags must be booleans')
   }
   if (typeof value.forge.cwd !== 'string' || typeof value.forge.binaryPath !== 'string') throw new Error('Forge paths must be strings')

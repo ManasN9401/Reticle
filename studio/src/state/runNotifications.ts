@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
 import { runTotals } from '@shared/projection'
-import { chooseProduct, detectCompletions, formatRunDuration } from '@shared/runCompletion'
+import { chooseProduct, detectApprovalRequests, detectCompletions, formatRunDuration } from '@shared/runCompletion'
 import type { RunCompletion } from '@shared/runCompletion'
-import { openRunFiles, openRunPreview } from './actions'
+import type { RunNode } from '@shared/projection'
+import { openApproval, openRunFiles, openRunPreview } from './actions'
 import { bridge } from './bridge'
 import { useStudio } from './store'
 import { useToasts } from './toasts'
@@ -94,16 +95,57 @@ async function announce({ execId, outcome, run }: RunCompletion): Promise<void> 
   })
 }
 
-/** Announces runs as they finish. Only live transitions count, never a reconnect snapshot. */
+const APPROVAL_TOAST = 'approval:'
+
+/** A node is waiting for a person: say so everywhere it can be missed, once. */
+function announceApproval(node: RunNode): void {
+  const target = { execId: node.execId, nodeId: node.nodeId }
+  const title = 'Approval needed'
+  const body = `${node.label} is waiting for your decision. The workflow is paused until you approve or reject it.`
+  useToasts.getState().push({
+    id: `${APPROVAL_TOAST}${node.execId}|${node.nodeId}`,
+    tone: 'attention',
+    title,
+    detail: `${node.label} · ${shortId(node.execId)}`,
+    actions: [{ label: 'Review', run: () => openApproval(target.execId, target.nodeId) }],
+  })
+  // Dropped by the main process while Studio is focused or the preference is off.
+  void bridge?.notify.approval({ title, body, target })
+}
+
+/** Remove approval toasts for nodes that have since been decided, killed or replaced. */
+function clearDecidedApprovals(): void {
+  const { projection } = useStudio.getState()
+  const toasts = useToasts.getState()
+  for (const toast of toasts.toasts) {
+    if (!toast.id.startsWith(APPROVAL_TOAST)) continue
+    const [execId, nodeId] = toast.id.slice(APPROVAL_TOAST.length).split('|')
+    const node = projection.runs[execId]?.nodes[nodeId]
+    if (!node || node.status !== 'waiting' || node.waiting?.kind !== 'human') toasts.dismiss(toast.id)
+  }
+}
+
+/**
+ * Announces runs as they finish and nodes as they start waiting for a decision. Only live
+ * transitions count, never a reconnect snapshot.
+ */
 export function useRunNotifications(): void {
-  useEffect(
-    () =>
-      useStudio.subscribe((state, previous) => {
-        if (state.projection === previous.projection) return
-        for (const completion of detectCompletions(previous.projection, state.projection)) {
-          void announce(completion)
-        }
-      }),
-    [],
-  )
+  useEffect(() => {
+    const unsubscribe = useStudio.subscribe((state, previous) => {
+      if (state.projection === previous.projection) return
+      for (const completion of detectCompletions(previous.projection, state.projection)) {
+        void announce(completion)
+      }
+      for (const node of detectApprovalRequests(previous.projection, state.projection)) {
+        announceApproval(node)
+      }
+      clearDecidedApprovals()
+    })
+    // Clicking the system notification brings Studio forward; open the review it was about.
+    const offClick = bridge?.notify.onClick((target) => openApproval(target.execId, target.nodeId))
+    return () => {
+      unsubscribe()
+      offClick?.()
+    }
+  }, [])
 }

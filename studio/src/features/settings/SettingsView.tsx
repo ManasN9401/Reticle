@@ -174,6 +174,17 @@ function AppearanceSection({ patch }: { patch: Patch }) {
         />
       </Row>
 
+      <Row
+        label="Approval notifications"
+        description="When a node is waiting for your decision and Studio is in the background, show a system notification, flash the taskbar, and open the review when the notification is clicked. The in-app toast always appears. A checkpoint never expires, so it is safe to leave it waiting."
+      >
+        <Toggle
+          label="Approval notifications"
+          checked={notifications.approvalNeeded}
+          onChange={(approvalNeeded) => patch({ notifications: { approvalNeeded } })}
+        />
+      </Row>
+
       <SectionLabel className="mt-2 px-0">Colour Schemes</SectionLabel>
       <p className="pretty mb-3 text-2xs leading-relaxed text-fg-4">
         Custom palettes layered on top of Dark or Light. Only colour tokens are editable — chrome

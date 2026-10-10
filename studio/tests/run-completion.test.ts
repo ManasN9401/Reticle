@@ -74,3 +74,51 @@ test('durations are readable', () => {
   assert.equal(formatRunDuration(3_720_000), '1h 2m')
   assert.equal(formatRunDuration(-5), '0s')
 })
+
+// ---------------------------------------------------------------------------
+// Approval requests: a node that starts waiting for a person is announced once.
+// ---------------------------------------------------------------------------
+import { detectApprovalRequests } from '../src/shared/runCompletion'
+import type { NodeStatus, WaitingKind } from '../src/shared/projection'
+
+function withNodes(runs: Record<string, Record<string, { status: NodeStatus; kind?: WaitingKind }>>): ProjectionState {
+  const state = createProjection()
+  for (const [execId, nodes] of Object.entries(runs)) {
+    state.runs[execId] = { execId, status: 'running', nodes: {}, edges: [] }
+    state.runOrder.push(execId)
+    for (const [nodeId, spec] of Object.entries(nodes)) {
+      state.runs[execId].nodes[nodeId] = {
+        execId, nodeId, taskId: `${execId}|${nodeId}`, label: nodeId, status: spec.status, attempts: 1,
+        artifacts: [], files: [], mocked: false, logCount: 0,
+        waiting: spec.kind ? { kind: spec.kind, since: 1 } : undefined,
+      }
+    }
+  }
+  return state
+}
+
+test('a node that starts waiting for a person is announced', () => {
+  const before = withNodes({ 'exec-a': { review: { status: 'running' } } })
+  const after = withNodes({ 'exec-a': { review: { status: 'waiting', kind: 'human' } } })
+  assert.deepEqual(detectApprovalRequests(before, after).map((n) => n.nodeId), ['review'])
+})
+
+test('a node that stays waiting is announced once, and a comfy wait is not an approval', () => {
+  const waiting = withNodes({ 'exec-a': { review: { status: 'waiting', kind: 'human' }, art: { status: 'waiting', kind: 'comfy' } } })
+  assert.deepEqual(detectApprovalRequests(waiting, waiting), [])
+  const earlier = withNodes({ 'exec-a': { review: { status: 'running' }, art: { status: 'running' } } })
+  assert.deepEqual(detectApprovalRequests(earlier, waiting).map((n) => n.nodeId), ['review'])
+})
+
+test('nothing is announced for the first projection, replays or compile-phase runs', () => {
+  const waiting = withNodes({ 'exec-a': { review: { status: 'waiting', kind: 'human' } }, 'compile-exec-a': { gate: { status: 'waiting', kind: 'human' } } })
+  assert.deepEqual(detectApprovalRequests(null, waiting), [])
+  assert.deepEqual(detectApprovalRequests(undefined, waiting), [])
+  assert.deepEqual(detectApprovalRequests(withNodes({}), waiting).map((n) => n.nodeId), ['review'])
+})
+
+test('a second approval later in the same run is announced again', () => {
+  const first = withNodes({ 'exec-a': { one: { status: 'waiting', kind: 'human' }, two: { status: 'pending' } } })
+  const second = withNodes({ 'exec-a': { one: { status: 'done' }, two: { status: 'waiting', kind: 'human' } } })
+  assert.deepEqual(detectApprovalRequests(first, second).map((n) => n.nodeId), ['two'])
+})

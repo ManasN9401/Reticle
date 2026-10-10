@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type ToastTone = 'success' | 'failure'
+export type ToastTone = 'success' | 'failure' | 'attention'
 
 export interface ToastAction {
   label: string

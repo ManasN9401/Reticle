@@ -80,6 +80,8 @@ export const IPC = {
 
   // --- notifications -------------------------------------------------------
   notifyRunFinished: 'notify:run-finished',
+  notifyApproval: 'notify:approval',
+  pushNotifyClick: 'push:notify-click',
 
   // --- integrated terminal -------------------------------------------------
   terminalStart: 'terminal:start',
@@ -306,6 +308,11 @@ export interface HitlResolveRequest {
   path: string
   decision: 'APPROVED' | 'REJECTED'
   feedback?: string
+}
+
+export interface NotifyTarget {
+  execId: string
+  nodeId: string
 }
 
 export interface OutputFile {
@@ -665,6 +672,8 @@ export interface StudioSettings {
   notifications: {
     /** Show an OS notification when a run finishes while Studio is not focused. */
     runFinished: boolean
+    /** Notify, flash the taskbar and bring Studio forward when a node needs a human decision while Studio is not focused. */
+    approvalNeeded: boolean
   }
 }
 
@@ -869,6 +878,9 @@ export interface ReticleBridge {
   notify: {
     /** Asks the main process for an OS notification; it is dropped when Studio is focused or the preference is off. */
     runFinished(message: { title: string; body: string }): Promise<void>
+    /** A node is waiting for a person. Clicking the system notification calls the onClick handler with the target. */
+    approval(message: { title: string; body: string; target: NotifyTarget }): Promise<void>
+    onClick(handler: (target: NotifyTarget) => void): Unsubscribe
   }
 
   terminal: {

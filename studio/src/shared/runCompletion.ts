@@ -1,4 +1,4 @@
-import type { ProjectionState, Run } from './projection'
+import type { ProjectionState, Run, RunNode } from './projection'
 
 export interface RunCompletion {
   execId: string
@@ -29,6 +29,32 @@ export function detectCompletions(
     const before = previous.runs[execId]
     if (!before || before.status === 'completed' || before.status === 'failed') continue
     found.push({ execId, outcome: run.status, run })
+  }
+  return found
+}
+
+/**
+ * Nodes that have just started waiting for a person. Like completions, only a live
+ * transition counts: a node already waiting in the first projection (or in a reconnect
+ * snapshot that Studio has already seen) is not announced again, and one that stays
+ * waiting is announced once.
+ */
+export function detectApprovalRequests(
+  previous: ProjectionState | null | undefined,
+  next: ProjectionState,
+): RunNode[] {
+  if (!previous) return []
+  const found: RunNode[] = []
+  for (const execId of next.runOrder) {
+    if (isCompileRun(execId)) continue
+    const run = next.runs[execId]
+    if (!run) continue
+    for (const node of Object.values(run.nodes)) {
+      if (node.status !== 'waiting' || node.waiting?.kind !== 'human') continue
+      const before = previous.runs[execId]?.nodes[node.nodeId]
+      if (before?.status === 'waiting' && before.waiting?.kind === 'human') continue
+      found.push(node)
+    }
   }
   return found
 }

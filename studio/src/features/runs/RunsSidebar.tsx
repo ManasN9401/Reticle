@@ -7,10 +7,9 @@ import {
   formatRelative,
   runStatusVar,
 } from '@/design/status'
-import { removeFromQueue, killRun, pauseRun, resumeRun } from '@/state/actions'
+import { openApproval, removeFromQueue, killRun, pauseRun, resumeRun } from '@/state/actions'
 import { useStudio } from '@/state/store'
 import { pendingApprovals, runTotals } from '@shared/projection'
-import { useUi } from '@/state/ui'
 import { useNow } from '@/state/useNow'
 import { Composer } from './Composer'
 
@@ -22,9 +21,6 @@ export function RunsSidebar() {
   const projection = useStudio((s) => s.projection)
   const selectedExecId = useStudio((s) => s.selectedExecId)
   const selectRun = useStudio((s) => s.selectRun)
-  const selectNode = useStudio((s) => s.selectNode)
-  const setReviewNode = useUi((s) => s.setReviewNode)
-  const setView = useUi((s) => s.setView)
 
   const waitlist = projection.waitlist
   const approvals = pendingApprovals(projection)
@@ -45,12 +41,7 @@ export function RunsSidebar() {
               <button
                 key={node.taskId}
                 type="button"
-                onClick={() => {
-                  selectRun(node.execId)
-                  selectNode(node.nodeId)
-                  setView('graph')
-                  setReviewNode(node.nodeId)
-                }}
+                onClick={() => openApproval(node.execId, node.nodeId)}
                 className="flex w-full items-center gap-2 border-l-2 border-st-waiting bg-st-waiting-weak px-3 py-1.5 text-left hover:brightness-125"
               >
                 <div className="min-w-0 flex-1">

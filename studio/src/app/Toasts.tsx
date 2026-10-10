@@ -21,7 +21,10 @@ export function Toasts() {
         >
           <div className="flex items-start gap-2">
             <span className="mt-1.5">
-              <StatusPip color={toast.tone === 'success' ? 'var(--color-st-done)' : 'var(--color-st-failed)'} />
+              <StatusPip
+                color={toast.tone === 'success' ? 'var(--color-st-done)' : toast.tone === 'attention' ? 'var(--color-st-waiting)' : 'var(--color-st-failed)'}
+                pulse={toast.tone === 'attention'}
+              />
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-fg-1">{toast.title}</p>
