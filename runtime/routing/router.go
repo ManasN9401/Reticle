@@ -85,6 +85,10 @@ type ModelRouter struct {
 	// halving the same credential during one cooldown window.
 	ProviderPenaltyUntil map[string]time.Time
 
+	// Route-level facts that outlive one task (route_learning.go), guarded by mu.
+	unavailable   map[string]time.Time
+	requestLimits map[string]int
+
 	UseBayesianRouting        bool
 	AllowTextToCodingFallback bool
 
@@ -355,6 +359,9 @@ type RoutePolicy struct {
 	Tried          map[string]bool
 	AvoidProviders map[string]bool
 	PreferredKey   string
+	// MinRequestTokens is the smallest request the task can make (prompt plus a useful reply).
+	// Routes whose learned size limit is below it are skipped. Zero means unknown.
+	MinRequestTokens int
 }
 
 func (r *ModelRouter) SelectModelWithPolicy(taskID string, agentID string, effortTier int, requiredConfidence float64, modality string, policy RoutePolicy) *Model {
@@ -372,7 +379,7 @@ func (r *ModelRouter) SelectModelWithPolicy(taskID string, agentID string, effor
 	var capable []Model
 	now := time.Now()
 	available := func(m Model) bool {
-		return !policy.Excluded[m.Key()] && servesChatTasks(m) && modelRouteAvailableLocked(m, now)
+		return !policy.Excluded[m.Key()] && servesChatTasks(m) && modelRouteAvailableLocked(m, now) && !r.routeBlockedLocked(m, policy, now)
 	}
 	ModelsMutex.RLock()
 	for _, m := range AvailableModels {

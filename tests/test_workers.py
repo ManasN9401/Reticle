@@ -216,12 +216,17 @@ class WorkerContracts(unittest.TestCase):
 
     def test_sdk_exhaustion_is_failure(self):
         import worker_sdk
-        # A reply with text but no tool call, as a real response carries its text in .content.
+        # A model that never verifies or completes. Text-only replies alone now stop the run earlier
+        # (MAX_TEXT_ONLY_REPLIES), so text rounds alternate with a harmless tool call; a real
+        # response carries its text in .content.
         message=SimpleNamespace(tool_calls=[],content="done",model_dump=lambda **kwargs:{"role":"assistant","content":"done"})
+        call=SimpleNamespace(id="call",function=SimpleNamespace(name="list_dir",arguments=json.dumps({"path":"."})))
+        tool_message=SimpleNamespace(tool_calls=[call],model_dump=lambda **kwargs:{"role":"assistant","tool_calls":[{"id":"call","type":"function","function":{"name":"list_dir","arguments":"{\"path\": \".\"}"}}]})
         count=[]
         def completion(**kwargs):
             count.append(1)
-            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+            reply=message if len(count)%2 else tool_message
+            return SimpleNamespace(choices=[SimpleNamespace(message=reply)])
         req={"id":"fixture","capabilities":[],"memory":{"workspace_dir":"unused"},"parameters":{"llm_model":"ollama/fixture"}}
         with patch.dict(sys.modules,{"litellm":SimpleNamespace(completion=completion)}),patch.dict("os.environ",{"RETICLE_LOCAL_GPU_COORDINATION":"false"},clear=False),patch.object(comfy_tools,"ollama_model_loaded",return_value=True),patch.object(sys,"stdin",io.StringIO(json.dumps(req))),patch.object(sys,"stdout",io.StringIO()) as output:
             with self.assertRaisesRegex(RuntimeError,"budget exhausted"):

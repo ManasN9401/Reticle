@@ -36,8 +36,11 @@ const (
 	WorkerProtocolError WorkerFailureReason = "protocol_error"
 	WorkerInvalidJSON   WorkerFailureReason = "invalid_json"
 	WorkerTimeout       WorkerFailureReason = "timeout"
-	WorkerPanic         WorkerFailureReason = "panic"
-	WorkerStartFailed   WorkerFailureReason = "start_failed"
+	// WorkerAttemptTimeout is an attempt stopped by the dispatcher's per-attempt limit while the
+	// task as a whole still had time, as opposed to the task deadline (WorkerTimeout) or a kill.
+	WorkerAttemptTimeout WorkerFailureReason = "attempt_timeout"
+	WorkerPanic          WorkerFailureReason = "panic"
+	WorkerStartFailed    WorkerFailureReason = "start_failed"
 )
 
 // WorkerFailure represents the parsed state of a failed worker process.
@@ -156,8 +159,11 @@ type Worker struct {
 	Capabilities   []Capability
 	MCPServers     []string
 	BrokerPolicies []string
-	Logger         *logger.Logger
-	Bus            *events.Bus
+	// PromptBytes is the size of the skill instructions this worker adds to every request. The
+	// dispatcher uses it to keep the task off routes whose size limit it cannot fit.
+	PromptBytes int
+	Logger      *logger.Logger
+	Bus         *events.Bus
 }
 
 // NewWorker initializes a Worker instance with execution binaries and arguments.
@@ -245,7 +251,9 @@ func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEn
 		if errors.Is(ctx.Err(), context.Canceled) {
 			reason = "killed"
 		}
-		return fail(reason, ctx.Err())
+		// Keep what the worker printed: its progress lines are the only record of what a killed
+		// attempt had already changed.
+		return nil, &WorkerFailure{Reason: reason, ExitCode: -1, Stderr: redactAttemptSecrets(ctx.Err().Error() + "\n" + errout.String())}
 	}
 	if err != nil {
 		code := -1

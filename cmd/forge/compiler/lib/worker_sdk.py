@@ -134,6 +134,17 @@ def _print_retry_marker(effects_started, unsafe_effects):
     marker = "FILE_EFFECTS_ONLY" if effects_started else "NO_EFFECTS"
     print(f"[RETICLE_RETRY_SAFE: {marker}]", file=sys.stderr, flush=True)
 
+def _announce_effects(previous, effects_started, unsafe_effects):
+    """Progress line for the dispatcher: what this worker has changed so far.
+
+    The retry-safety marker is printed when the worker ends, which a worker that is killed
+    (a hung request, the attempt time limit) never does. This line is printed the moment the
+    state changes, so even a killed attempt can be classified. Returns the state announced."""
+    state = "UNSAFE" if unsafe_effects else ("FILES" if effects_started else "NONE")
+    if state != previous:
+        print(f"[RETICLE_EFFECTS: {state}]", file=sys.stderr, flush=True)
+    return state
+
 def _local_tool_descriptor(name, description, properties, required_capability):
     declared = {key: _tool_property(spec) for key, spec in properties.items()}
     schema = {
@@ -186,8 +197,18 @@ def _emit_llm(kind, text, **metadata):
     sys.stderr.write(f"\n[LLM_STREAM] {json.dumps(event, ensure_ascii=False)}\n")
     sys.stderr.flush()
 
-def _stream_with_first_event_timeout(response, timeout_seconds):
-    """Pump a provider stream and fail boundedly if it remains completely silent."""
+# Longest silence tolerated between two chunks of a stream that has already started. Reasoning
+# models can think for minutes before the first token (llm_first_token_timeout_seconds covers that),
+# but once chunks flow a gap this long means the provider's connection is wedged: SSE keep-alive
+# comments keep an HTTP read timeout from ever firing while delivering nothing the worker can use.
+DEFAULT_STREAM_IDLE_SECONDS = 300
+
+def _stream_with_first_event_timeout(response, timeout_seconds, idle_seconds=None, deadline=None):
+    """Pump a provider stream and fail boundedly if it goes silent.
+
+    timeout_seconds bounds the wait for the first chunk. idle_seconds bounds the gap between later
+    chunks. deadline is a time.monotonic() instant after which the stream is abandoned whatever it
+    is doing, so a single request can never outlive the agent's time budget."""
     events = queue.Queue(maxsize=128)
     finished = object()
 
@@ -203,12 +224,22 @@ def _stream_with_first_event_timeout(response, timeout_seconds):
     threading.Thread(target=produce, name="reticle-llm-stream", daemon=True).start()
     first = True
     while True:
+        wait = timeout_seconds if first else idle_seconds
+        out_of_time = False
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Agent time budget exhausted while the model stream was still open (timed out)")
+            if wait is None or remaining < wait:
+                wait, out_of_time = remaining, True
         try:
-            item = events.get(timeout=timeout_seconds if first else None)
+            item = events.get(timeout=wait)
         except queue.Empty as exc:
-            raise TimeoutError(
-                f"Model produced no stream event within {timeout_seconds} seconds"
-            ) from exc
+            if out_of_time:
+                raise TimeoutError("Agent time budget exhausted while the model stream was still open (timed out)") from exc
+            if first:
+                raise TimeoutError(f"Model produced no stream event within {timeout_seconds} seconds") from exc
+            raise TimeoutError(f"Model stream went silent for {idle_seconds} seconds (timed out)") from exc
         first = False
         if item is finished:
             return
@@ -232,7 +263,9 @@ def _tool_call_signature(tool_calls):
 
 def _tool_repeat_state(previous, rounds, tool_calls):
     signature = _tool_call_signature(tool_calls)
-    if not signature:
+    # Repeated completion attempts are counted, with a clearer message, by the completion-rejection
+    # guard; counting them here too would stop the run at three before that guard's six.
+    if not signature or all(name == "mark_task_complete" for name, _ in signature):
         return None, 0
     if signature == previous:
         return signature, rounds + 1
@@ -265,6 +298,19 @@ def _compact_local_instructions(text, limit=16000):
             break
     compacted = "\n".join(result).strip()
     return compacted[:limit] + "\n[Skill examples omitted to fit the local model context.]"
+
+def _emit_skill_status(skills):
+    """Show which skills this worker was built with, so a missing or unused one is visible."""
+    if not isinstance(skills, dict):
+        return
+    try:
+        listed = ", ".join(f"{name} ({chars / 1000:.1f} KB)" for name, chars in skills.get("applied") or []) or "none"
+        missing = [str(name) for name in skills.get("missing") or []]
+    except (TypeError, ValueError):
+        return
+    _emit_llm("status", f"Skills applied: {listed}")
+    if missing:
+        _emit_llm("status", "Skills with no instruction file (dependencies only, or the file is missing): " + ", ".join(missing))
 
 def _meaningful_terminal_verification(kind, parts):
     """Recognize commands that inspect or validate the produced work."""
@@ -367,7 +413,7 @@ def shared_memory_context(memory):
     controls = {"user_prompt", "workspace_dir", "max_retries", "allow_native_execution",
                 "ide_context", "prompt_attachments", "prompt_history", "global_effort",
                 "agent_complexity", "task_timeout_seconds", "llm_num_ctx",
-                "llm_max_tokens", "llm_temperature", "llm_first_token_timeout_seconds",
+                "llm_max_tokens", "llm_temperature", "llm_first_token_timeout_seconds", "llm_stream_idle_timeout_seconds",
                 "llm_max_iterations", "resumed_after_files", "ollama_keep_alive"}
     facts = {key: value for key, value in memory.items() if key not in controls}
     if len(json.dumps(facts, ensure_ascii=False).encode("utf-8")) > 65536:
@@ -586,6 +632,10 @@ def _complete_with_retries(completion, started, start_timeout, can_reroute, prog
 
 # Consecutive replies with neither text nor a tool call before the worker gives up.
 MAX_EMPTY_REPLIES = 3
+# Consecutive replies that carry text but no tool call. Text is not saved anywhere: a model that
+# answers in prose never writes a file, and two runs used their whole turn budget (over two
+# minutes each) printing code into the chat.
+MAX_TEXT_ONLY_REPLIES = 4
 # Identical rejections of mark_task_complete, with no change to the work between them, before
 # the worker stops. One run repeated the same rejection 25 times until its turn budget ran out.
 MAX_REJECTED_COMPLETIONS = 6
@@ -599,9 +649,16 @@ DEFAULT_ITERATIONS = 30
 IMAGE_ITERATIONS = 60
 MAX_ITERATIONS = 200
 
-def _iteration_limit(memory, capabilities):
-    """Model turns allowed per task: llm_max_iterations, clamped, else a capability default."""
+# A node that must produce many files needs a write and a re-read for each, before the
+# checks and the completion call. Real runs lost a 5-file node two turns before finishing.
+BASE_TURNS_FOR_OUTPUTS = 12
+TURNS_PER_OUTPUT = 4
+
+def _iteration_limit(memory, capabilities, declared_outputs=0):
+    """Model turns allowed per task: llm_max_iterations, clamped, else a default that grows
+    with the number of declared output files (and is larger when images are generated)."""
     default = IMAGE_ITERATIONS if "image.local" in capabilities else DEFAULT_ITERATIONS
+    default = max(default, BASE_TURNS_FOR_OUTPUTS + TURNS_PER_OUTPUT * declared_outputs)
     try:
         requested = int(memory.get("llm_max_iterations", default))
     except (TypeError, ValueError):
@@ -644,7 +701,7 @@ def generation_options(model, memory):
         options["temperature"] = float(memory["llm_temperature"])
     return options
 
-def run(instructions, kind="coding"):
+def run(instructions, kind="coding", skills=None):
     req = json.load(sys.stdin)
     model = req.get("parameters", {}).get("llm_model")
     if not model:
@@ -781,6 +838,10 @@ def run(instructions, kind="coding"):
     verification = []
     pending_modified_paths = set()
     written_paths = set()
+    # Required outputs that already existed (written by an earlier attempt that was resumed) and that
+    # this attempt has read back. write_file refuses to overwrite, so without this a resumed node
+    # could never satisfy "create your required output files" and stalled on every route.
+    confirmed_outputs = set()
     # A registered agent keeps its maintained worker, so the architect delivers its
     # node-specific prompt (goal, inputs, declared outputs) as a node parameter.
     # That prompt, when present, is the more specific source of declared outputs.
@@ -794,7 +855,8 @@ def run(instructions, kind="coding"):
     web_written = False
     web_checked = False
     def missing_outputs():
-        return sorted(r for r in required_outputs if not _output_satisfied(r, written_paths))
+        present = written_paths | confirmed_outputs
+        return sorted(r for r in required_outputs if not _output_satisfied(r, present))
     def record_verification(tool, target, checked_path=None, covers_changes=False):
         nonlocal verified
         verification.append({"tool": tool, "target": target, "outcome": "succeeded"})
@@ -803,6 +865,7 @@ def run(instructions, kind="coding"):
         elif checked_path is not None:
             pending_modified_paths.discard(checked_path)
         verified = bool(verification) and not pending_modified_paths and not missing_outputs()
+    _emit_skill_status(skills)
     prompt_instructions = instructions
     if model.startswith(("ollama/", "ollama_chat/")):
         prompt_instructions = _compact_local_instructions(instructions)
@@ -814,7 +877,8 @@ def run(instructions, kind="coding"):
             "\nThis task is being resumed. An earlier attempt on a different model already created or changed "
             "files in the workspace before a provider error stopped it. Do not start over: list and read the "
             "existing files first, keep what is correct, and create or fix only what is missing or wrong. "
-            "write_file will not overwrite an existing file; use replace_file_content to change one."
+            "write_file will not overwrite an existing file; use replace_file_content to change one. "
+            "A required output file that already exists counts as created once you have read it back."
         )
     messages = [{"role":"system", "content": prompt_instructions + "\n" + req.get("parameters",{}).get("system_prompt","") + "\nUse workspace-relative paths. Terminal cwd is src. Finish only after checking your work. An exhausted loop is a failure." + resume_note},
                 {"role":"user", "content":json.dumps(build_user_context(req, mem))}]
@@ -845,11 +909,13 @@ def run(instructions, kind="coding"):
         kwargs["api_key"] = os.environ[key_name]
     
     started = time.monotonic()
+    announced_effects = _announce_effects(None, effects_started, unsafe_effects)
     last_tool_signature = None
     repeated_tool_rounds = 0
     consecutive_empty_replies = 0
+    consecutive_text_only_replies = 0
     completion_rejections, last_rejection_state = 0, None
-    for iteration in range(_iteration_limit(mem, capabilities)):
+    for iteration in range(_iteration_limit(mem, capabilities, len(required_outputs))):
         if time.monotonic() - started > 3600:
             _emit_llm("status", "Stopped: agent time budget exhausted")
             _print_retry_marker(effects_started, unsafe_effects)
@@ -893,7 +959,11 @@ def run(instructions, kind="coding"):
                         _emit_llm("tool", f"Requested {getattr(tc.function, 'name', '') or 'tool'}", name=getattr(tc.function, "name", "") or "")
                     response_chunks = []
                 else:
-                    response_chunks = _stream_with_first_event_timeout(response, first_event_timeout)
+                    response_chunks = _stream_with_first_event_timeout(
+                        response, first_event_timeout,
+                        idle_seconds=max(5, int(mem.get("llm_stream_idle_timeout_seconds", DEFAULT_STREAM_IDLE_SECONDS))),
+                        deadline=started + 3600,
+                    )
                 for chunk in response_chunks:
                     delta = chunk.choices[0].delta
                     reasoning_delta = _llm_reasoning(delta)
@@ -971,7 +1041,10 @@ def run(instructions, kind="coding"):
                         "function": tool_calls_buffer[idx]["function"]
                     })
 
-            if "tool_calls" in message_dict and not effects_started:
+            # A loop is a loop whether or not files were written. This used to be switched off after
+            # the first write, when a stall could not safely be retried; now the stop is simply
+            # classified by what the worker did (resumable after file-only effects).
+            if "tool_calls" in message_dict:
                 last_tool_signature, repeated_tool_rounds = _tool_repeat_state(
                     last_tool_signature, repeated_tool_rounds, message_dict["tool_calls"]
                 )
@@ -983,7 +1056,7 @@ def run(instructions, kind="coding"):
                     raise RuntimeError(
                         "Agent stalled: repeated identical tool requests for 3 consecutive iterations"
                     )
-            elif "tool_calls" not in message_dict and not effects_started:
+            else:
                 last_tool_signature = None
                 repeated_tool_rounds = 0
             
@@ -1003,8 +1076,20 @@ def run(instructions, kind="coding"):
             consecutive_empty_replies = 0
             messages.append(message_dict)
             if "tool_calls" not in message_dict:
-                messages.append({"role":"user","content":"Use tools to verify and finish with mark_task_complete."})
+                consecutive_text_only_replies += 1
+                if consecutive_text_only_replies >= MAX_TEXT_ONLY_REPLIES:
+                    _emit_llm("status", f"Stopped: model replied with text but no tool call {MAX_TEXT_ONLY_REPLIES} times in a row")
+                    _print_retry_marker(effects_started, unsafe_effects)
+                    raise RuntimeError(
+                        f"Agent stalled: model replied with text but no tool call for {MAX_TEXT_ONLY_REPLIES} consecutive iterations"
+                    )
+                messages.append({"role":"user","content":(
+                    "Your reply was text only, and text is not saved anywhere. Files exist only when you call "
+                    "write_file (or replace_file_content). Call a tool now; when every file is written and "
+                    "verified, call mark_task_complete."
+                )})
                 continue
+            consecutive_text_only_replies = 0
             
             # Create a mock message object with tool_calls for the remainder of the loop
             class MockMessage:
@@ -1053,14 +1138,17 @@ def run(instructions, kind="coding"):
                     effects_started = True
                     if name not in REPLAY_SAFE_LOCAL_TOOLS:
                         unsafe_effects = True
+                    announced_effects = _announce_effects(announced_effects, effects_started, unsafe_effects)
                 if broker_descriptor is not None:
                     if not isinstance(args, dict):
                         raise ValueError(f"Invalid arguments for '{name}': expected an object.")
                     if broker_descriptor.get("effect") != "no_effect":
                         effects_started = unsafe_effects = True
+                        announced_effects = _announce_effects(announced_effects, effects_started, unsafe_effects)
                     result, broker_effect = _broker_call(broker_descriptor, call.id, args)
                     if broker_effect != "no_effect":
                         effects_started = unsafe_effects = True
+                        announced_effects = _announce_effects(announced_effects, effects_started, unsafe_effects)
                     if not isinstance(result, str):
                         result = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
                 elif name == "mark_task_complete":
@@ -1084,8 +1172,9 @@ def run(instructions, kind="coding"):
                             rejection = (
                                 "You have not created your required output files yet: "
                                 f"{', '.join(still_missing)}. Reading or verifying an unrelated file "
-                                "does not satisfy this — use write_file to create each of these, then "
-                                "verify them, before calling mark_task_complete again."
+                                "does not satisfy this. Create each of these with write_file; if one "
+                                "already exists, read it with read_file (an existing file you have read "
+                                "counts). Then verify them before calling mark_task_complete again."
                             )
                         else:
                             unchecked = sorted(pending_modified_paths)
@@ -1188,6 +1277,10 @@ def run(instructions, kind="coding"):
                     if not result.startswith("Error"):
                         if name == "read_file":
                             path = _normalized_workspace_path(args["path"])
+                            # A successful read proves the file exists; if it is a declared output the
+                            # task needs no second copy of it.
+                            if any(_output_satisfied(required, {path}) for required in required_outputs):
+                                confirmed_outputs.add(path)
                             if not pending_modified_paths or path in pending_modified_paths:
                                 record_verification(name, path, checked_path=path)
             except Exception as exc:

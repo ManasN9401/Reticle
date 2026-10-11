@@ -34,6 +34,14 @@ An explicit output-token upper bound may reduce a configured request once per
 route, using another ordinary worker attempt and requiring no-effects proof.
 Limits are task-local and reset to the original request budget on other routes.
 Context overflow is not treated as an output bound. Unknown failures stay terminal.
+A stall, empty-reply loop or exhausted turn budget is not a request failure, but when
+the worker proves file-effects-only it is resumed on another route like one, bounded
+by the same attempt budget; without that proof it stays terminal.
+What a failure proves about a route, rather than about the task, outlives the task: a model not
+served to the credential is skipped for two hours and a reported per-request size limit keeps
+tasks that cannot fit off that route. Workers also print progress lines so that an attempt
+stopped by the dispatcher's per-attempt limit is classified from what it had changed, not
+assumed unsafe.
 The existing total attempts (default 3, maximum 15) and task deadline remain.
 Terminal diagnostics state the stop reason and remaining/untried route counts.
 

@@ -196,7 +196,10 @@ func TestProviderFailureDisposition(t *testing.T) {
 		{"connection error", "APIConnectionError: connection refused", false, false, false, "provider_transient"},
 		{"timeout", "MidStreamFallbackError: A Timeout Occurred", false, false, false, "timeout"},
 		{"bad request", "BadRequestError: unsupported parameter", false, false, false, "model_request"},
-		{"missing model", "NotFoundError: 404 Not Found", false, false, false, "model_request"},
+		// A model the credential cannot reach fails the same way for every task, so it is remembered
+		// beyond the task that found it (category model_unavailable).
+		{"missing model", "NotFoundError: 404 Not Found", false, false, false, "model_unavailable"},
+		{"nvidia function not found", "litellm.exceptions.NotFoundError: litellm.NotFoundError: NotFoundError: OpenAIException - Error code: 404 - {'status': 404, 'title': 'Not Found', 'detail': \"Function 'd6faa974': Not found for account 'iSx'\"}", false, false, false, "model_unavailable"},
 		{"tool support", "tool calling is not supported", false, true, false, "model_incompatible"},
 		{"harness gate", "403: model is only available on agentic harnesses", false, true, false, "model_incompatible"},
 		{"embedding model rejected by chat endpoint", "BadRequestError: model 'packed-embed-multilingual-light-v3.0' is not supported by the chat API", false, true, false, "model_incompatible"},
@@ -297,8 +300,12 @@ func TestWorkerChild(t *testing.T) {
 		}
 		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "another model verified the existing files"})
 	case "resume-stall":
-		fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]\nAgent stalled: repeated identical tool requests")
-		os.Exit(1)
+		// Ran out of turns after writing its files; the next model finishes the job.
+		if req.Memory["resumed_after_files"] != true {
+			fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]\nAgent iteration budget exhausted without verified completion")
+			os.Exit(1)
+		}
+		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "verified the files the earlier attempt wrote"})
 	case "fresh-attempt":
 		// A node that changed nothing must never be told it is a resume.
 		if req.Memory["resumed_after_files"] != nil {
@@ -314,6 +321,33 @@ func TestWorkerChild(t *testing.T) {
 	case "effect-stall":
 		fmt.Fprintln(os.Stderr, "Agent iteration budget exhausted without verified completion")
 		os.Exit(1)
+	case "route-missing", "route-too-large":
+		// "bad/a" is rejected the way a real provider rejects it; every other route succeeds.
+		if fmt.Sprint(req.Parameters["llm_model"]) == "bad/a" {
+			if mode == "route-missing" {
+				fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nlitellm.exceptions.NotFoundError: NotFoundError: OpenAIException - Error code: 404 - Function 'x': Not found for account 'y'")
+			} else {
+				fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nlitellm.RateLimitError: GroqException - Request too large for model `m` on tokens per minute (TPM): Limit 8000, Requested 11399, please reduce your message size")
+			}
+			os.Exit(1)
+		}
+		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "completed on another route"})
+	case "hang-after-files":
+		// The first route changes files and then wedges, without ever printing an exit marker.
+		if fmt.Sprint(req.Parameters["llm_model"]) == "bad/a" {
+			fmt.Fprintln(os.Stderr, "[RETICLE_EFFECTS: NONE]")
+			fmt.Fprintln(os.Stderr, "[RETICLE_EFFECTS: FILES]")
+			time.Sleep(time.Minute)
+		}
+		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "resumed from the files the stalled attempt wrote"})
+	case "hang-after-command":
+		fmt.Fprintln(os.Stderr, "[RETICLE_EFFECTS: NONE]")
+		fmt.Fprintln(os.Stderr, "[RETICLE_EFFECTS: FILES]")
+		fmt.Fprintln(os.Stderr, "[RETICLE_EFFECTS: UNSAFE]")
+		time.Sleep(time.Minute)
+	case "hang":
+		// A request that never finishes and never prints anything: only the deadline ends it.
+		time.Sleep(time.Minute)
 	case "produce":
 		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Artifact: &memory.Artifact{ID: "fixture", Name: "fixture", Type: "text/plain", Data: "output"}, Memory: []MemoryMutation{{Key: "shared", Value: "expected"}}})
 	case "consume":

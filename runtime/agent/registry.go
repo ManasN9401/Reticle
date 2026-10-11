@@ -47,13 +47,19 @@ type AgentDefinition struct {
 
 // SkillDefinition defines a shared capability, toolset, or dependency group that can be attached to an agent.
 type SkillDefinition struct {
-	ID               string   `yaml:"id"`
-	Name             string   `yaml:"name"`
-	Version          string   `yaml:"version"`
-	Description      string   `yaml:"description"`
+	ID          string `yaml:"id"`
+	Name        string `yaml:"name"`
+	Version     string `yaml:"version"`
+	Description string `yaml:"description"`
+	// UseWhen tells the architect which agents should list this skill. Descriptions say what a
+	// skill is; this says when it applies (and when it does not).
+	UseWhen          string   `yaml:"use_when"`
 	DependencyPolicy string   `yaml:"dependency_policy"`
 	Dependencies     []string `yaml:"dependencies"`
 	EnvVars          []string `yaml:"env_vars"`
+	// InstructionsBytes is the size of <skills dir>/<id>/SKILL.md, which is copied whole into the
+	// prompt of every agent that lists the skill. Zero means a dependencies-only skill.
+	InstructionsBytes int `yaml:"-"`
 }
 
 // SubscriptionYAML defines an event subscription for an agent.
@@ -146,6 +152,9 @@ func (r *Registry) LoadSkills(directory string) error {
 		def, err := ReadSkillDefinition(path)
 		if err != nil {
 			return err
+		}
+		if info, statErr := os.Stat(filepath.Join(directory, def.ID, "SKILL.md")); statErr == nil && info.Mode().IsRegular() {
+			def.InstructionsBytes = int(info.Size())
 		}
 		r.mu.Lock()
 		r.Skills[def.ID] = def
@@ -462,6 +471,9 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 		w.Capabilities = append([]Capability(nil), def.Capabilities...)
 		w.MCPServers = append([]string(nil), def.MCPServers...)
 		w.BrokerPolicies = append([]string(nil), def.BrokerPolicies...)
+		for _, skillID := range def.Skills {
+			w.PromptBytes += r.Skills[skillID].InstructionsBytes
+		}
 		w.Prepare = prepare
 		workers[id] = w
 	}

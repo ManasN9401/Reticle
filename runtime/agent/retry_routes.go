@@ -64,7 +64,7 @@ func (h *retryRoutes) failed(model *routing.Model, disposition providerFailureDi
 			}
 		}
 	}
-	if disposition.category == "model_request" || disposition.category == "model_incompatible" {
+	if disposition.category == "model_request" || disposition.category == "model_incompatible" || disposition.category == "model_unavailable" {
 		h.policy.Excluded[key] = true
 		h.providerFailures[model.Provider]++
 		if h.providerFailures[model.Provider] >= 2 {

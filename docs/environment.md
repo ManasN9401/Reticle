@@ -82,8 +82,13 @@ Forge's `-retries` option is a total per-node attempt budget (default 3, range
 1–15), not a promise to try every provider. Recognized failures require explicit
 no-effects proof before the dispatcher can restart the worker, or file-effects-only
 proof (workspace writes through replay-safe tools) before it resumes the node on
-another route. Unknown failures, workers that ran terminal or brokered tools, and
-stalled workers that have already produced effects remain terminal.
+another route. Unknown failures and workers that ran terminal or brokered tools remain terminal.
+A stall, empty-reply loop or exhausted turn budget after file-only effects is
+resumed on another route like a provider failure, within the same attempt budget. A model
+the credential cannot reach (404 "not found for account") is skipped by every later task for
+two hours, and a route that reported a per-request size limit is skipped by tasks that cannot
+fit it. A single attempt of a Python worker is limited to 3,900 s (`attempt_timeout_seconds`
+overrides it) so one hung attempt cannot consume the node's shared deadline.
 
 The router remembers rejected requests for the current task, favours untried
 eligible routes and moves away from providers with repeated catalog/request

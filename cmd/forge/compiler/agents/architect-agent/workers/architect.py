@@ -14,7 +14,7 @@ import logging
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib"))
 import comfy_tools
-from worker_sdk import _stream_with_first_event_timeout
+from worker_sdk import _stream_with_first_event_timeout, DEFAULT_STREAM_IDLE_SECONDS
 
 logging.basicConfig(level=logging.CRITICAL)
 logger = logging.getLogger(__name__)
@@ -67,6 +67,8 @@ def load_architect_catalog(raw):
     if len(agent_ids) != len(catalog["agents"]) or len(skill_ids) != len(catalog["skills"]):
         raise ValueError("architect_catalog contains malformed or duplicate agents/skills")
     return catalog, agent_ids, skill_ids, capability_ids, mcp_server_ids
+
+MAX_SKILLS_PER_AGENT = 3
 
 def owns_several_nodes(data, agent_id):
     return sum(1 for n in data.get("nodes", []) if n.get("agent_id") == agent_id) > 1
@@ -211,9 +213,15 @@ def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexit
             raise ValueError(f"Agent {agent_id} requires boolean is_new")
         if not agent["is_new"] and agent_id not in available_agent_ids:
             raise ValueError(f"Agent {agent_id} is not registered and must be marked is_new")
-        for skill in agent.get("skills", []):
+        listed_skills = agent.get("skills", [])
+        for skill in listed_skills:
             if skill not in available_skill_ids:
                 raise ValueError(f"Agent {agent_id} references unavailable skill: {skill}")
+        if len(set(listed_skills)) > MAX_SKILLS_PER_AGENT:
+            raise ValueError(
+                f"Agent {agent_id} lists {len(set(listed_skills))} skills; assign at most "
+                f"{MAX_SKILLS_PER_AGENT}, the ones whose use_when matches its task"
+            )
         capabilities = agent.get("capabilities", [])
         if not isinstance(capabilities, list) or not all(isinstance(value, str) for value in capabilities):
             raise ValueError(f"Agent {agent_id} capabilities must be an array of strings")
@@ -383,7 +391,7 @@ AUTHORITATIVE RUNTIME CATALOGUE:
 
 The catalogue comes from the live runtime registry. Its agents are every dispatchable maintained specialist; compiler-only services are intentionally omitted. Skills use their real manifest IDs and include descriptions. Tools identify their required capability and any runtime constraint.
 CRITICAL INSTRUCTION: When assigning `skills` to an agent, you MUST ONLY use skill IDs from the catalogue. NEVER invent or hallucinate new skills.
-CRITICAL INSTRUCTION: ONLY assign skills that are ABSOLUTELY ESSENTIAL for the specific agent's exact task! Do NOT assign massive ML or DevOps skills (like 'ml-engineering' or 'devops-infrastructure') to simple frontend or backend agents. If no skill perfectly fits, assign an empty list: [].
+SKILL SELECTION: A skill's whole instruction file is copied into the prompt of every agent that lists it, so each skill must earn its place. For each agent, read every catalogue skill's `use_when` and `instructions_bytes`, and assign a skill when its `use_when` matches that agent's actual task, files or technology. Assign the one to three most specific skills (never more than {MAX_SKILLS_PER_AGENT}). Do NOT assign a skill written for a different stack: React/Next.js patterns to a vanilla JavaScript, three.js or plain HTML/CSS page, or ML/DevOps skills to simple frontend or backend agents. An agent that writes a site's pages, styles, 3D scenes or animations should get the catalogue skill whose `use_when` covers visual web work. If no skill matches, assign an empty list: [].
 CRITICAL INSTRUCTION: Every new agent MUST declare the smallest explicit `capabilities` set needed for its tools. Do not grant network, native execution, image, RAG, delegation, cloud, security-active, or GPU capability unless its exact task requires it. Reused maintained agents keep their registered capability profile, so emit an empty capabilities list for `is_new: false` agents.
 CRITICAL INSTRUCTION: A catalogue tool constrained by `mcp.server:<id>` requires both `mcp.call` and that exact id in a new agent's `mcp_servers`. A tool constrained by `plugin:<id>` is available only to a reused catalogue agent whose `tool_policies` includes that constraint; new agents cannot request plugin policy grants.
 
@@ -543,7 +551,7 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                             content_parts.append(str(content))
                             _emit_llm("content", content)
                     else:
-                        for chunk in _stream_with_first_event_timeout(response, first_event_timeout):
+                        for chunk in _stream_with_first_event_timeout(response, first_event_timeout, idle_seconds=DEFAULT_STREAM_IDLE_SECONDS):
                             choices = _llm_field(chunk, "choices", []) or []
                             if not choices:
                                 continue

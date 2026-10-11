@@ -204,7 +204,7 @@ func (d *Dispatcher) Start() {
 			if task.Memory == nil {
 				task.Memory = make(map[string]any)
 			}
-			baseKeys := []string{"user_prompt", "workspace_dir", "max_retries", "allow_native_execution", "ide_context", "prompt_attachments", "prompt_history", "global_effort", "agent_complexity", "task_timeout_seconds", "llm_num_ctx", "llm_max_tokens", "llm_temperature", "llm_first_token_timeout_seconds", "llm_max_iterations", "ollama_keep_alive"}
+			baseKeys := []string{"user_prompt", "workspace_dir", "max_retries", "allow_native_execution", "ide_context", "prompt_attachments", "prompt_history", "global_effort", "agent_complexity", "task_timeout_seconds", "llm_num_ctx", "llm_max_tokens", "llm_temperature", "llm_first_token_timeout_seconds", "llm_stream_idle_timeout_seconds", "attempt_timeout_seconds", "llm_max_iterations", "ollama_keep_alive"}
 			for _, key := range baseKeys {
 				// Execution-scoped first (per-prompt), then global fallback
 				if val, found := d.RuntimeState.Get(memory.ScopeExecution, task.ExecutionID, key); found {
@@ -293,6 +293,7 @@ func (d *Dispatcher) Start() {
 			lastFailure := &WorkerFailure{Reason: "cancelled", ExitCode: -1, Stderr: "Execution cancelled"}
 			lastDisposition := providerFailureDisposition{}
 			routes := newRetryRoutes()
+			routes.policy.MinRequestTokens = estimateRequestTokens(w, t)
 			// Once an attempt has left files behind, every later attempt resumes from them.
 			resumeAfterFiles := false
 			stopReason := "attempt_budget_exhausted"
@@ -451,18 +452,51 @@ func (d *Dispatcher) Start() {
 					return
 				}
 				routes.started(attemptModel)
-				_, failure := w.ExecuteWithEnvironment(ctx, t, attemptEnvironment)
+				attemptCtx, stopAttempt := ctx, context.CancelFunc(func() {})
+				ceiling := attemptCeiling(w, t.Memory)
+				if ceiling > 0 {
+					attemptCtx, stopAttempt = context.WithTimeout(ctx, ceiling)
+				}
+				_, failure := w.ExecuteWithEnvironment(attemptCtx, t, attemptEnvironment)
+				// Only this attempt ran out: the task as a whole still has time for other routes.
+				if failure != nil && ceiling > 0 && attemptCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+					proof := progressProof(failure.Stderr)
+					failure = &WorkerFailure{Reason: WorkerAttemptTimeout, ExitCode: -1, Stderr: failure.Stderr + "\n" + proof +
+						fmt.Sprintf("\nAttempt time limit of %d seconds reached (timed out); the attempt was stopped so the node keeps time for other routes", int(ceiling.Seconds()))}
+				}
+				stopAttempt()
 				<-d.slots
 				if d.ToolBroker != nil {
 					d.ToolBroker.RevokeAttempt(t.AttemptID)
 				}
 
 				if ctx.Err() != nil {
-					d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": "cancelled"})
-					d.Logger.Info("Worker execution was cancelled (likely killed by user). Aborting retries.", "worker_id", w.ID)
+					// The deadline covers every attempt of the node together, so one attempt that
+					// hangs spends the budget the remaining routes would have used. Say so: a
+					// deadline is not a user's kill, and "Context cancelled" hid which it was.
+					deadline := ctx.Err() == context.DeadlineExceeded
+					outcome, detail := "cancelled", "Context cancelled"
+					if deadline {
+						outcome = "deadline"
+						running := "unrouted"
+						if attemptModel != nil {
+							running = attemptModel.ID
+						}
+						detail = fmt.Sprintf("Task deadline of %d seconds reached while attempt %d (%s) was still running; the deadline covers all attempts of this node together", timeout, attempt, running)
+						stopReason = "task_deadline_exceeded"
+					} else {
+						stopReason = "cancelled_or_deadline"
+					}
+					d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": outcome})
+					if deadline {
+						d.Logger.Error("Task deadline reached. Aborting retries.", "worker_id", w.ID, "task_id", t.ID, "attempt", attempt, "timeout_seconds", timeout)
+					} else {
+						d.Logger.Info("Worker execution was cancelled (likely killed by user). Aborting retries.", "worker_id", w.ID)
+					}
 					cleanupExecutionContainers(t.ExecutionID)
-					lastFailure = &WorkerFailure{Reason: "killed", ExitCode: -1, Stderr: "Context cancelled"}
-					stopReason = "cancelled_or_deadline"
+					lastFailure = &WorkerFailure{Reason: "killed", ExitCode: -1, Stderr: detail}
+					// An earlier attempt's rate limit says nothing about why this one was stopped.
+					lastDisposition = providerFailureDisposition{}
 					break
 				}
 
@@ -523,8 +557,24 @@ func (d *Dispatcher) Start() {
 							d.Logger.Info("Model is incompatible with the required chat/tool API; disabling only this model and trying another.", "model", modelID)
 							d.Router.PenalizeModel(modelID)
 						}
+					} else if disposition.category == "model_unavailable" && attemptModel != nil {
+						d.Logger.Info("Provider does not serve this model to this credential; skipping the route for every task.", "worker_id", w.ID, "model", attemptModel.ID)
+						d.Router.MarkRouteUnavailable(attemptModel.Key(), time.Now().Add(modelUnavailableFor), "model not found for this credential")
 					} else if disposition.category == "model_request" {
 						d.Logger.Info("Model rejected this request; lowering its score and trying another.", "worker_id", w.ID)
+						// "Limit 8000, Requested 11399": a size cap is a fact about the route. Learn it so
+						// later tasks that cannot fit skip it, and spare this task the same model on
+						// its other credentials.
+						if attemptModel != nil {
+							if limit := routing.ParseRequestLimit(finalExceptionLine(failure.Stderr)); limit > 0 {
+								d.Router.LearnRequestLimit(attemptModel.Key(), limit)
+								if routes.policy.MinRequestTokens > limit {
+									for _, sibling := range d.Router.RoutesOfModel(attemptModel.ID, attemptModel.Provider) {
+										routes.policy.Excluded[sibling] = true
+									}
+								}
+							}
+						}
 					}
 					if disposition.category == "provider_transient" || disposition.category == "timeout" {
 						if attemptModel != nil {
@@ -632,17 +682,16 @@ const (
 // route. NO_EFFECTS proves the worker changed nothing. FILE_EFFECTS_ONLY proves it changed
 // only workspace files, which an attempt on another model can safely build on (the tools
 // that wrote them never overwrite or repeat an effect), so a provider or request failure
-// may resume the node. A stall or exhausted budget with files written is not resumed: that
-// is the model's own behaviour and another attempt would redo the same loop at more cost.
+// may resume the node. That includes a stall, an empty-reply loop or an exhausted turn
+// budget: a node that wrote its files and then ran out of turns before verifying them is
+// the case where another model finishes in a few turns, and discarding it loses finished
+// work. A resume is an ordinary attempt, so it stays bounded by the attempt budget.
 func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 	disposition := classifyFailureByText(f)
 	if !disposition.retryable || f == nil {
 		return disposition
 	}
 	if !strings.Contains(f.Stderr, retrySafeNoEffects) && strings.Contains(f.Stderr, retrySafeFileEffects) {
-		if disposition.category == "model_behavior" {
-			return providerFailureDisposition{}
-		}
 		disposition.afterFileEffects = true
 	}
 	return disposition
@@ -650,7 +699,7 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 
 func classifyFailureByText(f *WorkerFailure) providerFailureDisposition {
 	var result providerFailureDisposition
-	if f == nil || f.Reason != WorkerExitedNonZero {
+	if f == nil || (f.Reason != WorkerExitedNonZero && f.Reason != WorkerAttemptTimeout) {
 		return result
 	}
 	message := strings.ToLower(f.Stderr)
@@ -673,7 +722,7 @@ func classifyFailureByText(f *WorkerFailure) providerFailureDisposition {
 	if containsAny("agent stalled: completion repeatedly rejected") {
 		return providerFailureDisposition{retryable: true, category: "completion_rejected"}
 	}
-	if containsAny("agent stalled: repeated identical tool requests", "agent stalled: model returned empty responses", "agent iteration budget exhausted", "agent time budget exhausted") {
+	if containsAny("agent stalled: repeated identical tool requests", "agent stalled: model returned empty responses", "agent stalled: model replied with text but no tool call", "agent iteration budget exhausted", "agent time budget exhausted") {
 		return providerFailureDisposition{retryable: true, category: "model_behavior"}
 	}
 
@@ -716,6 +765,14 @@ func classifyFailureByText(f *WorkerFailure) providerFailureDisposition {
 	if containsAny("invalid api key", "authenticationerror", "401 unauthorized", "status code: 401", "401 client error", "permissiondeniederror", "403 forbidden", "status code: 403", "403 client error", "permission denied") {
 		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_access"}
 	}
+	// A model this credential cannot reach (NVIDIA: "Function '...': Not found for account", a retired
+	// or unlisted model) fails identically for every task, so it is judged by the exception itself,
+	// not by any other text in stderr.
+	if final := strings.ToLower(finalExceptionLine(f.Stderr)); strings.Contains(final, "not found for account") ||
+		strings.Contains(final, "model_not_found") || strings.Contains(final, "no endpoints found") ||
+		(strings.Contains(final, "notfounderror") && !strings.Contains(final, "badrequesterror")) {
+		return providerFailureDisposition{retryable: true, category: "model_unavailable"}
+	}
 	if containsAny("requires terms acceptance", "max_tokens must be less than", "request too large", "maximum context length", "badrequesterror", "bad request", "status code: 400", "400 client error", "notfounderror", "404 not found", "status code: 404", "unprocessableentityerror", "422 unprocessable") {
 		return providerFailureDisposition{retryable: true, category: "model_request"}
 	}
@@ -729,6 +786,105 @@ func classifyFailureByText(f *WorkerFailure) providerFailureDisposition {
 		return providerFailureDisposition{retryable: true, category: "timeout"}
 	}
 	return result
+}
+
+// Progress lines a worker prints as its state changes (worker_sdk._announce_effects).
+const (
+	effectsNone   = "[RETICLE_EFFECTS: NONE]"
+	effectsFiles  = "[RETICLE_EFFECTS: FILES]"
+	effectsUnsafe = "[RETICLE_EFFECTS: UNSAFE]"
+)
+
+// progressProof turns the last progress line of a worker that was killed before it could say how
+// it ended into the retry-safety marker a worker that did end would have printed. Empty means no
+// proof: the worker never reported, or something that cannot be replayed had run.
+func progressProof(stderr string) string {
+	last, at := "", -1
+	for _, marker := range []string{effectsNone, effectsFiles, effectsUnsafe} {
+		if i := strings.LastIndex(stderr, marker); i > at {
+			last, at = marker, i
+		}
+	}
+	switch last {
+	case effectsNone:
+		return retrySafeNoEffects
+	case effectsFiles:
+		return retrySafeFileEffects
+	}
+	return ""
+}
+
+// defaultAttemptSeconds is the longest one attempt of a Python worker may run: its own one-hour
+// budget plus time to finish and report. The node's deadline is shared by every attempt, so an
+// attempt that hangs would otherwise leave nothing for the other routes.
+const defaultAttemptSeconds = 3900
+
+// attemptCeiling returns the per-attempt limit, or 0 for none. An explicit
+// attempt_timeout_seconds applies to any worker; the default only to Python workers, which are the
+// ones that enforce the one-hour budget it is derived from. A person's decision has no limit.
+func attemptCeiling(w *Worker, memory map[string]any) time.Duration {
+	if awaitsHuman(w) {
+		return 0
+	}
+	seconds := 0
+	if value, ok := memory["attempt_timeout_seconds"]; ok {
+		fmt.Sscan(fmt.Sprint(value), &seconds)
+	}
+	if seconds <= 0 && w.Prepare != nil {
+		seconds = defaultAttemptSeconds
+	}
+	if seconds <= 0 {
+		return 0
+	}
+	if seconds > 7200 {
+		seconds = 7200
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// finalExceptionLine is the last non-empty line of stderr. Earlier lines can quote prompts or
+// source; the exception a traceback ends with carries the provider's actual answer.
+func finalExceptionLine(stderr string) string {
+	lines := strings.Split(strings.TrimRight(stderr, " \r\n\t"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+// minUsefulReplyTokens is the smallest reply a file-writing node can work with: one whole file
+// per write_file call. A route that leaves less than this after the prompt is not worth an attempt.
+const minUsefulReplyTokens = 2048
+
+// modelUnavailableFor is how long a route the provider reported as not found stays out of
+// selection for every task.
+const modelUnavailableFor = 2 * time.Hour
+
+// estimateRequestTokens approximates the smallest request a task can make on any route: its
+// prompt (the agent's skill instructions, the node prompt, the goal and the inputs) at about
+// 3.5 characters per token, plus a useful reply. Zero means it cannot be estimated.
+func estimateRequestTokens(w *Worker, t Task) int {
+	chars := w.PromptBytes
+	if prompt, ok := t.Parameters["system_prompt"].(string); ok {
+		chars += len(prompt)
+	}
+	if goal, ok := t.Memory["user_prompt"].(string); ok {
+		chars += len(goal)
+	}
+	for _, input := range t.Inputs {
+		chars += len(fmt.Sprint(input.Data))
+	}
+	if chars == 0 {
+		return 0
+	}
+	reply := minUsefulReplyTokens
+	var requested int
+	if _, err := fmt.Sscan(fmt.Sprint(t.Memory["llm_max_tokens"]), &requested); err == nil && requested > 0 && requested < reply {
+		reply = requested
+	}
+	return chars*2/7 + reply
 }
 
 func retryableProviderFailure(f *WorkerFailure) bool {
