@@ -1,6 +1,7 @@
 id: "security-review"
 name: "Security Review Patterns"
 version: "1.0.0"
-description: "Security checklist and patterns for authentication, user input, and sensitive endpoints."
+description: "Security checklist and patterns for authentication, user input, and sensitive endpoints."
+use_when: "Use for agents reviewing code for authentication, input-handling, secret or endpoint security problems. Not for building features."
 dependencies: []
 env_vars: []

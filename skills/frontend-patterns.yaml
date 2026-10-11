@@ -1,6 +1,7 @@
 id: "frontend-patterns"
 name: "Frontend Development Patterns"
 version: "1.0.0"
-description: "Frontend development patterns, state management, performance optimization, and UI best practices."
+description: "Frontend development patterns, state management, performance optimization, and UI best practices."
+use_when: "Use only for React or Next.js component, hook and state-management work. Not for vanilla JavaScript, three.js, canvas or plain HTML/CSS pages."
 dependencies: []
 env_vars: []

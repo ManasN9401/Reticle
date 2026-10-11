@@ -1,6 +1,7 @@
 id: "hitl-checkpoint"
 name: "Human-in-the-Loop Approval"
 version: "1.0.0"
-description: "Equips the agent with the ability to pause DAG execution and request human authorization via file-based checkpoints."
+description: "Equips the agent with the ability to pause DAG execution and request human authorization via file-based checkpoints."
+use_when: "Reserved for human approval checkpoints. Use the hitl-agent node for these; do not assign it to a generated agent."
 dependencies: []
 env_vars: []

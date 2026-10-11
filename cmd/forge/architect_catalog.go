@@ -23,12 +23,15 @@ type architectAgentCatalogEntry struct {
 }
 
 type architectSkillCatalogEntry struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Description      string   `json:"description"`
-	DependencyPolicy string   `json:"dependency_policy"`
-	Dependencies     []string `json:"dependencies"`
-	EnvVars          []string `json:"env_vars"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	UseWhen     string `json:"use_when,omitempty"`
+	// InstructionsBytes is what the skill adds to an agent's prompt; zero means dependencies only.
+	InstructionsBytes int      `json:"instructions_bytes"`
+	DependencyPolicy  string   `json:"dependency_policy"`
+	Dependencies      []string `json:"dependencies"`
+	EnvVars           []string `json:"env_vars"`
 }
 
 type architectToolCatalogEntry struct {
@@ -110,8 +113,9 @@ func buildArchitectCatalog(reg *agent.Registry, brokerTools ...[]toolbroker.Desc
 	}
 	for _, def := range skillDefinitions {
 		catalog.Skills = append(catalog.Skills, architectSkillCatalogEntry{
-			ID: def.ID, Name: def.Name, Description: def.Description,
-			DependencyPolicy: def.DependencyPolicy, Dependencies: def.Dependencies, EnvVars: def.EnvVars,
+			ID: def.ID, Name: def.Name, Description: def.Description, UseWhen: def.UseWhen,
+			InstructionsBytes: def.InstructionsBytes,
+			DependencyPolicy:  def.DependencyPolicy, Dependencies: def.Dependencies, EnvVars: def.EnvVars,
 		})
 	}
 	sort.Slice(catalog.Agents, func(i, j int) bool { return catalog.Agents[i].ID < catalog.Agents[j].ID })

@@ -2,6 +2,7 @@ id: "frontend-uiux"
 name: "Modern Frontend UI/UX Design"
 version: "1.0.0"
 description: "Equips the agent to build visually stunning, highly interactive web interfaces using TailwindCSS, framer-motion, anime.js, and local Stable Diffusion asset generation."
+use_when: "Use for any agent that writes web pages, styles, 3D scenes or animations (HTML/CSS/JS, three.js, WebGL, canvas, Tailwind, anime.js) or creates images for a site. Adds visual-design rules, a ban on placeholder images, a checklist for pages that actually run, and the check_web_page requirement."
 dependency_policy: "floating"
 dependencies:
   - "litellm"

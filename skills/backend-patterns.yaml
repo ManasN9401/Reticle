@@ -1,6 +1,7 @@
 id: "backend-patterns"
 name: "Backend Architecture Patterns"
 version: "1.0.0"
-description: "Backend architecture patterns, API design, database optimization, and server-side best practices."
+description: "Backend architecture patterns, API design, database optimization, and server-side best practices."
+use_when: "Use for agents that build server-side code: REST or GraphQL APIs, database access, caching, queues. Not for static pages or browser-only code."
 dependencies: []
 env_vars: []

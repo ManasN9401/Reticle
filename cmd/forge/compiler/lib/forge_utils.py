@@ -19,6 +19,30 @@ import urllib.request
 
 MAX_FILE = 1024 * 1024
 
+SKILL_ID = re.compile(r"[a-zA-Z0-9_-]+")
+
+def load_skill_instructions(skills_root, skill_ids):
+    """Read skills/<id>/SKILL.md for each id.
+
+    Returns {"text", "applied", "missing"}: the instructions to append to a worker's prompt, the
+    [id, characters] pairs that were applied, and the ids with no instruction file. A skill can
+    legitimately be dependencies only (llm-worker), so a missing file is reported, not raised;
+    the worker shows both lists at startup so a degraded worker is visible.
+    """
+    text, applied, missing = "", [], []
+    for skill in skill_ids:
+        if not isinstance(skill, str) or not SKILL_ID.fullmatch(skill):
+            raise ValueError("Invalid skill ID")
+        source = Path(skills_root) / skill / "SKILL.md"
+        if not source.is_file():
+            missing.append(skill)
+            continue
+        body = source.read_text(encoding="utf-8")
+        text += "\n\n" + body
+        applied.append([skill, len(body)])
+    return {"text": text, "applied": applied, "missing": missing}
+
+
 def detect_ml_host_environment():
     system = platform.system().lower()
     if system == "windows":

@@ -1,0 +1,7 @@
+id: "clickhouse-io"
+name: "ClickHouse Analytics Patterns"
+version: "1.0.0"
+description: "ClickHouse database patterns, query optimization and analytical data engineering."
+use_when: "Use only for ClickHouse or other OLAP schema and query work."
+dependencies: []
+env_vars: []

@@ -1,6 +1,7 @@
 id: "tdd-workflow"
 name: "Test-Driven Development Workflow"
 version: "1.0.0"
-description: "Enforces test-driven development with high coverage across unit, integration, and E2E tests."
+description: "Enforces test-driven development with high coverage across unit, integration, and E2E tests."
+use_when: "Use for agents that write unit or integration tests alongside code, or must meet a coverage target. Skip for static visual work."
 dependencies: []
 env_vars: []

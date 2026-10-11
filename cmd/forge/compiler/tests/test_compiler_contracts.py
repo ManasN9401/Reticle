@@ -131,6 +131,39 @@ class CompilerContractsTest(unittest.TestCase):
         self.assertIn("plan.md", prompt)
         self.assertIn("make fixture", prompt)
 
+    def test_an_agent_cannot_list_more_skills_than_its_prompt_should_carry(self):
+        dag = self.fixture()
+        dag["agents"][1]["skills"] = ["a", "b", "c", "d"]
+        with self.assertRaisesRegex(ValueError, "assign at most 3"):
+            self.architect.validate_dag(dag, {"existing"}, {"a", "b", "c", "d"}, agent_complexity=3)
+        dag["agents"][1]["skills"] = ["a", "b", "c"]
+        self.architect.validate_dag(dag, {"existing"}, {"a", "b", "c", "d"}, agent_complexity=3)
+
+    def test_generated_worker_carries_skill_text_and_reports_what_it_applied(self):
+        dag = {"agents": [{"id": "generated", "is_new": True, "system_prompt": "Build the page.",
+                           "skills": ["verification-loop", "llm-worker"]}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            request = {"id": "code-1", "execution": "compile-fixture",
+                       "inputs": [{"name": "DAG JSON", "data": json.dumps(dag)}],
+                       "memory": {"workspace_dir": tmp}}
+            result = subprocess.run(
+                [sys.executable, str(COMPILER / "agents/coder-agent/workers/coder.py")],
+                input=json.dumps(request), text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            workers = Path(tmp) / "agents/generated/workers"
+            source = (workers / "generated.py").read_text(encoding="utf-8")
+            instructions = (workers / "generated.instructions.md").read_text(encoding="utf-8")
+        # The prompt is data beside the entrypoint, so a traceback shows one short line, not the prompt.
+        self.assertTrue(instructions.startswith("Build the page."))
+        self.assertIn("# Verification loop", instructions)
+        self.assertNotIn("Verification loop", source)
+        self.assertLess(len(source), 400)
+        # llm-worker is a dependencies-only skill: reported, not applied, and not an error.
+        self.assertIn("skills={'applied': [['verification-loop', ", source)
+        self.assertIn("'missing': ['llm-worker']}", source)
+        self.assertIn("Missing skill instructions for 'llm-worker'", result.stderr)
+
     def test_rejects_input_without_upstream_producer(self):
         dag = self.fixture()
         dag["edges"] = []

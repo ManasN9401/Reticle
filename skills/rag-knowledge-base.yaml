@@ -2,6 +2,7 @@ id: "rag-knowledge-base"
 name: "RAG Context Summarization"
 version: "1.0.0"
 description: "Equips the agent to index directories into a local ChromaDB vector store and perform semantic search/summarization."
+use_when: "Use for agents that index a directory into the local vector store and answer questions from it."
 dependency_policy: "floating"
 dependencies:
   - "chromadb"

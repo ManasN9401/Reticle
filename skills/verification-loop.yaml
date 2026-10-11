@@ -1,0 +1,7 @@
+id: "verification-loop"
+name: "Verification Loop"
+version: "1.0.0"
+description: "How a worker proves its files work before it finishes, using its real tools."
+use_when: "Use for any agent that writes files others depend on: how to prove each file works with the worker's real tools (read-back, cross-file checks, check_web_page, the project's own build or test command) before finishing. Small."
+dependencies: []
+env_vars: []

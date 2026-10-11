@@ -2,6 +2,7 @@ id: "data-analytics-stats"
 name: "Data Analytics & Statistics"
 version: "1.0.0"
 description: "Industry best practices for data analytics, statistical modeling, and data science workflows."
+use_when: "Use for agents doing statistical analysis, data cleaning, modelling or charting on a dataset."
 dependency_policy: "floating"
 dependencies:
   - "pandas"

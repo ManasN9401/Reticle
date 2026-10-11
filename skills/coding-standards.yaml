@@ -1,6 +1,7 @@
 id: "coding-standards"
 name: "Universal Coding Standards"
 version: "1.0.0"
-description: "Universal coding standards, best practices, and patterns for safe and clean development."
+description: "Universal coding standards, best practices, and patterns for safe and clean development."
+use_when: "Use for agents writing TypeScript, JavaScript, React or Node code that should follow shared naming, error-handling and immutability conventions. Its examples are TypeScript and React; skip it for Python, prose or purely visual work."
 dependencies: []
 env_vars: []

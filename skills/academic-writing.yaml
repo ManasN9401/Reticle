@@ -1,6 +1,7 @@
 id: "academic-writing"
 name: "Academic & Research Writing"
 version: "1.0.0"
-description: "Maximum-quality writing standards based on international academic institutions."
+description: "Maximum-quality writing standards based on international academic institutions."
+use_when: "Use for agents that write or edit long-form prose: papers, reports, essays, book chapters, documentation text. Not for code."
 dependencies: []
 env_vars: []

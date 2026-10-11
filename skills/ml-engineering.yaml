@@ -2,6 +2,7 @@ id: "ml-engineering"
 name: "Machine Learning Engineering"
 version: "1.0.0"
 description: "Equips the agent with PyTorch and HuggingFace ecosystems for training, fine-tuning, and evaluating deep learning models."
+use_when: "Use for agents that train, fine-tune or evaluate PyTorch or HuggingFace models. Not for web or backend work."
 dependency_policy: "profile"
 dependencies: []
 env_vars: []

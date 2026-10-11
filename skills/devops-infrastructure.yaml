@@ -2,6 +2,7 @@ id: "devops-infrastructure"
 name: "Cloud & DevOps Engineering"
 version: "1.0.0"
 description: "Equips the agent with tools and methodologies to provision, validate, and orchestrate cloud infrastructure and containers using IaC."
+use_when: "Use for agents that write or validate Dockerfiles, Terraform, Kubernetes manifests or CI/CD pipelines. Not for application code."
 dependency_policy: "floating"
 dependencies:
   - "boto3"
