@@ -212,6 +212,8 @@ export interface ForgeState {
   args?: string[]
   startedAt?: number
   message?: string
+  /** Set when the launched binary is older than the Go source it was built from. */
+  warning?: string
 }
 
 export interface ForgeStartRequest {

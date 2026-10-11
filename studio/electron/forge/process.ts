@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import fs from 'node:fs'
+import path from 'node:path'
 import { EventEmitter } from 'node:events'
+import { describeStaleBinary, staleBinary } from './staleness'
 import type {
   ForgeOutputChunk,
   ForgeStartRequest,
@@ -77,6 +79,8 @@ export class ForgeProcess extends EventEmitter {
     }
 
     const args = buildArgs(request, settings)
+    // cwd is <repo>/cmd/forge, so the sources the binary was built from are two levels up.
+    const stale = staleBinary(binaryPath, path.resolve(cwd, '..', '..'))
 
     this.setState({
       phase: 'starting',
@@ -86,6 +90,7 @@ export class ForgeProcess extends EventEmitter {
       startedAt: Date.now(),
       exitCode: undefined,
       message: undefined,
+      warning: stale ? describeStaleBinary(stale) : undefined,
     })
 
     let child: ChildProcessWithoutNullStreams

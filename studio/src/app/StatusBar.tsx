@@ -98,6 +98,19 @@ export function StatusBar() {
         </>
       ) : null}
 
+      {forge.warning ? (
+        <>
+          <Separator />
+          <span
+            className="truncate-1 flex max-w-[46ch] items-center gap-1.5 px-2 text-st-waiting"
+            title={forge.warning}
+          >
+            <AlertTriangle size={12} strokeWidth={1.8} />
+            forge build is out of date
+          </span>
+        </>
+      ) : null}
+
       <div className="ml-auto flex items-center gap-0.5">
         {scrubEventId !== null ? (
           <>

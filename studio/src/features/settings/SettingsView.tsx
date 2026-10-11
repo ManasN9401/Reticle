@@ -301,6 +301,9 @@ function ForgeSection({ patch }: { patch: Patch }) {
           {forge.message ? (
             <div className="pretty mt-1 text-2xs text-st-failed">{forge.message}</div>
           ) : null}
+          {forge.warning ? (
+            <div className="pretty mt-1 text-2xs text-st-waiting">{forge.warning}</div>
+          ) : null}
         </div>
         <Button
           size="sm"
