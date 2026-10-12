@@ -16,7 +16,7 @@ Skills applied: frontend-uiux (4.7 KB), verification-loop (1.5 KB)
 Skills with no instruction file (dependencies only, or the file is missing): llm-worker
 ```
 
-`Skills applied: none` means the agent was given no skill text. A skill with dependencies and no `SKILL.md` (`llm-worker`) is reported on the second line by design; a skill that should have instructions and appears there is a missing file.
+`Skills applied: none` means the agent was given no skill text. Each tool call in the same tab also names what it was about (the command, path or pattern, redacted and cut to 160 characters), and Studio's Tools view shows it beside the call. A skill with dependencies and no `SKILL.md` (`llm-worker`) is reported on the second line by design; a skill that should have instructions and appears there is a missing file.
 
 ## How the architect chooses
 

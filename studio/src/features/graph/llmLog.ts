@@ -4,6 +4,8 @@ export interface LlmDiagnostic {
   kind: LlmDiagnosticKind
   text: string
   name?: string
+  /** What a tool call was about (a command, a path), when the worker reported it. */
+  target?: string
   firstSeq: number
   lastSeq: number
 }
@@ -15,12 +17,13 @@ interface LlmLogRecord {
 
 const STREAM_MARKER = '[LLM_STREAM] '
 
-function diagnostic(seq: number, kind: LlmDiagnosticKind, text: unknown, name?: unknown): LlmDiagnostic | null {
+function diagnostic(seq: number, kind: LlmDiagnosticKind, text: unknown, name?: unknown, target?: unknown): LlmDiagnostic | null {
   if (typeof text !== 'string' || text.length === 0) return null
   return {
     kind,
     text,
     name: typeof name === 'string' && name.length > 0 ? name : undefined,
+    target: typeof target === 'string' && target.length > 0 ? target : undefined,
     firstSeq: seq,
     lastSeq: seq,
   }
@@ -40,7 +43,7 @@ export function parseLlmLog(record: LlmLogRecord): LlmDiagnostic | null {
       if (kind !== 'reasoning' && kind !== 'content' && kind !== 'tool' && kind !== 'status') {
         return null
       }
-      return diagnostic(record.seq, kind, event.text, event.name)
+      return diagnostic(record.seq, kind, event.text, event.name, event.detail)
     } catch {
       return null
     }

@@ -197,7 +197,12 @@ function ToolRow({ call }: { call: ToolCall }) {
       <StatusPip className="mt-1" size={6} color={color} pulse={call.status === 'running'} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className={cn('mono text-xs', call.status === 'failed' ? 'text-st-failed' : 'text-fg-1')}>{call.name}</span>
+          <span className={cn('mono shrink-0 text-xs', call.status === 'failed' ? 'text-st-failed' : 'text-fg-1')}>{call.name}</span>
+          {call.target ? (
+            <span className="mono truncate-1 min-w-0 text-2xs text-fg-3" title={call.target}>
+              {call.target}
+            </span>
+          ) : null}
           <span className="text-[10px] text-fg-4">{call.status === 'running' ? 'running' : call.status === 'failed' ? 'failed' : ''}</span>
         </div>
         {call.detail ? <div className="mt-0.5 text-2xs break-words text-fg-3">{call.detail}</div> : null}

@@ -30,6 +30,12 @@ CLASSIC_TYPES = {"", "text/javascript", "application/javascript", "text/ecmascri
 _IMPORT = re.compile(r"""(?m)^\s*import\s+(?:[\w*${][^;\n]*?\s+from\s+)?["'][^"']+["']""")
 _EXPORT = re.compile(r"(?m)^\s*export\s+(?:default\b|const\b|let\b|var\b|function\b|class\b|async\b|\{|\*)")
 _SPECIFIER = re.compile(r"""(?m)^\s*(?:import|export)\s[^;\n]*?\bfrom\s+["']([^"']+)["']|^\s*import\s+["']([^"']+)["']""")
+# Libraries whose plain .js / .min.js on a CDN is a UMD build. A UMD file attaches itself to a global
+# and has no ES exports, so an import map that sends a bare name to it makes `import * as THREE` an
+# empty module that also hides the real global. A named list: modern ESM CDNs end in .js too.
+_UMD_ONLY = re.compile(
+    r"/(?:three|gsap|ScrollTrigger|EasePack|anime)(?:\.min)?\.js(?:[?#]|$)", re.IGNORECASE
+)
 _CANVAS_OPTION = re.compile(r"""canvas\s*:\s*document\.(?:getElementById|querySelector)\(\s*["']#?([\w-]+)["']\s*\)""")
 _ID_LOOKUP = re.compile(r"""getElementById\(\s*["']([\w-]+)["']\s*\)""")
 
@@ -142,6 +148,15 @@ def _check_page(root, page):
             target = _resolve(root, page_dir, reference)
             if target is None or not target.is_file():
                 blocking.append(f"{label}: <{tag} {attribute}=\"{reference}\"> points at a file that does not exist")
+
+    for specifier, target_url in parsed.import_map.items():
+        if isinstance(target_url, str) and _UMD_ONLY.search(target_url):
+            blocking.append(
+                f"{label}: the import map sends '{specifier}' to {target_url}, a UMD build. It has no ES exports, so "
+                f"`import * as X from '{specifier}'` gets an empty module and hides the global. Point it at the library's "
+                "module build (for three.js, build/three.module.js of the same release), or remove the entry and use the "
+                "global from a classic <script> tag, with no import line."
+            )
 
     scripts_text = []
     for script in parsed.scripts:

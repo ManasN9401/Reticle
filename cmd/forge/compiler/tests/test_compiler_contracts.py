@@ -131,6 +131,13 @@ class CompilerContractsTest(unittest.TestCase):
         self.assertIn("plan.md", prompt)
         self.assertIn("make fixture", prompt)
 
+    def test_the_architect_is_told_what_a_worker_can_really_do(self):
+        # A QA node briefed to run browser tests and report frame rates has no browser or profiler.
+        self.assertIn("No agent can open a browser", self.architect.CAPABILITY_REALITY_PROMPT)
+        self.assertIn("written report", self.architect.CAPABILITY_REALITY_PROMPT)
+        source = (COMPILER / "agents" / "architect-agent" / "workers" / "architect.py").read_text(encoding="utf-8")
+        self.assertIn("{CAPABILITY_REALITY_PROMPT}", source, "the rule is defined but never put in the system prompt")
+
     def test_an_agent_cannot_list_more_skills_than_its_prompt_should_carry(self):
         dag = self.fixture()
         dag["agents"][1]["skills"] = ["a", "b", "c", "d"]

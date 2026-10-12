@@ -70,6 +70,18 @@ def load_architect_catalog(raw):
 
 MAX_SKILLS_PER_AGENT = 3
 
+# What a worker can really do, which the DAG must be designed around. A QA node briefed to run
+# browser tests and report console errors and frame rates has no browser and no profiler: it spent
+# its whole turn budget on shell commands and never wrote its report.
+CAPABILITY_REALITY_PROMPT = (
+    "CAPABILITY REALITY: No agent can open a browser, see a rendered page or measure performance. A worker "
+    "reads and writes workspace files, runs check_web_page (a static check that parses every script and "
+    "follows every import), inspects syntax, and runs the commands its capabilities allow. Design testing and "
+    "QA nodes around that: their outputs are a written report of what static checks found (real problems, "
+    "with file names), never browser test logs, console output, screenshots or performance metrics, which "
+    "nothing can produce and which a node will invent or run out of turns trying to obtain."
+)
+
 def owns_several_nodes(data, agent_id):
     return sum(1 for n in data.get("nodes", []) if n.get("agent_id") == agent_id) > 1
 
@@ -392,6 +404,7 @@ AUTHORITATIVE RUNTIME CATALOGUE:
 The catalogue comes from the live runtime registry. Its agents are every dispatchable maintained specialist; compiler-only services are intentionally omitted. Skills use their real manifest IDs and include descriptions. Tools identify their required capability and any runtime constraint.
 CRITICAL INSTRUCTION: When assigning `skills` to an agent, you MUST ONLY use skill IDs from the catalogue. NEVER invent or hallucinate new skills.
 SKILL SELECTION: A skill's whole instruction file is copied into the prompt of every agent that lists it, so each skill must earn its place. For each agent, read every catalogue skill's `use_when` and `instructions_bytes`, and assign a skill when its `use_when` matches that agent's actual task, files or technology. Assign the one to three most specific skills (never more than {MAX_SKILLS_PER_AGENT}). Do NOT assign a skill written for a different stack: React/Next.js patterns to a vanilla JavaScript, three.js or plain HTML/CSS page, or ML/DevOps skills to simple frontend or backend agents. An agent that writes a site's pages, styles, 3D scenes or animations should get the catalogue skill whose `use_when` covers visual web work. If no skill matches, assign an empty list: [].
+{CAPABILITY_REALITY_PROMPT}
 CRITICAL INSTRUCTION: Every new agent MUST declare the smallest explicit `capabilities` set needed for its tools. Do not grant network, native execution, image, RAG, delegation, cloud, security-active, or GPU capability unless its exact task requires it. Reused maintained agents keep their registered capability profile, so emit an empty capabilities list for `is_new: false` agents.
 CRITICAL INSTRUCTION: A catalogue tool constrained by `mcp.server:<id>` requires both `mcp.call` and that exact id in a new agent's `mcp_servers`. A tool constrained by `plugin:<id>` is available only to a reused catalogue agent whose `tool_policies` includes that constraint; new agents cannot request plugin policy grants.
 

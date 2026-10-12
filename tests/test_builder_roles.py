@@ -94,6 +94,7 @@ class BuilderRoles(unittest.TestCase):
             tool_response("mark_task_complete", {"summary": "premature"}),
             tool_response("write_file", {"path": "site/index.html", "content": "<h1>x</h1>"}),
             tool_response("read_file", {"path": "site/index.html"}),
+            tool_response("check_web_page", {}),
             tool_response("mark_task_complete", {"summary": "built"}),
         ]
         summary, remaining, _ = self.run_worker("coding", script, "Static agent instructions.", {"system_prompt": node_prompt})

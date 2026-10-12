@@ -654,11 +654,13 @@ MAX_ITERATIONS = 200
 BASE_TURNS_FOR_OUTPUTS = 12
 TURNS_PER_OUTPUT = 4
 
-def _iteration_limit(memory, capabilities, declared_outputs=0):
+def _iteration_limit(memory, capabilities, declared_outputs=0, declared_inputs=0):
     """Model turns allowed per task: llm_max_iterations, clamped, else a default that grows
-    with the number of declared output files (and is larger when images are generated)."""
+    with the number of declared output files and input files to read (and is larger when
+    images are generated)."""
     default = IMAGE_ITERATIONS if "image.local" in capabilities else DEFAULT_ITERATIONS
-    default = max(default, BASE_TURNS_FOR_OUTPUTS + TURNS_PER_OUTPUT * declared_outputs)
+    wanted = BASE_TURNS_FOR_OUTPUTS + TURNS_PER_OUTPUT * declared_outputs + min(declared_inputs, TURNS_PER_INPUT_CAP)
+    default = max(default, wanted)
     try:
         requested = int(memory.get("llm_max_iterations", default))
     except (TypeError, ValueError):
@@ -669,6 +671,89 @@ def _iteration_limit(memory, capabilities, declared_outputs=0):
 # completion check is satisfied by merely reading a file, which once let a frontend node
 # "finish" a website by reading its design spec. They must change something first.
 BUILDER_KINDS = frozenset({"frontend"})
+
+# Read-only inspection: none of these can change the workspace, so running one does not make a node
+# unreplayable. A QA node that only listed, read and syntax-checked files was lost to "unsafe effects".
+_INSPECTION_VERBS = frozenset({
+    "ls", "dir", "cat", "head", "tail", "wc", "grep", "rg", "pwd", "which", "where",
+    "tree", "stat", "file", "diff",
+})
+_FIND_WRITES = ("-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls")
+_SHELL_CONTROL = re.compile(r"[;&<>`\n\r]|\$\(")
+
+def _inspection_segment(parts):
+    if not parts:
+        return False
+    verb = Path(parts[0]).stem.lower()
+    rest = [part.lower() for part in parts[1:]]
+    if any(part.startswith("--output") for part in rest):
+        return False
+    if verb in _INSPECTION_VERBS:
+        return True
+    if verb == "find":
+        return not any(part in _FIND_WRITES or part.startswith("-fprint") for part in rest)
+    if verb == "node":
+        return len(parts) >= 3 and rest[0] in ("--check", "-c")
+    if verb == "tsc":
+        return "--noemit" in rest
+    if verb == "git":
+        return bool(rest) and rest[0] in ("status", "log", "diff", "show", "branch", "ls-files")
+    return False
+
+def _is_inspection_command(command):
+    """True when a terminal command only reads: an inspection verb or a syntax check, possibly piped
+    into others, with no redirection, command chaining or substitution."""
+    if not isinstance(command, str) or not command.strip() or _SHELL_CONTROL.search(command):
+        return False
+    if "||" in command:
+        return False
+    try:
+        segments = [shlex.split(segment) for segment in command.split("|")]
+    except ValueError:
+        return False
+    return all(_inspection_segment(parts) for parts in segments)
+
+def _has_page(workspace):
+    """True when the workspace has an .html page the web check could load. Script and style files
+    with no page around them (a CLI tool, modules written before the page exists) have nothing to
+    be checked against, so they are not held to the check."""
+    import web_tools
+    root = Path(workspace) / "src"
+    try:
+        return any(page.is_file() for page in web_tools._find_pages(root, None))
+    except OSError:
+        return False
+
+_SECRETISH = re.compile(
+    r"""(?i)\b(api[_-]?key|token|secret|password|passwd|authorization)\b(?:\s*[=:]\s*|\s+)(?:(?:bearer|basic|token)\s+)?[^\s'"]+"""
+)
+
+def _tool_detail(name, args):
+    """A short, redacted description of what a tool call was about, for the LLM panel. The log used
+    to say only "Completed execute_terminal_command", which made a failed run unreadable."""
+    if not isinstance(args, dict):
+        return ""
+    if name == "generate_local_assets" and isinstance(args.get("items"), list):
+        return f"{len(args['items'])} images"
+    for key in ("command", "path", "regex_pattern", "output_path", "source_dir", "query", "url", "summary"):
+        value = args.get(key)
+        if isinstance(value, str) and value.strip():
+            text = _SECRETISH.sub(lambda m: f"{m.group(1)}=[REDACTED]", " ".join(value.split()))
+            return text if len(text) <= 160 else text[:159] + "…"
+    return ""
+
+_INPUT_SENTENCE = re.compile(r"Read these workspace files:\s*(.*?)\.\s+(?:Create or update|Upstream nodes|Downstream nodes|Preserve)", re.S)
+
+def _declared_input_paths(instructions):
+    """Files a node is told to read first (build_agent_prompt's "Read these workspace files")."""
+    match = _INPUT_SENTENCE.search(instructions or "")
+    if not match:
+        return set()
+    return {_normalized_workspace_path(p.strip()) for p in match.group(1).split(",") if p.strip()}
+
+# Turns of headroom added per declared input file (capped): a node that must read a dozen files
+# before it can act needs more than one with a single input.
+TURNS_PER_INPUT_CAP = 20
 
 # Image tools whose successful calls create workspace files that count as outputs.
 IMAGE_OUTPUT_TOOLS = frozenset({
@@ -846,6 +931,7 @@ def run(instructions, kind="coding", skills=None):
     # node-specific prompt (goal, inputs, declared outputs) as a node parameter.
     # That prompt, when present, is the more specific source of declared outputs.
     required_outputs = _required_output_paths(str(req.get("parameters", {}).get("system_prompt", ""))) or _required_output_paths(instructions)
+    declared_inputs = _declared_input_paths(str(req.get("parameters", {}).get("system_prompt", ""))) or _declared_input_paths(instructions)
     effects_started = False
     # Set once something that cannot be replayed ran: a terminal command, a RAG index change
     # or a brokered tool. File writes alone leave it False.
@@ -854,6 +940,13 @@ def run(instructions, kind="coding", skills=None):
     # finish with unchecked web output: generated pages have repeatedly been dead on arrival.
     web_written = False
     web_checked = False
+    # A resumed node's declared web outputs already exist, written by an attempt that never got to
+    # check them; this attempt must not finish without checking either. (A node that does not
+    # declare web files is untouched, and with no page to check the check reports nothing.)
+    for declared in required_outputs:
+        if _is_web_file(declared) and (Path(workspace) / "src" / declared).is_file():
+            web_written = True
+            break
     def missing_outputs():
         present = written_paths | confirmed_outputs
         return sorted(r for r in required_outputs if not _output_satisfied(r, present))
@@ -915,7 +1008,19 @@ def run(instructions, kind="coding", skills=None):
     consecutive_empty_replies = 0
     consecutive_text_only_replies = 0
     completion_rejections, last_rejection_state = 0, None
-    for iteration in range(_iteration_limit(mem, capabilities, len(required_outputs))):
+    turn_limit = _iteration_limit(mem, capabilities, len(required_outputs), len(declared_inputs))
+    for iteration in range(turn_limit):
+        # A node that explores until its turns run out never writes what it was asked for. Say how
+        # many turns are left, and what is still missing, while there is still time to act on it.
+        turns_left = turn_limit - iteration
+        if turn_limit >= 10 and iteration > 0 and (iteration == int(turn_limit * 0.75) or turns_left == 3):
+            still_missing = missing_outputs()
+            messages.append({"role": "user", "content": (
+                f"Turn budget: {turns_left} of {turn_limit} turns remain. "
+                + (f"These required files are still not written or read back: {', '.join(still_missing[:12])}. " if still_missing else "")
+                + "Stop exploring. Write what is missing now, even if partial, say plainly in it what you could not do, "
+                "verify it, and call mark_task_complete before the turns run out."
+            )})
         if time.monotonic() - started > 3600:
             _emit_llm("status", "Stopped: agent time budget exhausted")
             _print_retry_marker(effects_started, unsafe_effects)
@@ -1134,7 +1239,9 @@ def run(instructions, kind="coding", skills=None):
                     argument_error = _tool_argument_error(name, expected[1], args)
                     if argument_error:
                         raise ValueError(argument_error)
-                if name in EFFECTFUL_LOCAL_TOOLS:
+                if name in EFFECTFUL_LOCAL_TOOLS and not (
+                    name == "execute_terminal_command" and _is_inspection_command(args.get("command"))
+                ):
                     effects_started = True
                     if name not in REPLAY_SAFE_LOCAL_TOOLS:
                         unsafe_effects = True
@@ -1153,7 +1260,7 @@ def run(instructions, kind="coding", skills=None):
                         result = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
                 elif name == "mark_task_complete":
                     rejection = None
-                    if kind in BUILDER_KINDS and web_written and not web_checked:
+                    if web_written and not web_checked and _has_page(workspace):
                         rejection = (
                             "You wrote web files but have not checked that the page can run. Call check_web_page, "
                             "fix every problem it reports, and run it again until it reports no blocking problems; "
@@ -1286,11 +1393,12 @@ def run(instructions, kind="coding", skills=None):
             except Exception as exc:
                 result = f"Error: {exc}"
             result_text = str(result)
+            call_detail = _tool_detail(name, locals().get("args"))
             if result_text.startswith("Error"):
                 detail = result_text.splitlines()[0][:300]
-                _emit_llm("tool", f"\nFailed {name}: {detail}", name=name)
+                _emit_llm("tool", f"\nFailed {name}: {detail}", name=name, detail=call_detail)
             else:
-                _emit_llm("tool", f"\nCompleted {name}", name=name)
+                _emit_llm("tool", f"\nCompleted {name}", name=name, detail=call_detail)
             # An empty tool message is rejected by some providers just like an empty reply.
             messages.append({"role":"tool","tool_call_id":call.id,"content":result_text[:20000] or "(no output)"})
         # A weak local model can keep exploring with other tools long after

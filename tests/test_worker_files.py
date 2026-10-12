@@ -49,6 +49,7 @@ class ReportedFiles(unittest.TestCase):
             tool_response("generate_local_asset", {"prompt": "art", "output_path": "assets/gallery-01.png"}),
             tool_response("read_file", {"path": "index.html"}),
             tool_response("read_file", {"path": "js/main.js"}),
+            tool_response("check_web_page", {}),
             tool_response("mark_task_complete", {"summary": "done"}),
         ])
         self.assertEqual(response["files"], ["assets/gallery-01.png", "index.html", "js/main.js"])
@@ -58,6 +59,7 @@ class ReportedFiles(unittest.TestCase):
         response = self.run_worker([
             tool_response("write_file", {"path": "src/page.html", "content": "<p>x</p>"}),
             tool_response("read_file", {"path": "src/page.html"}),
+            tool_response("check_web_page", {}),
             tool_response("mark_task_complete", {"summary": "done"}),
         ])
         self.assertEqual(response["files"], ["page.html"])

@@ -19,7 +19,10 @@ export interface ToolCall {
   agentId?: string
   name: string
   status: 'running' | 'done' | 'failed'
+  /** The failure message. */
   detail?: string
+  /** What the call was about: the command, path or pattern. */
+  target?: string
 }
 
 const REQUESTED = /^Requested\s+(\S+)/
@@ -67,12 +70,13 @@ export function buildToolCalls(records: readonly ToolRecord[]): ToolCall[] {
     const detail = failed ? (finished[2] ?? '').trim().slice(0, 300) || undefined : undefined
     if (index === -1) {
       // The request fell out of the log buffer; keep the outcome anyway.
-      calls.push({ seq: record.seq, ...base, name, status: failed ? 'failed' : 'done', detail })
+      calls.push({ seq: record.seq, ...base, name, status: failed ? 'failed' : 'done', detail, target: event.target })
       continue
     }
     const call = queue[index]
     call.status = failed ? 'failed' : 'done'
     call.detail = detail
+    call.target = event.target
     queue.splice(index, 1)
   }
   return calls

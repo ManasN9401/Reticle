@@ -102,12 +102,13 @@ class VerificationAndLoops(unittest.TestCase):
         self.assertEqual((summary, remaining), ("done", 0))
 
     def test_the_rejection_text_lists_the_unverified_files(self):
+        # Plain files, not web files: a web file is also verified by check_web_page.
         script = [
-            tool_response("write_file", {"path": "a.js", "content": "1"}),
-            tool_response("write_file", {"path": "b.html", "content": "<p>"}),
+            tool_response("write_file", {"path": "a.txt", "content": "1"}),
+            tool_response("write_file", {"path": "b.md", "content": "# b"}),
             tool_response("mark_task_complete", {"summary": "premature"}),
-            tool_response("read_file", {"path": "a.js"}),
-            tool_response("read_file", {"path": "b.html"}),
+            tool_response("read_file", {"path": "a.txt"}),
+            tool_response("read_file", {"path": "b.md"}),
             tool_response("mark_task_complete", {"summary": "done"}),
         ]
         seen = []
@@ -126,7 +127,7 @@ class VerificationAndLoops(unittest.TestCase):
                     patch.object(sys, "stdout", io.StringIO()), patch.object(sys, "stderr", io.StringIO()):
                 worker_sdk.run("Fixture", kind="writing")
         rejection = next(text for text in seen if "No successful verification" in text)
-        self.assertIn("a.js, b.html", rejection)
+        self.assertIn("a.txt, b.md", rejection)
         self.assertIn("does not count", rejection)
 
     def test_the_same_rejection_six_times_stops_the_run_with_a_classifiable_stall(self):

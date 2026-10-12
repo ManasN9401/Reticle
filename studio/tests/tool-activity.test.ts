@@ -4,9 +4,9 @@ import { buildToolCalls } from '../src/features/activity/toolActivity'
 import type { ToolRecord } from '../src/features/activity/toolActivity'
 
 let seq = 0
-function tool(node: string, text: string, name?: string): ToolRecord {
+function tool(node: string, text: string, name?: string, detail?: string): ToolRecord {
   seq += 1
-  const payload = JSON.stringify({ kind: 'tool', text, ...(name ? { name } : {}) })
+  const payload = JSON.stringify({ kind: 'tool', text, ...(name ? { name } : {}), ...(detail ? { detail } : {}) })
   return { seq, at: seq, execId: 'run', nodeId: node, agentId: node, message: `[LLM_STREAM] ${payload}`, isLlm: true }
 }
 
@@ -24,6 +24,23 @@ test('a failure keeps its detail and a call with no result yet is running', () =
   ])
   assert.deepEqual(calls.map((c) => c.status), ['failed', 'running'])
   assert.equal(calls[0].detail, 'Error reading file: not found')
+})
+
+test('what a call was about is shown when the worker reports it', () => {
+  const calls = buildToolCalls([
+    tool('a', 'Requested execute_terminal_command', 'execute_terminal_command'),
+    tool('a', '\nCompleted execute_terminal_command', 'execute_terminal_command', 'node --check main.js'),
+    tool('a', 'Requested read_file', 'read_file'),
+    tool('a', '\nFailed read_file: not found', 'read_file', 'core/Scene.js'),
+    // Older workers say nothing about it.
+    tool('a', 'Requested list_dir'),
+    tool('a', '\nCompleted list_dir'),
+  ])
+  assert.deepEqual(calls.map((c) => [c.name, c.status, c.target]), [
+    ['execute_terminal_command', 'done', 'node --check main.js'],
+    ['read_file', 'failed', 'core/Scene.js'],
+    ['list_dir', 'done', undefined],
+  ])
 })
 
 test('parallel nodes calling the same tool are paired within their own node', () => {

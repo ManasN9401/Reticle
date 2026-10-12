@@ -93,10 +93,38 @@ class WebGate(unittest.TestCase):
         summary, _, _ = self.run_worker("frontend", script)
         self.assertEqual(summary, "documented")
 
-    def test_other_roles_are_advised_not_gated(self):
-        script = self.build_broken_page() + [tool_response("mark_task_complete", {"summary": "wrote a fragment"})]
+    def test_generated_nodes_are_held_to_the_check_like_the_frontend_agent(self):
+        # Observed: nodes of a generated workflow run as kind "coding", so the gate that only the
+        # frontend agent had never applied to the integrator, and a site with three modules that do
+        # not parse was reported complete.
+        fix = tool_response("replace_file_content", {
+            "path": "script.js",
+            "target_content": BROKEN_SCRIPT.splitlines()[0] + "\n",
+            "replacement_content": FIXED_SCRIPT.splitlines()[0] + "\n",
+        })
+        script = self.build_broken_page() + [
+            tool_response("mark_task_complete", {"summary": "premature: never checked"}),
+            tool_response("check_web_page", {}),
+            fix,
+            tool_response("check_web_page", {}),
+            tool_response("mark_task_complete", {"summary": "shipped a page that runs"}),
+        ]
+        for kind in ("coding", "writing"):
+            with self.subTest(kind=kind):
+                summary, results, remaining = self.run_worker(kind, list(script))
+                self.assertEqual(summary, "shipped a page that runs")
+                self.assertEqual(remaining, 0)
+                self.assertIn("have not checked that the page can run", "\n".join(results))
+
+    def test_script_files_with_no_page_to_check_are_not_held_up(self):
+        # Modules written before the page exists, or a CLI script, have nothing to be checked against.
+        script = [
+            tool_response("write_file", {"path": "lib/engine.js", "content": "export const x = 1\n"}),
+            tool_response("read_file", {"path": "lib/engine.js"}),
+            tool_response("mark_task_complete", {"summary": "wrote a module"}),
+        ]
         summary, _, remaining = self.run_worker("coding", script)
-        self.assertEqual(summary, "wrote a fragment")
+        self.assertEqual(summary, "wrote a module")
         self.assertEqual(remaining, 0)
 
     def test_the_check_is_available_to_every_role_as_a_read_only_tool(self):
