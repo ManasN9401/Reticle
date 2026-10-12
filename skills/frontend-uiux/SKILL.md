@@ -15,6 +15,7 @@ This skill equips the agent to act as a World-Class Frontend Designer and Engine
 ## 2. Asset Generation (NO PLACEHOLDERS)
 - **Placeholder Ban:** You are STRICTLY FORBIDDEN from using generic placeholder images (e.g., `via.placeholder.com` or blank gray boxes). 
 - **ComfyUI Integration:** When you need a background image, a hero graphic, or an icon, you MUST use the `generate_local_asset` tool. This tool sends your prompt to a local Stable Diffusion / Flux GPU cluster, which will generate the stunning, high-res graphic and return a local file path you can embed in your HTML.
+- **Formats:** `generate_local_asset(s)` produce raster images: give each `output_path` a `.png`, `.jpg`/`.jpeg` or `.webp` name and the file is encoded as that format. They cannot create 3D models, and a `.glb` path is refused: build geometry in code with three.js primitives, or write a self-contained `.gltf` with `write_file`.
 - **Batch First:** Each model turn is limited, so generate several images at once with `generate_local_assets` (up to 12 `{prompt, output_path}` items per call) instead of one `generate_local_asset` call per image. `checkpoint`, `width` and `height` are optional.
 - **Thumbnails and Resizing:** Do not regenerate an image to make a smaller copy. Use `make_thumbnails` (one call for a whole directory), `resize_image`, `convert_image` or `crop_image` on the files you already generated.
 - **Patience:** Asset generation takes time. Wait patiently for each tool call to complete, and check the `generated` and `failed` lists a batch call returns.

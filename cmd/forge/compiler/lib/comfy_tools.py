@@ -158,6 +158,41 @@ def generate_local_assets(items, workspace_dir: str) -> str:
         return "Error: no image was generated. " + json.dumps(failed)
     return json.dumps({"generated": generated, "failed": failed})
 
+GENERATED_IMAGE_FORMATS = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".webp": "WEBP"}
+
+class _OutputError(ValueError):
+    """The requested file cannot be produced as asked; not a ComfyUI polling problem."""
+
+def _output_format(output_path):
+    """Image format for the extension a model asked for, before any GPU time is spent.
+
+    ComfyUI returns PNG. Writing those bytes under any name produced `.jpg` textures and `.glb`
+    "models" that were all PNG data, which no viewer or loader could use."""
+    suffix = os.path.splitext(str(output_path))[1].lower()
+    if suffix not in GENERATED_IMAGE_FORMATS:
+        raise _OutputError(
+            f"generate_local_asset writes raster images, so output_path must end in .png, .jpg, .jpeg or .webp "
+            f"(got {suffix or 'no extension'}). It cannot create 3D models such as .glb: write a .gltf with "
+            f"write_file, or generate a texture image instead."
+        )
+    return GENERATED_IMAGE_FORMATS[suffix]
+
+def _encode_image(png_bytes, format_name):
+    """Re-encode ComfyUI's PNG as the format the file name promises."""
+    if format_name == "PNG":
+        return png_bytes
+    try:
+        from PIL import Image
+    except ImportError:
+        raise _OutputError("Pillow is not installed in this agent's environment, so only .png output is possible here; use a .png path") from None
+    import io
+    image = Image.open(io.BytesIO(png_bytes))
+    if format_name == "JPEG" and image.mode not in ("RGB", "L"):
+        image = image.convert("RGB")
+    out = io.BytesIO()
+    image.save(out, format=format_name, **({"quality": 92} if format_name in ("JPEG", "WEBP") else {}))
+    return out.getvalue()
+
 def _generate_local_asset(prompt: str, output_path: str, workspace_dir: str, checkpoint: str = None, width: int = 1024, height: int = 1024) -> str:
     """
     Sends a prompt to a local ComfyUI instance (http://localhost:8188) to generate an image.
@@ -166,6 +201,7 @@ def _generate_local_asset(prompt: str, output_path: str, workspace_dir: str, che
     emit_log(f"Executing generate_local_asset for prompt: '{prompt[:30]}...' -> {output_path}")
     
     output_path = str(safe_path(workspace_dir, output_path))
+    output_format = _output_format(output_path)
     if width < 64 or height < 64 or width > 2048 or height > 2048 or width % 8 or height % 8:
         raise ValueError("Image dimensions must be multiples of 8 from 64 to 2048")
     host = os.getenv("COMFYUI_HOST", "http://127.0.0.1:8188").rstrip("/")
@@ -265,12 +301,15 @@ def _generate_local_asset(prompt: str, output_path: str, workspace_dir: str, che
                             with urllib.request.urlopen(req_img, timeout=10) as i_res:
                                 img_bytes = i_res.read(20*1024*1024+1)
                                 if len(img_bytes)>20*1024*1024: raise ValueError("Image exceeds 20 MiB")
+                                img_bytes = _encode_image(img_bytes, output_format)
                                 os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
                                 with open(output_path, "xb") as f:
                                     f.write(img_bytes)
                             ui_state("RESUMED")
                             return f"Asset successfully generated and saved to {output_path}"
                     break
+        except _OutputError:
+            raise
         except Exception as exc:
             emit_log(f"ComfyUI polling failed: {exc}")
         
