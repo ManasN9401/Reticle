@@ -559,7 +559,19 @@ func (d *Dispatcher) Start() {
 						}
 					} else if disposition.category == "model_unavailable" && attemptModel != nil {
 						d.Logger.Info("Provider does not serve this model to this credential; skipping the route for every task.", "worker_id", w.ID, "model", attemptModel.ID)
-						d.Router.MarkRouteUnavailable(attemptModel.Key(), time.Now().Add(modelUnavailableFor), "model not found for this credential")
+						d.Router.MarkRouteDead(*attemptModel, time.Now().Add(modelUnavailableFor), "model not found for this credential")
+					} else if disposition.category == "provider_rate_window" && attemptModel != nil {
+						// Only this route waits, for as long as the provider said; a request that alone takes
+						// most of the window is kept off the route for tasks of that size.
+						text := finalExceptionLine(failure.Stderr)
+						if window, ok := routing.ParseRateWindow(text); ok {
+							wait := window.Cooldown()
+							d.Logger.Info("Rate window used up on one route; cooling only that route.", "worker_id", w.ID, "model", attemptModel.ID, "wait", wait.String())
+							d.Router.MarkRouteUnavailable(attemptModel.Key(), time.Now().Add(wait), fmt.Sprintf("rate window: limit %d, used %d, requested %d", window.Limit, window.Used, window.Requested))
+							if cap := window.EffectiveRequestCap(); cap > 0 && routing.IsPerMinute(text) {
+								d.Router.LearnRequestLimit(attemptModel.Key(), cap)
+							}
+						}
 					} else if disposition.category == "model_request" {
 						d.Logger.Info("Model rejected this request; lowering its score and trying another.", "worker_id", w.ID)
 						// "Limit 8000, Requested 11399": a size cap is a fact about the route. Learn it so
@@ -764,6 +776,13 @@ func classifyFailureByText(f *WorkerFailure) providerFailureDisposition {
 	}
 	if containsAny("invalid api key", "authenticationerror", "401 unauthorized", "status code: 401", "401 client error", "permissiondeniederror", "403 forbidden", "status code: 403", "403 client error", "permission denied") {
 		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_access"}
+	}
+	// "Limit 8000, Used 6424, Requested 6635 ... try again in 4.5s": a partly used window, not a
+	// credential in trouble. It clears by itself, so penalising the whole credential for a minute
+	// (as for an exhausted quota) cools every model on the key for something that affects one.
+	if window, ok := routing.ParseRateWindow(finalExceptionLine(f.Stderr)); ok {
+		_ = window
+		return providerFailureDisposition{retryable: true, category: "provider_rate_window"}
 	}
 	// A model this credential cannot reach (NVIDIA: "Function '...': Not found for account", a retired
 	// or unlisted model) fails identically for every task, so it is judged by the exception itself,

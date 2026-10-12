@@ -3,6 +3,7 @@ package routing
 import (
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,118 @@ func (r *ModelRouter) MarkRouteUnavailable(key string, until time.Time, reason s
 	if r.Logger != nil {
 		r.Logger.Info("Route marked unavailable for other tasks", "route", key, "until", until.Format(time.RFC3339), "reason", reason)
 	}
+}
+
+// MarkRouteDead is MarkRouteUnavailable for a route the provider says it does not serve to this
+// credential. It is also counted per provider and credential: a catalogue that lists hundreds of
+// models the account cannot reach hands every node a fresh dead one, so after a few the router
+// prefers that provider's routes that have worked (see suspectProviderLocked).
+func (r *ModelRouter) MarkRouteDead(model Model, until time.Time, reason string) {
+	r.MarkRouteUnavailable(model.Key(), until, reason)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.dead == nil {
+		r.dead = map[string]deadRoute{}
+	}
+	r.dead[model.Key()] = deadRoute{provider: model.Provider, credential: model.APIKeyEnv, until: until}
+}
+
+type deadRoute struct {
+	provider, credential string
+	until                time.Time
+}
+
+// deadRoutesSuspect is how many unreachable routes of one provider and credential make the rest of
+// its never-used routes suspect.
+const deadRoutesSuspect = 3
+
+// suspectProviderLocked reports whether the model's provider and credential have returned
+// "not found" for at least deadRoutesSuspect distinct routes that are still marked dead.
+// The caller holds r.mu.
+func (r *ModelRouter) suspectProviderLocked(m Model, now time.Time) bool {
+	count := 0
+	for _, dead := range r.dead {
+		if dead.provider == m.Provider && dead.credential == m.APIKeyEnv && now.Before(dead.until) {
+			count++
+		}
+	}
+	return count >= deadRoutesSuspect
+}
+
+// ProvenRoute reports whether the route has completed work before in this run. Caller holds r.mu.
+func (r *ModelRouter) provenLocked(key string) bool {
+	return r.succeeded[key] > 0
+}
+
+// RateWindow is a provider's report that a per-minute (or per-day) allowance is partly used:
+// "Limit 8000, Used 6424, Requested 6635 ... try again in 4.5s". Unlike a size cap the request
+// would fit an empty window; unlike an exhausted account it clears on its own.
+type RateWindow struct {
+	Limit, Used, Requested int
+	RetryAfter             time.Duration
+}
+
+var (
+	rateWindowPattern = regexp.MustCompile(`(?i)limit\s+(\d+)\s*,\s*used\s+(\d+)\s*,\s*requested\s+(\d+)`)
+	// "try again in 1m3.2s", "in 14m", "in 250ms", "in 2 hours": a run of number+unit pairs.
+	retryAfterPattern = regexp.MustCompile(`(?i)try again in\s+((?:\d+(?:\.\d+)?\s*(?:ms|h|m|s)[a-z]*\s*)+)`)
+	durationPart      = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*(ms|h|m|s)`)
+)
+
+// ParseRateWindow extracts a rate window from a provider's error text.
+func ParseRateWindow(text string) (RateWindow, bool) {
+	match := rateWindowPattern.FindStringSubmatch(text)
+	if len(match) != 4 {
+		return RateWindow{}, false
+	}
+	var window RateWindow
+	window.Limit, _ = strconv.Atoi(match[1])
+	window.Used, _ = strconv.Atoi(match[2])
+	window.Requested, _ = strconv.Atoi(match[3])
+	if wait := retryAfterPattern.FindStringSubmatch(text); len(wait) == 2 {
+		var total time.Duration
+		for _, part := range durationPart.FindAllStringSubmatch(wait[1], -1) {
+			amount, err := strconv.ParseFloat(part[1], 64)
+			if err != nil {
+				continue
+			}
+			unit := map[string]time.Duration{"ms": time.Millisecond, "s": time.Second, "m": time.Minute, "h": time.Hour}[strings.ToLower(part[2])]
+			total += time.Duration(amount * float64(unit))
+		}
+		window.RetryAfter = total
+	}
+	return window, window.Limit > 0
+}
+
+// Cooldown is how long to keep only this route out of selection: as long as the provider said,
+// within sane bounds, and a short default when it did not say.
+func (w RateWindow) Cooldown() time.Duration {
+	const floor, ceiling, unknown = 5 * time.Second, 15 * time.Minute, 30 * time.Second
+	switch {
+	case w.RetryAfter <= 0:
+		return unknown
+	case w.RetryAfter < floor:
+		return floor
+	case w.RetryAfter > ceiling:
+		return ceiling
+	}
+	return w.RetryAfter
+}
+
+// EffectiveRequestCap is the largest request worth sending to the route: a request that alone
+// takes most of the window will meet a partly used one whenever anything else ran in the same
+// minute. Zero means the request is small enough that waiting is the right answer.
+func (w RateWindow) EffectiveRequestCap() int {
+	if w.Limit <= 0 || w.Requested*10 <= w.Limit*6 {
+		return 0
+	}
+	return w.Limit * 6 / 10
+}
+
+// IsPerMinute reports whether text describes a per-minute window; a per-day one is a quota.
+func IsPerMinute(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "per minute") || strings.Contains(lower, "(tpm)") || strings.Contains(lower, "(rpm)")
 }
 
 // LearnRequestLimit records the largest request (prompt plus reply, in tokens) the provider

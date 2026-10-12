@@ -231,6 +231,22 @@ func TestDeadRouteIsNotRetriedByLaterTasks(t *testing.T) {
 	}
 }
 
+// Observed: every node of a workflow tried the same Groq route and was told the minute's window was
+// used up ("Limit 8000, Used 6424, Requested 6635"). Only that route waits, only for the time the
+// provider said, and the credential's other models are not cooled with it.
+func TestRateWindowCoolsOnlyThatRouteForLaterTasks(t *testing.T) {
+	attempts, _ := runTasksOnSharedRouter(t, "route-window", []Task{
+		sharedRouterTask("run|first", map[string]any{}),
+		sharedRouterTask("run|second", map[string]any{}),
+	})
+	if strings.Join(attempts[0], ",") != "bad/a,good/a" {
+		t.Fatalf("first task: %v", attempts[0])
+	}
+	if strings.Join(attempts[1], ",") != "good/a" {
+		t.Fatalf("a route inside its cooling window was tried again: %v", attempts[1])
+	}
+}
+
 // Observed: three Groq credentials, three attempts per node, all "Limit 8000, Requested 11399".
 func TestLearnedRequestLimitKeepsLargeTasksOffTheRoute(t *testing.T) {
 	large := strings.Repeat("x", 40000) // about 11k tokens at 3.5 characters each

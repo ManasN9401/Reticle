@@ -321,6 +321,12 @@ func TestWorkerChild(t *testing.T) {
 	case "effect-stall":
 		fmt.Fprintln(os.Stderr, "Agent iteration budget exhausted without verified completion")
 		os.Exit(1)
+	case "route-window":
+		if fmt.Sprint(req.Parameters["llm_model"]) == "bad/a" {
+			fmt.Fprintln(os.Stderr, "[RETICLE_RETRY_SAFE: NO_EFFECTS]\nlitellm.RateLimitError: RateLimitError: GroqException - Rate limit reached for model `m` on tokens per minute (TPM): Limit 8000, Used 6424, Requested 6635, please try again in 30s.")
+			os.Exit(1)
+		}
+		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Result: "completed on another route"})
 	case "route-missing", "route-too-large":
 		// "bad/a" is rejected the way a real provider rejects it; every other route succeeds.
 		if fmt.Sprint(req.Parameters["llm_model"]) == "bad/a" {

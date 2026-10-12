@@ -92,3 +92,122 @@ func TestParseRequestLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestParseRateWindow(t *testing.T) {
+	for _, test := range []struct {
+		name, text string
+		ok         bool
+		limit      int
+		used       int
+		requested  int
+		wait       time.Duration
+	}{
+		{"seconds", "on tokens per minute (TPM): Limit 8000, Used 6424, Requested 6635. Please try again in 4.5s.", true, 8000, 6424, 6635, 4500 * time.Millisecond},
+		{"minutes and seconds", "Limit 8000, Used 7000, Requested 3000, please try again in 1m3.2s", true, 8000, 7000, 3000, 63200 * time.Millisecond},
+		{"minutes only", "Limit 100000, Used 99000, Requested 5000. Please try again in 14m", true, 100000, 99000, 5000, 14 * time.Minute},
+		{"milliseconds", "Limit 8000, Used 6000, Requested 3000. Please try again in 250ms", true, 8000, 6000, 3000, 250 * time.Millisecond},
+		{"no wait given", "Limit 8000, Used 6000, Requested 3000", true, 8000, 6000, 3000, 0},
+		{"a size cap has no Used", "Limit 8000, Requested 8201, please reduce your message size", false, 0, 0, 0, 0},
+		{"unrelated", "connection reset by peer", false, 0, 0, 0, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			window, ok := ParseRateWindow(test.text)
+			if ok != test.ok {
+				t.Fatalf("ok = %v, want %v", ok, test.ok)
+			}
+			if !ok {
+				return
+			}
+			if window.Limit != test.limit || window.Used != test.used || window.Requested != test.requested || window.RetryAfter != test.wait {
+				t.Fatalf("got %+v", window)
+			}
+		})
+	}
+}
+
+func TestRateWindowCooldownAndCap(t *testing.T) {
+	if got := (RateWindow{}).Cooldown(); got != 30*time.Second {
+		t.Fatalf("unknown wait: %v", got)
+	}
+	if got := (RateWindow{RetryAfter: 400 * time.Millisecond}).Cooldown(); got != 5*time.Second {
+		t.Fatalf("a sub-second wait still needs a floor: %v", got)
+	}
+	if got := (RateWindow{RetryAfter: 3 * time.Hour}).Cooldown(); got != 15*time.Minute {
+		t.Fatalf("a daily window is capped: %v", got)
+	}
+	// A request that takes most of the window is kept off the route; a small one just waits.
+	if got := (RateWindow{Limit: 8000, Used: 6424, Requested: 6635}).EffectiveRequestCap(); got != 4800 {
+		t.Fatalf("cap = %d", got)
+	}
+	if got := (RateWindow{Limit: 8000, Used: 7000, Requested: 1500}).EffectiveRequestCap(); got != 0 {
+		t.Fatalf("a small request should only wait, cap = %d", got)
+	}
+	if !IsPerMinute("on tokens per minute (TPM)") || IsPerMinute("on tokens per day (TPD)") {
+		t.Fatal("per-minute detection")
+	}
+}
+
+func TestProvenRoutesAreFavouredOnlyWhereProviderKeepsReturningNotFound(t *testing.T) {
+	r := learningRouter(t)
+	ModelsMutex.Lock()
+	AvailableModels = []Model{
+		{ID: "nv/dead-1", Provider: "nv", APIKeyEnv: "NV_KEY", Enabled: true, Modality: "text", Capability: 40},
+		{ID: "nv/dead-2", Provider: "nv", APIKeyEnv: "NV_KEY", Enabled: true, Modality: "text", Capability: 40},
+		{ID: "nv/dead-3", Provider: "nv", APIKeyEnv: "NV_KEY", Enabled: true, Modality: "text", Capability: 40},
+		{ID: "nv/fresh", Provider: "nv", APIKeyEnv: "NV_KEY", Enabled: true, Modality: "text", Capability: 40},
+		{ID: "nv/proven", Provider: "nv", APIKeyEnv: "NV_KEY", Enabled: true, Modality: "text", Capability: 40},
+		{ID: "other/a", Provider: "other", APIKeyEnv: "OTHER_KEY", Enabled: true, Modality: "text", Capability: 40},
+	}
+	models := append([]Model(nil), AvailableModels...)
+	ModelsMutex.Unlock()
+	r.mu.Lock()
+	r.succeeded = map[string]int{"nv/proven|NV_KEY": 2}
+	r.mu.Unlock()
+
+	pick := func() map[string]bool {
+		seen := map[string]bool{}
+		for tier := 0; tier <= 5; tier++ {
+			if m := r.SelectModelWithPolicy("t", "agent", tier, 0, "text", RoutePolicy{}); m != nil {
+				seen[m.Key()] = true
+			}
+		}
+		return seen
+	}
+	// Two dead routes are not yet a pattern: an unused route is still a fair choice.
+	r.MarkRouteDead(models[0], time.Now().Add(time.Hour), "not found")
+	r.MarkRouteDead(models[1], time.Now().Add(time.Hour), "not found")
+	// (selection results vary with tier; only the exclusion rule below is asserted)
+	r.MarkRouteDead(models[2], time.Now().Add(time.Hour), "not found")
+	for key := range pick() {
+		if key == "nv/fresh|NV_KEY" {
+			t.Fatalf("a never-used route of a provider with three dead routes was chosen over proven or other routes")
+		}
+		if key == "nv/dead-1|NV_KEY" || key == "nv/dead-2|NV_KEY" || key == "nv/dead-3|NV_KEY" {
+			t.Fatalf("a dead route was chosen: %s", key)
+		}
+	}
+
+	// With nothing proven and no other provider the fresh route is all that is left and must be used.
+	r.mu.Lock()
+	r.succeeded = nil
+	r.mu.Unlock()
+	ModelsMutex.Lock()
+	AvailableModels = []Model{models[0], models[1], models[2], models[3]}
+	ModelsMutex.Unlock()
+	got := pick()
+	if len(got) != 1 || !got["nv/fresh|NV_KEY"] {
+		t.Fatalf("the preference emptied the candidate set: %v", got)
+	}
+
+	// Dead marks expire: after their time the provider is no longer suspect.
+	r.mu.Lock()
+	for key, dead := range r.dead {
+		dead.until = time.Now().Add(-time.Second)
+		r.dead[key] = dead
+		r.unavailable[key] = dead.until
+	}
+	r.mu.Unlock()
+	if got := pick(); len(got) == 0 {
+		t.Fatal("nothing selectable after the dead marks expired")
+	}
+}

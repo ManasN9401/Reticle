@@ -88,6 +88,8 @@ type ModelRouter struct {
 	// Route-level facts that outlive one task (route_learning.go), guarded by mu.
 	unavailable   map[string]time.Time
 	requestLimits map[string]int
+	dead          map[string]deadRoute
+	succeeded     map[string]int
 
 	UseBayesianRouting        bool
 	AllowTextToCodingFallback bool
@@ -332,6 +334,14 @@ func (r *ModelRouter) updateProbability(agentID, taskID string, success bool) {
 
 	newProb := (1.0-alpha)*currentProb + alpha*target
 	r.Matrix[agentID][modelID] = newProb
+	// Route-level memory shared by every agent: generated agents have unique IDs, so the matrix
+	// above never carries what one node learned to the next.
+	if success {
+		if r.succeeded == nil {
+			r.succeeded = map[string]int{}
+		}
+		r.succeeded[modelID]++
+	}
 
 	// Cleanup inflight
 	delete(r.inFlight, taskID)
@@ -534,6 +544,9 @@ func (r *ModelRouter) SelectModelWithPolicy(taskID string, agentID string, effor
 		prefer(func(m Model) bool { return m.Key() == policy.PreferredKey })
 	} else {
 		prefer(func(m Model) bool { return !policy.Tried[m.Key()] })
+		// Where a provider has already answered "not found" for several routes, a route nobody has
+		// used is more likely another dead one than a working one: prefer routes that have worked.
+		prefer(func(m Model) bool { return !r.suspectProviderLocked(m, now) || r.provenLocked(m.Key()) })
 		prefer(func(m Model) bool { return !policy.AvoidProviders[m.Provider] })
 	}
 
