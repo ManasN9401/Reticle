@@ -4,6 +4,7 @@ import { ExternalLink, FolderOpen, Lock, Maximize2, Minimize2 } from 'lucide-rea
 import { EmptyState, IconButton, Spinner, Tooltip } from '@/design/primitives'
 import { formatBytes } from '@/design/status'
 import { fileKindFor } from '@shared/fileKind'
+import { ModelViewer } from './ModelViewer'
 import { bridge } from '@/state/bridge'
 import { revealInExplorer } from '@/state/actions'
 import { useActiveColorScheme, useResolvedTheme } from '@/state/theme'
@@ -41,8 +42,12 @@ export function FileViewer({
   label: string
   source?: { execId: string; path: string }
 }) {
-  if (source && fileKindFor(source.path) === 'image') {
+  const kind = source ? fileKindFor(source.path) : 'text'
+  if (source && kind === 'image') {
     return <ImageViewer key={`${source.execId}|${source.path}`} source={source} />
+  }
+  if (source && kind === 'model') {
+    return <ModelViewer key={`${source.execId}|${source.path}`} source={source} />
   }
   return <TextViewer path={path} inlineContent={inlineContent} label={label} />
 }

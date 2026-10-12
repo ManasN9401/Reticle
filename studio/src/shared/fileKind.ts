@@ -1,7 +1,11 @@
 /** Which viewer a file needs. Kept free of UI imports so plain node:test can load it. */
-export type FileKind = 'image' | 'text'
+export type FileKind = 'image' | 'model' | 'text'
 
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'ico', 'bmp'])
+const IMAGE_EXTENSIONS = new Set([
+  'png', 'apng', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'avif', 'svg', 'ico', 'bmp',
+])
+// glTF 2.0, the format three.js sites load. .gltf is JSON that may reference other files.
+const MODEL_EXTENSIONS = new Set(['glb', 'gltf'])
 
 export function extensionOf(path: string): string {
   const name = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
@@ -10,5 +14,13 @@ export function extensionOf(path: string): string {
 }
 
 export function fileKindFor(path: string): FileKind {
-  return IMAGE_EXTENSIONS.has(extensionOf(path)) ? 'image' : 'text'
+  const extension = extensionOf(path)
+  if (IMAGE_EXTENSIONS.has(extension)) return 'image'
+  if (MODEL_EXTENSIONS.has(extension)) return 'model'
+  return 'text'
+}
+
+/** Files opened from bytes (an image or a 3D model) rather than as text in the editor. */
+export function isBinaryKind(kind: FileKind): boolean {
+  return kind !== 'text'
 }

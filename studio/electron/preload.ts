@@ -13,6 +13,7 @@ import { IPC } from '../src/shared/ipc'
 import type {
   AgentCard,
   ApiResult,
+  RunFileBytes,
   ColorScheme,
   CommandId,
   ConnectRequest,
@@ -181,6 +182,8 @@ const bridge: ReticleBridge = {
   preview: {
     serveRun: (execId: string, entry?: string) =>
       ipcRenderer.invoke(IPC.previewServeRun, execId, entry) as Promise<ApiResult<string>>,
+    readRunFile: (execId: string, path: string) =>
+      ipcRenderer.invoke(IPC.previewReadRunFile, execId, path) as Promise<ApiResult<RunFileBytes>>,
   },
 
   notify: {

@@ -77,6 +77,7 @@ export const IPC = {
 
   // --- run preview ---------------------------------------------------------
   previewServeRun: 'preview:serve-run',
+  previewReadRunFile: 'preview:read-run-file',
 
   // --- notifications -------------------------------------------------------
   notifyRunFinished: 'notify:run-finished',
@@ -198,6 +199,14 @@ export type OutboundCommand =
       ollama_keep_alive?: string
       allow_text_to_coding_fallback?: boolean
     }
+
+/** Largest run file read as bytes for the image and model viewers. */
+export const RUN_FILE_MAX_BYTES = 64 * 1024 * 1024
+
+export interface RunFileBytes {
+  data: Uint8Array
+  size: number
+}
 
 export type ForgePhase = 'stopped' | 'starting' | 'running' | 'exited' | 'error'
 
@@ -875,6 +884,11 @@ export interface ReticleBridge {
   preview: {
     /** Serves a run's generated site on a loopback port and resolves the page URL. */
     serveRun(execId: string, entry?: string): Promise<ApiResult<string>>
+    /**
+     * The bytes of one file a run produced (an image or a 3D model), read through the same guards
+     * as the preview server. Refused above RUN_FILE_MAX_BYTES.
+     */
+    readRunFile(execId: string, path: string): Promise<ApiResult<RunFileBytes>>
   }
 
   notify: {

@@ -19,3 +19,16 @@ test('a dotfile has no extension and only the last segment counts', () => {
   assert.equal(extensionOf('folder.png/readme'), '')
   assert.equal(extensionOf('win\\path\\pic.GIF'), 'gif')
 })
+
+test('3D models and the other common raster formats get their own viewers', () => {
+  for (const path of ['assets/models/frame.glb', 'scene.GLTF', 'dir/a.glb']) {
+    assert.equal(fileKindFor(path), 'model', path)
+  }
+  for (const path of ['photo.jfif', 'anim.apng', 'tex/wall-marble-01.jpg', 'tex/wall.JPEG']) {
+    assert.equal(fileKindFor(path), 'image', path)
+  }
+  // Other 3D formats the viewer cannot open stay text rather than opening as a broken viewport.
+  for (const path of ['mesh.obj', 'scene.fbx', 'model.glb.md', 'glb']) {
+    assert.equal(fileKindFor(path), 'text', path)
+  }
+})

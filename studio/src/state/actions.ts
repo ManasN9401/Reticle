@@ -201,7 +201,8 @@ const ARTIFACT_PREVIEW_CHARS = 2_000
 
 /**
  * Open one file a run produced. Images go to the image viewer, which streams them from
- * the run's preview server; everything else opens as text in the editor.
+ * the run's preview server, and 3D models to the model viewer; everything else opens as text
+ * in the editor.
  */
 export async function openRunFile(execId: string, path: string): Promise<void> {
   const ui = useUi.getState()
@@ -212,7 +213,8 @@ export async function openRunFile(execId: string, path: string): Promise<void> {
     subtitle: path,
     source: { execId, path },
   }
-  if (fileKindFor(path) === 'image') {
+  if (fileKindFor(path) !== 'text') {
+    // Images and 3D models are opened from their bytes by their own viewers.
     ui.openTab(tab)
     return
   }

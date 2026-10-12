@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
+import { sniffBinary } from '../../src/shared/binarySniff'
 
 /**
  * Serves one run's generated site (<session>/src) to the Preview panel.
@@ -25,12 +26,18 @@ const CONTENT_TYPES: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.apng': 'image/apng',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
+  '.jfif': 'image/jpeg',
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
   '.ico': 'image/x-icon',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.bin': 'application/octet-stream',
   '.txt': 'text/plain; charset=utf-8',
   '.md': 'text/plain; charset=utf-8',
   '.woff': 'font/woff',
@@ -62,6 +69,56 @@ function badSegment(segment: string): boolean {
 function within(root: string, target: string): boolean {
   const relative = path.relative(root, target)
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+}
+
+/**
+ * The type a file should be served as. The extension decides unless the bytes are plainly a
+ * different image or model: an image generator writes PNG whatever name the model asked for, and
+ * a browser handed "image/jpeg" for PNG data under nosniff is at the mercy of its own sniffing.
+ */
+async function contentTypeFor(target: string): Promise<string> {
+  const declared = CONTENT_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream'
+  if (!declared.startsWith('image/') && !declared.startsWith('model/')) return declared
+  if (declared === 'image/svg+xml') return declared
+  try {
+    const handle = await fs.promises.open(target, 'r')
+    try {
+      const head = Buffer.alloc(4096)
+      const { bytesRead } = await handle.read(head, 0, head.length, 0)
+      const sniffed = sniffBinary(head.subarray(0, bytesRead))
+      return sniffed.kind === 'unknown' ? declared : sniffed.mime
+    } finally {
+      await handle.close()
+    }
+  } catch {
+    return declared
+  }
+}
+
+/**
+ * A regular file inside a run's src folder, or null. Same guards as the HTTP server (no dotfile
+ * or traversal segments, symlinks resolved and re-checked), for callers that read the bytes
+ * themselves instead of going through a loopback URL.
+ */
+export async function resolveRunFile(
+  rootFor: (execId: string) => string | null,
+  execId: string,
+  relativePath: string,
+): Promise<{ target: string; size: number } | null> {
+  if (!EXEC_ID.test(execId)) return null
+  const base = rootFor(execId)
+  if (!base) return null
+  const segments = relativePath.split('/').filter((segment) => segment !== '')
+  if (segments.length === 0 || segments.some(badSegment)) return null
+  try {
+    const root = await fs.promises.realpath(base)
+    const target = await fs.promises.realpath(path.join(root, ...segments))
+    if (!within(root, target)) return null
+    const stat = await fs.promises.stat(target)
+    return stat.isFile() ? { target, size: stat.size } : null
+  } catch {
+    return null
+  }
 }
 
 function errorPage(status: number, message: string): string {
@@ -152,7 +209,7 @@ export function createPreviewServer(rootFor: (execId: string) => string | null):
     if (!stat.isFile()) return respond(res, 404, 'Not found')
 
     res.writeHead(200, {
-      'Content-Type': CONTENT_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream',
+      'Content-Type': await contentTypeFor(target),
       'Content-Length': stat.size,
       'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'no-store',

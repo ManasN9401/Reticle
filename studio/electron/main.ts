@@ -4,6 +4,7 @@ import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, nativeThe
 import { IPC } from '../src/shared/ipc'
 import type {
   ApiResult,
+  RunFileBytes,
   ColorScheme,
   ColorToken,
   ConnectRequest,
@@ -36,10 +37,10 @@ import type {
   WindowState,
   TerminalStartRequest,
 } from '../src/shared/ipc'
-import { COLOR_TOKENS, isSafeColorValue } from '../src/shared/ipc'
+import { COLOR_TOKENS, RUN_FILE_MAX_BYTES, isSafeColorValue } from '../src/shared/ipc'
 import { installMenu } from './menu'
 import { findRepoRoot, sessionsDir, setRepoRoot } from './paths'
-import { createPreviewServer } from './preview/server'
+import { createPreviewServer, resolveRunFile } from './preview/server'
 import { TerminalManager } from './terminal/manager'
 import { SettingsStore, validateColorSchemes, validateNodeAppearance } from './settings'
 import { ForgeClient } from './forge/client'
@@ -59,10 +60,11 @@ const rest = new ForgeRest()
 const store = new EventStore(settings.get().logs.bufferSize)
 const workspace = new WorkspaceReader(findRepoRoot())
 // Serves <session>/src for the Preview panel; started on first use.
-const previewServer = createPreviewServer((execId) => {
+const runSrcRoot = (execId: string): string | null => {
   const root = findRepoRoot()
   return root ? path.join(sessionsDir(root), execId, 'src') : null
-})
+}
+const previewServer = createPreviewServer(runSrcRoot)
 const terminals = new TerminalManager(
   () => findRepoRoot(),
   (id, data) => send(IPC.pushTerminalData, { id, data }),
@@ -441,6 +443,20 @@ function registerIpc(): void {
   handle(IPC.previewServeRun, async (_e, execId: string, entry?: string): Promise<ApiResult<string>> => {
     const url = await previewServer.urlFor(String(execId), typeof entry === 'string' ? entry : undefined)
     return url ? { ok: true, data: url } : { ok: false, error: 'This run has no generated files to preview' }
+  })
+
+  handle(IPC.previewReadRunFile, async (_e, execId: string, relativePath: string): Promise<ApiResult<RunFileBytes>> => {
+    const file = await resolveRunFile(runSrcRoot, String(execId), String(relativePath))
+    if (!file) return { ok: false, error: 'This file is not in the run folder.' }
+    if (file.size > RUN_FILE_MAX_BYTES) {
+      return { ok: false, error: `This file is ${(file.size / (1024 * 1024)).toFixed(0)} MB, more than the ${RUN_FILE_MAX_BYTES / (1024 * 1024)} MB the viewer opens.` }
+    }
+    try {
+      const data = await fs.readFile(file.target)
+      return { ok: true, data: { data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength), size: file.size } }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Could not read this file.' }
+    }
   })
 
   // A system notification, only while Studio is in the background and the preference allows it.

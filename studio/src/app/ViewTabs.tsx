@@ -1,4 +1,4 @@
-import { ChevronRight, FileCode2, Image as ImageIcon, PanelRight, Waypoints, X } from 'lucide-react'
+import { Box, ChevronRight, FileCode2, Image as ImageIcon, PanelRight, Waypoints, X } from 'lucide-react'
 import { fileKindFor } from '@shared/fileKind'
 import { cn } from '@/design/cn'
 import { IconButton } from '@/design/primitives'
@@ -71,7 +71,9 @@ function Tab({
       ? Waypoints
       : tab.source && fileKindFor(tab.source.path) === 'image'
         ? ImageIcon
-        : FileCode2
+        : tab.source && fileKindFor(tab.source.path) === 'model'
+          ? Box
+          : FileCode2
 
   return (
     <div

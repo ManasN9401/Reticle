@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, FileCode2, FlaskConical, Image as ImageIcon, MousePointerSquareDashed, TriangleAlert } from 'lucide-react'
+import { Box, Download, FileCode2, FlaskConical, Image as ImageIcon, MousePointerSquareDashed, TriangleAlert } from 'lucide-react'
 import { cn } from '@/design/cn'
 import { Badge, Button, EmptyState, IconButton, StatusPip } from '@/design/primitives'
 import {
@@ -234,7 +234,8 @@ export function Inspector() {
                   </div>
                   <ul className="flex max-h-72 flex-col gap-1 overflow-y-auto">
                     {node.files.map((file) => {
-                      const Icon = fileKindFor(file) === 'image' ? ImageIcon : FileCode2
+                      const fileKind = fileKindFor(file)
+                      const Icon = fileKind === 'image' ? ImageIcon : fileKind === 'model' ? Box : FileCode2
                       return (
                         <li key={file}>
                           <button
