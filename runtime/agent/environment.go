@@ -2,12 +2,10 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +20,8 @@ type EnvironmentManager struct {
 	BaseDir  string
 	baseMu   sync.Mutex
 	reported map[string]bool
+	// pruneOnce applies the libs retention policy once per process (environment_cache.go).
+	pruneOnce sync.Once
 }
 
 type provisioningContext struct {
@@ -236,20 +236,25 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 
 	// Aggregate agent-specific dependencies and env vars
 	var dependencies []string
+	var optionalDependencies []string
 	var envVars []string
 
 	for _, skill := range skills {
 		dependencies = append(dependencies, skill.Dependencies...)
+		optionalDependencies = append(optionalDependencies, skill.OptionalDependencies...)
 		for _, v := range skill.EnvVars {
 			envVars = append(envVars, os.ExpandEnv(v))
 		}
 	}
 
+	// The base environment already provides litellm and requests; installing them again with
+	// --target copied their whole dependency tree for every agent. Only what is missing is
+	// installed, into a folder shared by every agent that needs the same set.
+	dependencies = extraDependencies(dependencies, baseDeps)
+	agentLibsPath := ""
 	if len(dependencies) > 0 {
-		// Use a mutex to prevent race conditions on agent-specific libs if the same agent runs concurrently
-		identity := strings.Join([]string{basePythonExe, strings.TrimSpace(string(pythonVersion)), runtime.GOOS, runtime.GOARCH, baseDepsString, strings.Join(dependencies, "\n")}, "\n")
-		envHash := sha256.Sum256([]byte(identity))
-		agentLibsPath := filepath.Join(em.BaseDir, fmt.Sprintf("%s-%x-libs", strings.TrimPrefix(string(agentID), strings.Split(string(agentID), "__")[0]+"__"), envHash[:8]))
+		// The provisioning lock above also serialises this against other agents and processes.
+		agentLibsPath = em.sharedLibsPath(basePythonExe, strings.TrimSpace(string(pythonVersion)), baseDepsString, dependencies)
 		if err := os.MkdirAll(agentLibsPath, 0755); err != nil {
 			return "", nil, fmt.Errorf("failed to create agent libs dir: %w", err)
 		}
@@ -293,9 +298,41 @@ func (em *EnvironmentManager) ProvisionContext(parent context.Context, agentID W
 			em.publishProvisioning("EnvironmentProvisioningCompleted", agentID, dependencies, hasUv, true, 0, nil, provisioning)
 		}
 
-		// Add PYTHONPATH to envVars
-		envVars = append(envVars, fmt.Sprintf("PYTHONPATH=%s", agentLibsPath))
+		touchLibs(agentLibsPath)
 	}
+
+	var pythonPath []string
+	if agentLibsPath != "" {
+		pythonPath = append(pythonPath, agentLibsPath)
+	}
+	// Optional packages: installed if they can be, never a reason for the node to fail.
+	optional := extraDependencies(optionalDependencies, append(append([]string(nil), baseDeps...), dependencies...))
+	if len(optional) > 0 {
+		optionalPath := em.sharedLibsPath(basePythonExe, strings.TrimSpace(string(pythonVersion)), baseDepsString, append([]string{"#optional"}, optional...))
+		install := func(target string, packages []string) ([]byte, error) {
+			var cmd *exec.Cmd
+			if hasUv {
+				cmd = environmentCommand(ctx, "uv", append([]string{"pip", "install", "--constraint", constraintsFile, "--target", target, "--python", basePythonExe}, packages...)...)
+			} else {
+				cmd = environmentCommand(ctx, basePythonExe, append([]string{"-m", "pip", "install", "--constraint", constraintsFile, "--target", target}, packages...)...)
+			}
+			return cmd.CombinedOutput()
+		}
+		startedAt := time.Now()
+		if ok, reason := ensureOptional(optionalPath, optional, install, time.Now()); ok {
+			touchLibs(optionalPath)
+			pythonPath = append(pythonPath, optionalPath)
+			if em.firstReport("optional:" + optionalPath) {
+				em.Logger.Info("Optional agent dependencies ready", "agent_id", agentID, "deps", optional, "duration_ms", time.Since(startedAt).Milliseconds())
+			}
+		} else if em.firstReport("optional-failed:" + optionalPath) {
+			em.Logger.Info("Optional agent dependencies unavailable; continuing without them", "agent_id", agentID, "deps", optional, "reason", reason)
+		}
+	}
+	if len(pythonPath) > 0 {
+		envVars = append(envVars, "PYTHONPATH="+strings.Join(pythonPath, string(os.PathListSeparator)))
+	}
+	em.pruneLibsOnce(agentLibsPath)
 
 	return basePythonExe, envVars, nil
 }

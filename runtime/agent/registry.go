@@ -56,7 +56,11 @@ type SkillDefinition struct {
 	UseWhen          string   `yaml:"use_when"`
 	DependencyPolicy string   `yaml:"dependency_policy"`
 	Dependencies     []string `yaml:"dependencies"`
-	EnvVars          []string `yaml:"env_vars"`
+	// OptionalDependencies are installed best-effort: a failed install is logged and the worker
+	// runs without them, so the code that uses them must have a fallback. Required dependencies
+	// stay in Dependencies, where a failed install fails the node's environment setup.
+	OptionalDependencies []string `yaml:"optional_dependencies"`
+	EnvVars              []string `yaml:"env_vars"`
 	// InstructionsBytes is the size of <skills dir>/<id>/SKILL.md, which is copied whole into the
 	// prompt of every agent that lists the skill. Zero means a dependencies-only skill.
 	InstructionsBytes int `yaml:"-"`
@@ -94,6 +98,7 @@ func (r *Registry) CatalogSnapshot() (map[WorkerID]AgentDefinition, map[string]S
 	skills := make(map[string]SkillDefinition, len(r.Skills))
 	for id, definition := range r.Skills {
 		definition.Dependencies = append([]string(nil), definition.Dependencies...)
+		definition.OptionalDependencies = append([]string(nil), definition.OptionalDependencies...)
 		definition.EnvVars = append([]string(nil), definition.EnvVars...)
 		skills[id] = definition
 	}
@@ -287,7 +292,7 @@ func validateSkillDependencies(def *SkillDefinition) error {
 
 	switch policy {
 	case "profile":
-		if len(def.Dependencies) != 0 {
+		if len(def.Dependencies) != 0 || len(def.OptionalDependencies) != 0 {
 			return fmt.Errorf("skill %s uses dependency_policy profile and must not declare Python dependencies", def.ID)
 		}
 		return nil
@@ -296,7 +301,7 @@ func validateSkillDependencies(def *SkillDefinition) error {
 		return fmt.Errorf("skill %s has unsupported dependency_policy %q", def.ID, def.DependencyPolicy)
 	}
 
-	for _, dependency := range def.Dependencies {
+	for _, dependency := range append(append([]string(nil), def.Dependencies...), def.OptionalDependencies...) {
 		dependency = strings.TrimSpace(dependency)
 		if !safePythonDependency.MatchString(dependency) {
 			return fmt.Errorf("skill %s dependency %q must be a package name or exact name==version pin", def.ID, dependency)
@@ -449,6 +454,8 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 					l.Error("Agent requested unknown skill", "agent_id", id, "skill_id", skillID)
 				}
 			}
+
+			activeSkills = append(activeSkills, capabilitySkills(def.Capabilities)...)
 
 			// Resolve dependencies only when this worker is executed. A missing
 			// environment fails that task, not startup or unrelated specialists.

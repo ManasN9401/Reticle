@@ -136,7 +136,12 @@ class CompilerContractsTest(unittest.TestCase):
         self.assertIn("No agent can open a browser", self.architect.CAPABILITY_REALITY_PROMPT)
         self.assertIn("written report", self.architect.CAPABILITY_REALITY_PROMPT)
         source = (COMPILER / "agents" / "architect-agent" / "workers" / "architect.py").read_text(encoding="utf-8")
-        self.assertIn("{CAPABILITY_REALITY_PROMPT}", source, "the rule is defined but never put in the system prompt")
+        self.assertIn("{capability_reality}", source, "the rule is defined but never put in the system prompt")
+        # What it says follows what the catalogue offers.
+        self.assertIn("No agent can open a browser", self.architect.capability_reality_prompt({"tools": [{"id": "read_file"}]}))
+        offered = self.architect.capability_reality_prompt({"tools": [{"id": "run_page"}]})
+        self.assertIn("browser.run", offered)
+        self.assertNotIn("No agent can open a browser", offered)
 
     def test_an_agent_cannot_list_more_skills_than_its_prompt_should_carry(self):
         dag = self.fixture()

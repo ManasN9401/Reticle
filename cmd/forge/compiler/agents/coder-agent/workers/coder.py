@@ -46,7 +46,7 @@ def main():
             f"    run(instructions, skills={skills!r})\n",
             encoding="utf-8",
         )
-        for name in ("forge_utils.py", "worker_sdk.py", "comfy_tools.py", "image_tools.py", "web_tools.py"):
+        for name in ("forge_utils.py", "worker_sdk.py", "comfy_tools.py", "image_tools.py", "web_tools.py", "browser_tools.py"):
             (target / name).write_bytes((LIB / name).read_bytes())
     (workspace / "src").mkdir(exist_ok=True)
     print(json.dumps({"id":req["id"],"artifact":{"id":req["id"]+"_output","name":"Python Files","type":"application/json","data":"{}"}}))

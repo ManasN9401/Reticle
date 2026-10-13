@@ -22,6 +22,11 @@ const (
 	CapabilitySecurityActive   Capability = "security.active"
 	CapabilityGPUUse           Capability = "gpu.use"
 	CapabilityMCPCall          Capability = "mcp.call"
+	// CapabilityBrowserRun lets a worker load its workspace site in a sandboxed headless browser
+	// (run_page). The page is untrusted generated code: it is served from a loopback server, may
+	// read public subresources, and cannot send data out or reach other local services. It is not
+	// part of the compatibility default profile; an agent must declare it.
+	CapabilityBrowserRun Capability = "browser.run"
 )
 
 var knownCapabilities = map[Capability]struct{}{
@@ -29,7 +34,7 @@ var knownCapabilities = map[Capability]struct{}{
 	CapabilityProcessContainer: {}, CapabilityProcessNative: {}, CapabilityMemoryExecution: {},
 	CapabilityGraphDelegate: {}, CapabilityImageLocal: {}, CapabilityRAGLocal: {},
 	CapabilityCloudPlan: {}, CapabilityCloudApply: {}, CapabilitySecurityActive: {}, CapabilityGPUUse: {},
-	CapabilityMCPCall: {},
+	CapabilityMCPCall: {}, CapabilityBrowserRun: {},
 }
 
 func validateCapabilities(capabilities []Capability) error {

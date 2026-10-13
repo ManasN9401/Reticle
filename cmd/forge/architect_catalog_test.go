@@ -118,6 +118,38 @@ func TestSkillsTheArchitectSeesSayWhenToUseThem(t *testing.T) {
 	}
 }
 
+// run_page executes generated code in a browser, so the architect must see both the tool and the
+// capability that gates it, and know the constraint it is granted under.
+func TestArchitectCatalogOffersRunPageBehindItsCapability(t *testing.T) {
+	raw, err := buildArchitectCatalog(loadedSkillRegistry(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog architectCatalog
+	if err := json.Unmarshal([]byte(raw), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	var tool *architectToolCatalogEntry
+	for i := range catalog.Tools {
+		if catalog.Tools[i].ID == "run_page" {
+			tool = &catalog.Tools[i]
+		}
+	}
+	if tool == nil {
+		t.Fatal("run_page is missing from the architect catalogue")
+	}
+	if tool.Capability != "browser.run" || !strings.Contains(tool.Constraint, "cannot send data out") {
+		t.Fatalf("run_page is not gated or its constraint is not stated: %+v", *tool)
+	}
+	found := false
+	for _, capability := range catalog.Capabilities {
+		found = found || capability == "browser.run"
+	}
+	if !found {
+		t.Fatal("browser.run is not in the catalogue's capability list")
+	}
+}
+
 func TestEverySkillIsAssignableOrExcluded(t *testing.T) {
 	registry := loadedSkillRegistry(t)
 	_, skills := registry.CatalogSnapshot()

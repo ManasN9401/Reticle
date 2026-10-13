@@ -11,6 +11,8 @@ Use schemas/agent.schema.json. Both .yaml and .yml are accepted. Inputs, outputs
 
 `mcp_servers` is an optional array of registered server IDs. A non-empty value requires `mcp.call`; neither field is sufficient alone. At dispatch the runtime derives immutable `mcp.server:<id>` broker policies from this trusted manifest, and only enabled, successfully discovered tools matching both grants enter that attempt's catalogue. Workers cannot add grants in task input.
 
+`browser.run` grants the `run_page` tool, which executes the workspace site in a sandboxed headless browser ([RFC-053](../../../rfc/RFC-053-Run-Page-Browser-Observation.md)). It is never part of the v1 compatibility grant: a manifest must declare it.
+
 Unknown skill IDs are logged and skipped for v1 startup compatibility. This is a degraded worker configuration, not proof that the requested instructions loaded; generated execution definitions should use only skills present in the registry.
 
 Generated definitions are scoped to one execution; public node agent IDs resolve to that execution's binding before built-ins. Coder, scaffolder and generator aliases are compiler services, not general task specialists.

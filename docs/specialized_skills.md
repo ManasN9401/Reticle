@@ -1,6 +1,6 @@
 # Specialized skills
 
-Skill YAML declares environment dependencies and optional explicitly passed environment variables. SKILL.md contains instructions. These are separate mechanisms.
+Skill YAML declares environment dependencies and optional explicitly passed environment variables. `optional_dependencies` lists packages the skill can do without: they are installed best-effort, a failed install is logged and retried at most hourly, and the worker runs without them (the code that uses one must have a fallback). The `browser.run` capability brings its own optional driver, Playwright, whichever skills an agent has. SKILL.md contains instructions. These are separate mechanisms.
 
 ## How a skill reaches a worker
 

@@ -84,6 +84,7 @@ EFFECTFUL_LOCAL_TOOLS = frozenset({
     "write_file", "replace_file_content", "execute_terminal_command",
     "generate_local_asset", "generate_local_assets", "index_directory", "remove_path_from_index",
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
+    "run_page",
 })
 
 _JSON_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict}
@@ -124,6 +125,8 @@ def _tool_argument_error(name, properties, args):
 REPLAY_SAFE_LOCAL_TOOLS = frozenset({
     "write_file", "replace_file_content", "generate_local_asset", "generate_local_assets",
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
+    # Writes a new screenshot file; the page can only read from the network (browser_tools.request_allowed).
+    "run_page",
 })
 
 def _print_retry_marker(effects_started, unsafe_effects):
@@ -763,6 +766,8 @@ IMAGE_OUTPUT_TOOLS = frozenset({
 
 def _generated_paths(name, args, result):
     """Output paths a successful image tool call actually produced."""
+    if name == "run_page":
+        return re.findall(r"(?m)^Screenshot: (\S.*)$", str(result))
     if name in ("generate_local_asset", "resize_image", "convert_image", "crop_image"):
         return [args["output_path"]]
     key = "created" if name == "make_thumbnails" else "generated"
@@ -849,6 +854,20 @@ def run(instructions, kind="coding", skills=None):
             {"path":{"type":"string","optional":True}}
         )
         tool_capabilities["check_web_page"] = "workspace.read"
+    if "browser.run" in capabilities:
+        import browser_tools
+        definitions["run_page"]=(
+            "Load a page of the generated site in a real headless browser and report what happened: uncaught exceptions, console errors, failed or 404 requests (a missing texture, a wrong CDN URL), whether each canvas got a context, whether animation frames ran, and whether the screenshot is blank. A screenshot is saved under run_page/. Run check_web_page first, then this; fix every problem it names and run it again. path is the .html file (default: the first page); wait_ms (default 3000, max 15000) is how long the page runs; actions (at most 20) drive it: {\"click\": \"#enter\"}, {\"click_at\": [x, y]}, {\"press\": \"ArrowRight\", \"hold_ms\": 300}, {\"scroll\": 600}, {\"wait_ms\": 500}, {\"eval\": \"document.title\"}. The page can read public CDN files but cannot send data out or reach other local services.",
+            {
+                "path": {"type": "string", "optional": True},
+                "wait_ms": {"type": "integer", "optional": True},
+                "viewport": {"type": "object", "optional": True, "properties": {"width": {"type": "integer"}, "height": {"type": "integer"}}},
+                "screenshot": {"type": "boolean", "optional": True},
+                "actions": {"type": "array", "optional": True, "items": {"type": "object"}},
+            }
+        )
+        implementations["run_page"] = browser_tools.run_page
+        tool_capabilities["run_page"] = "browser.run"
     if "image.local" in capabilities:
         import image_tools
         definitions["generate_local_asset"]=(
@@ -1347,6 +1366,11 @@ def run(instructions, kind="coding", skills=None):
                             for output_path in _generated_paths(name, args, result):
                                 written_paths.add(_normalized_workspace_path(output_path))
                                 record_verification(name, output_path)
+                        elif name == "run_page":
+                            # The screenshot is a file the run produced; report it, but running the page
+                            # is not a verification of any change (check_web_page is).
+                            for output_path in _generated_paths(name, args, result):
+                                written_paths.add(_normalized_workspace_path(output_path))
                 elif name == "execute_terminal_command":
                     parts = shlex.split(args["command"])
                     if kind in ("devops", "pentest"):

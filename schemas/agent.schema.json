@@ -70,7 +70,8 @@
           "cloud.apply",
           "security.active",
           "gpu.use",
-          "mcp.call"
+          "mcp.call",
+          "browser.run"
         ]
       }
     },

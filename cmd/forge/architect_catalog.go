@@ -62,13 +62,14 @@ func buildArchitectCatalog(reg *agent.Registry, brokerTools ...[]toolbroker.Desc
 		Capabilities: []string{
 			"workspace.read", "workspace.write", "network.public", "process.container",
 			"process.native", "memory.execution", "graph.delegate", "image.local",
-			"rag.local", "cloud.plan", "cloud.apply", "security.active", "gpu.use", "mcp.call",
+			"rag.local", "cloud.plan", "cloud.apply", "security.active", "gpu.use", "mcp.call", "browser.run",
 		},
 		Tools: []architectToolCatalogEntry{
 			{ID: "read_file", Capability: "workspace.read", Description: "Read a workspace text file."},
 			{ID: "list_dir", Capability: "workspace.read", Description: "List a workspace directory."},
 			{ID: "search_codebase", Capability: "workspace.read", Description: "Search workspace text."},
 			{ID: "check_web_page", Capability: "workspace.read", Description: "Statically check a generated web page and its scripts for problems a browser would hit (classic scripts using import, bare module imports, missing files)."},
+			{ID: "run_page", Capability: "browser.run", Description: "Load a page of the site in a sandboxed headless browser and report uncaught exceptions, console errors, failed requests, canvas and animation state and whether the screen is blank; saves a screenshot.", Constraint: "Grant to integration and QA nodes that verify a web page. The page may read public files but cannot send data out or reach other local services."},
 			{ID: "write_file", Capability: "workspace.write", Description: "Create a workspace text file."},
 			{ID: "replace_file_content", Capability: "workspace.write", Description: "Replace previously read file content."},
 			{ID: "read_url", Capability: "network.public", Description: "Read public HTTP documentation."},

@@ -51,6 +51,12 @@ Studio/runtime surface and may be scheduled separately after review.
 [RFC-048](rfc/RFC-048-Meta-Scaffolder-Revised.md) records preconditions only;
 it does not authorize implementation of autonomous self-modification.
 
+[RFC-053](rfc/RFC-053-Run-Page-Browser-Observation.md) is accepted and implemented: workers granted
+`browser.run` can load their site in a sandboxed headless browser (`run_page`).
+[RFC-054](rfc/RFC-054-Agent-Tool-Surface-Roadmap.md) is a draft that specifies the tools still missing
+(vision, web search, diagnostics, edit tools, dev server, git checkpoints, plan and ask, documents,
+connectors, memory, scheduling, steering) and a recommended order.
+
 The detailed current planning snapshot is
 [Project State — 27 September 2026](planning/PROJECT_STATE_27-09-26.md).
 
@@ -100,6 +106,8 @@ additional claim about implementation completeness.
 | [RFC-050](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md) | Attempt-Scoped Tool Broker | `accepted` |
 | [RFC-051](rfc/RFC-051-Configurable-Model-Providers.md) | Configurable Model Providers | `accepted` |
 | [RFC-052](rfc/RFC-052-Request-Level-Inference-Recovery.md) | Request-Level Inference Recovery | `draft` |
+| [RFC-053](rfc/RFC-053-Run-Page-Browser-Observation.md) | Run-Page Browser Observation | `accepted` |
+| [RFC-054](rfc/RFC-054-Agent-Tool-Surface-Roadmap.md) | Agent Tool Surface Roadmap | `draft` |
 
 ## Unfiled identifiers
 

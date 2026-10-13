@@ -1,0 +1,7 @@
+id: "run-and-observe"
+name: "Run and Observe"
+version: "1.0.0"
+description: "How to verify a web page by running it in a headless browser and acting on what the browser reports."
+use_when: "Use for integration and QA agents that verify a web page and are granted browser.run: static check first, then run_page, how to read its report and what to fix first. Small."
+dependencies: []
+env_vars: []
