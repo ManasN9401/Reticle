@@ -54,8 +54,11 @@ it does not authorize implementation of autonomous self-modification.
 [RFC-053](rfc/RFC-053-Run-Page-Browser-Observation.md) is accepted and implemented: workers granted
 `browser.run` can load their site in a sandboxed headless browser (`run_page`).
 [RFC-054](rfc/RFC-054-Agent-Tool-Surface-Roadmap.md) is a draft that specifies the tools still missing
-(vision, web search, diagnostics, edit tools, dev server, git checkpoints, plan and ask, documents,
-connectors, memory, scheduling, steering) and a recommended order.
+(vision, web search, diagnostics, dev server, git checkpoints, plan and ask, documents, connectors,
+memory, scheduling, steering, `apply_patch`) and a recommended order. Its edit-tools section is built:
+paged reads, overwrite after a read, informative and multi-edit replacement, find/move/delete, and a
+guard against nesting a page inside a page. Route and credential health now persists across restarts
+(`.reticle/route_health.json`).
 
 The detailed current planning snapshot is
 [Project State — 27 September 2026](planning/PROJECT_STATE_27-09-26.md).

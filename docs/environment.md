@@ -111,6 +111,36 @@ and HTTP 402 are classified as exhausted quota on the selected credential.
 Other eligible routes can use the remaining attempt budget. The retry-safety
 requirement still applies; a generic `APIError` alone does not authorize replay.
 
+### What survives a restart
+
+Facts about routes and credentials are written to `.reticle/route_health.json` with an expiry on each
+entry, so a restarted Forge does not pay the same dead attempts again: routes a provider does not serve
+to the credential (2 h), models that cannot take chat or tool requests (24 h), and credentials with an
+exhausted quota or balance (until the provider-reported reset, or 2 h for an empty balance). A credential
+entry is tied to a digest of the key it was learned for, so replacing the key voids it. Authentication
+and access failures (a `401`, a `403`, `PERMISSION_DENIED`) are kept out for the running process only,
+because restarting after fixing a key is the normal remedy. The file never holds a secret. To start
+without it, set `RETICLE_FORGET_ROUTE_HEALTH=1` for one start or delete the file.
+
+Models that only parse documents, score or embed (`deplot`, `kosmos`, `nvclip`, `parse`, `reward` in
+the id) are never offered for chat, coding or image-request work.
+
+## Tools a worker is offered
+
+File tools: `read_file` (pages long files by line and says where the next part starts), `write_file`
+(create; `overwrite=true` replaces a file the worker has read completely and that has not changed),
+`replace_file_content`, `apply_edits` (several edits to one file, all or nothing), `find_files`,
+`move_path`, `delete_path`, `list_dir` and `search_codebase`. `execute_terminal_command` is offered with
+`process.container` (or `process.native` with native execution enabled) and by default to agents with no
+explicit capability list. In container mode it runs Python 3.12 with pip and network access and no node,
+npm or git, in an image (`RETICLE_WORKER_IMAGE`) that is pulled before the command; the time limit is
+`RETICLE_COMMAND_TIMEOUT` (default 120 s).
+
+How much one tool reply may carry follows the model's context window when it is known (the catalogue's
+`contextLimit`, or `llm_num_ctx` for Ollama): 20% of the window, between 6,000 and 60,000 characters,
+and 20,000 when nothing is known. This is a per-reply ceiling, not congestion control: the router's AIMD
+only adjusts how many requests run at once per credential.
+
 ## Browser for `run_page`
 
 A worker granted the `browser.run` capability can load its site in a headless browser with `run_page` ([RFC-053](rfc/RFC-053-Run-Page-Browser-Observation.md)). Two drivers exist. **Playwright** is used whenever its package is importable in the agent's environment; it drives the system Chrome or Edge (nothing is downloaded when one is installed). Otherwise a built-in **DevTools client** drives the Chrome or Edge already installed, with nothing to install. If Playwright is chosen automatically but cannot start, the call falls back to the system browser and the report says so. A system browser is looked for at `RETICLE_BROWSER` (a path to a chrome, chromium or msedge executable), the usual Edge and Chrome install locations, and `PATH`.
