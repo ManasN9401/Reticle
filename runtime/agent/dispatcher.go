@@ -543,6 +543,9 @@ func (d *Dispatcher) Start() {
 							// A provider that says when its quota resets is believed, so an exhausted
 							// daily limit is not probed again every 15 minutes.
 							resetAt := routing.QuotaResetAt(failure.Stderr, time.Now())
+							if resetAt.IsZero() && isBillingFailure(failure.Stderr) {
+								resetAt = time.Now().Add(routing.BillingRetryAfter)
+							}
 							d.Router.PenalizeProviderForUntil(string(w.ID), apiKeyEnv, disposition.category, disposition.category, resetAt)
 						}
 						if disposition.penalizeFamily {
@@ -635,6 +638,11 @@ func applySelectedModelParameters(parameters map[string]any, model *routing.Mode
 	delete(parameters, "llm_request_model")
 	delete(parameters, "llm_api_base")
 	delete(parameters, "api_key")
+	delete(parameters, "llm_context_tokens")
+	// The worker sizes how much one tool reply may carry from the window, when it is known.
+	if model.ContextLimit > 0 {
+		parameters["llm_context_tokens"] = model.ContextLimit
+	}
 	parameters["llm_model"] = model.ID
 	if model.RequestModel != "" {
 		parameters["llm_request_model"] = model.RequestModel
@@ -689,6 +697,24 @@ const (
 	retrySafeNoEffects   = "[RETICLE_RETRY_SAFE: NO_EFFECTS]"
 	retrySafeFileEffects = "[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]"
 )
+
+// billingFailureMarkers are the provider's own words for an account that has no money or credit left.
+var billingFailureMarkers = []string{
+	"insufficient credits", "insufficient balance", "insufficient_quota",
+	"credit balance is too low", "exceeded your current quota",
+	"402 payment required", "status code: 402", "error code: 402",
+}
+
+// isBillingFailure reports a billing failure, which, unlike a rate window, does not clear by itself.
+func isBillingFailure(stderr string) bool {
+	message := strings.ToLower(finalExceptionLine(stderr))
+	for _, marker := range billingFailureMarkers {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
 
 // classifyProviderFailure decides whether a failed attempt may be tried again on another
 // route. NO_EFFECTS proves the worker changed nothing. FILE_EFFECTS_ONLY proves it changed
@@ -767,14 +793,10 @@ func classifyFailureByText(f *WorkerFailure) providerFailureDisposition {
 	// Compatible endpoints often wrap billing failures in APIError rather than
 	// a dedicated quota exception. Match explicit billing evidence, never the
 	// generic wrapper: it also covers unknown, potentially non-retryable errors.
-	if containsAny(
-		"insufficient credits", "insufficient balance", "insufficient_quota",
-		"credit balance is too low", "exceeded your current quota",
-		"402 payment required", "status code: 402", "error code: 402",
-	) {
+	if containsAny(billingFailureMarkers...) {
 		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_quota"}
 	}
-	if containsAny("invalid api key", "authenticationerror", "401 unauthorized", "status code: 401", "401 client error", "permissiondeniederror", "403 forbidden", "status code: 403", "403 client error", "permission denied") {
+	if containsAny("invalid api key", "authenticationerror", "401 unauthorized", "status code: 401", "401 client error", "permissiondeniederror", "403 forbidden", "status code: 403", "403 client error", "permission denied", "permission_denied", "denied access") {
 		return providerFailureDisposition{retryable: true, penalizeProvider: true, category: "provider_access"}
 	}
 	// "Limit 8000, Used 6424, Requested 6635 ... try again in 4.5s": a partly used window, not a
@@ -800,6 +822,12 @@ func classifyFailureByText(f *WorkerFailure) providerFailureDisposition {
 	}
 	if containsAny("apiconnectionerror", "serviceunavailableerror", "internalservererror", "500 internal server error", "502 bad gateway", "503 service unavailable", "504 gateway timeout") {
 		return providerFailureDisposition{retryable: true, category: "provider_transient"}
+	}
+	// Groq answers a malformed tool call with code "tool_use_failed"; litellm then crashes building its
+	// mid-stream error (int() of that word), so the attempt ends in a ValueError that names no cause.
+	// The model produced an unusable call, which is the model's behaviour, not a timeout.
+	if containsAny("tool_use_failed") {
+		return providerFailureDisposition{retryable: true, category: "model_behavior"}
 	}
 	if containsAny("midstreamfallbackerror", "timeout error", "a timeout occurred", "timed out", "produced no stream event") {
 		return providerFailureDisposition{retryable: true, category: "timeout"}

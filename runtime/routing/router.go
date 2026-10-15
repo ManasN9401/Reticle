@@ -86,7 +86,12 @@ type ModelRouter struct {
 	ProviderPenaltyUntil map[string]time.Time
 
 	// Route-level facts that outlive one task (route_learning.go), guarded by mu.
-	unavailable   map[string]time.Time
+	unavailable map[string]time.Time
+	// unavailableWhy says why a route is out; it is what route_health.json keeps beside the expiry.
+	unavailableWhy map[string]string
+	// credentials holds credential-level outages (an empty balance, a denied project). Unlike
+	// KeyHealthStates it is not replaced when the catalogue refreshes, and part of it survives a restart.
+	credentials   map[string]credentialState
 	requestLimits map[string]int
 	dead          map[string]deadRoute
 	succeeded     map[string]int
@@ -125,6 +130,7 @@ func NewRouter(l *logger.Logger, b *events.Bus, loadAll bool) *ModelRouter {
 		UseBayesianRouting:   true,
 	}
 	r.loadMatrix()
+	r.loadHealth()
 	return r
 }
 
@@ -660,12 +666,15 @@ func (r *ModelRouter) PenalizeProviderForUntil(agentID, apiKeyEnv, category, rea
 	case "provider_access":
 		status = KeyAuthenticationFailed
 		retryAt = time.Time{}
+		// Not remembered across restarts: restarting after fixing the key is the normal remedy.
+		r.markCredentialLocked(apiKeyEnv, now.Add(24*time.Hour), "authentication or access refused: "+reason, false)
 	case "provider_quota", "provider_account_quota":
 		status = KeyQuotaExhausted
 		retryAt = now.Add(15 * time.Minute)
 		if resetAt.After(retryAt) {
 			retryAt = resetAt
 		}
+		r.markCredentialLocked(apiKeyEnv, retryAt, "quota or balance exhausted: "+reason, true)
 	case "provider_rate_limit":
 		if r.ProviderPenaltyUntil == nil {
 			r.ProviderPenaltyUntil = make(map[string]time.Time)
@@ -755,16 +764,21 @@ func (r *ModelRouter) CoolProviderSlot(slot string, delay time.Duration) {
 
 // PenalizeModel disables an incompatible model, leaving other models available.
 func (r *ModelRouter) PenalizeModel(modelID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	ModelsMutex.Lock()
 	defer ModelsMutex.Unlock()
 
+	until := time.Now().Add(IncompatibleModelFor)
 	for i := range AvailableModels {
 		// match by ID or full key
 		if AvailableModels[i].ID == modelID || AvailableModels[i].Key() == modelID {
 			AvailableModels[i].Enabled = false
+			r.markRouteLocked(AvailableModels[i].Key(), until, "model cannot take chat/tool requests")
 			r.Logger.Info("Model disabled globally due to fatal error", "model_id", AvailableModels[i].ID)
 		}
 	}
+	r.saveHealthLocked()
 }
 
 // GetEffortTier maps an effort string to an integer tier 0-5

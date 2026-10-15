@@ -17,16 +17,46 @@ import (
 func (r *ModelRouter) MarkRouteUnavailable(key string, until time.Time, reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.markRouteLocked(key, until, reason) {
+		r.saveHealthLocked()
+	}
+}
+
+// markRouteLocked records a route outage. It reports whether anything changed. The caller holds r.mu.
+func (r *ModelRouter) markRouteLocked(key string, until time.Time, reason string) bool {
 	if r.unavailable == nil {
 		r.unavailable = map[string]time.Time{}
 	}
+	if r.unavailableWhy == nil {
+		r.unavailableWhy = map[string]string{}
+	}
 	if !until.After(r.unavailable[key]) {
-		return
+		return false
 	}
 	r.unavailable[key] = until
+	r.unavailableWhy[key] = reason
 	if r.Logger != nil {
 		r.Logger.Info("Route marked unavailable for other tasks", "route", key, "until", until.Format(time.RFC3339), "reason", reason)
 	}
+	return true
+}
+
+// markCredentialLocked is MarkCredentialUnavailable for a caller that holds r.mu.
+func (r *ModelRouter) markCredentialLocked(envName string, until time.Time, reason string, persist bool) {
+	if envName == "" || !until.After(time.Now()) {
+		return
+	}
+	if r.credentials == nil {
+		r.credentials = map[string]credentialState{}
+	}
+	if existing, ok := r.credentials[envName]; ok && !until.After(existing.until) {
+		return
+	}
+	r.credentials[envName] = credentialState{until: until, reason: reason, digest: secretDigest(envName), persist: persist}
+	if r.Logger != nil {
+		r.Logger.Info("Credential marked unavailable", "credential", envName, "until", until.Format(time.RFC3339), "reason", reason, "remembered_across_restarts", persist)
+	}
+	r.saveHealthLocked()
 }
 
 // MarkRouteDead is MarkRouteUnavailable for a route the provider says it does not serve to this
@@ -41,6 +71,7 @@ func (r *ModelRouter) MarkRouteDead(model Model, until time.Time, reason string)
 		r.dead = map[string]deadRoute{}
 	}
 	r.dead[model.Key()] = deadRoute{provider: model.Provider, credential: model.APIKeyEnv, until: until}
+	r.saveHealthLocked()
 }
 
 type deadRoute struct {
@@ -179,6 +210,9 @@ func (r *ModelRouter) RoutesOfModel(id, provider string) []string {
 func (r *ModelRouter) routeBlockedLocked(m Model, policy RoutePolicy, now time.Time) bool {
 	key := m.Key()
 	if until, ok := r.unavailable[key]; ok && now.Before(until) {
+		return true
+	}
+	if r.credentialBlockedLocked(m.APIKeyEnv, now) {
 		return true
 	}
 	limit := r.requestLimits[key]

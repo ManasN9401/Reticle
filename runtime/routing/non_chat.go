@@ -19,6 +19,11 @@ var nonChatTokens = map[string]bool{
 	// Image, video and music generators that detectModality files under "text".
 	"veo": true, "imagen": true, "banana": true, "image": true, "video": true,
 	"lyria": true, "sora": true, "dall": true,
+	// Specialist models listed beside the chat models that take none of their requests: a
+	// chart-to-table model, a grounding vision model, an image/text embedder, document parsers and
+	// a reward scorer. The catalogue calls all of them "text", and a build node was routed to deplot
+	// and kosmos-2 first on every run, two attempts spent before one that could write code.
+	"deplot": true, "kosmos": true, "nvclip": true, "parse": true, "reward": true,
 }
 
 func isNonChatModelID(id string) bool {

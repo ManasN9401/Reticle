@@ -185,6 +185,10 @@ func TestProviderFailureDisposition(t *testing.T) {
 		{"forbidden key", "403 Forbidden", true, false, false, "provider_access"},
 		{"wrapped forbidden key", "BadRequestError: request failed with 403 Forbidden", true, false, false, "provider_access"},
 		{"authentication", "AuthenticationError: 401 Unauthorized", true, false, false, "provider_access"},
+		// Google spells a denied project PERMISSION_DENIED (underscore) and wraps it as a bad request;
+		// it was filed as a bad request, so the credential's other models were each tried too.
+		{"denied project", "litellm.BadRequestError: Vertex_ai_betaException BadRequestError - b'{\n  \"error\": {\n    \"code\": 403,\n    \"message\": \"Your project has been denied access. Please contact support.\",\n    \"status\": \"PERMISSION_DENIED\"\n  }\n}\n'", true, false, false, "provider_access"},
+		{"malformed tool call", "MidStreamFallbackError: ValueError: invalid literal for int() with base 10: 'tool_use_failed'", false, false, false, "model_behavior"},
 		{"rate limit", "RateLimitError", true, false, false, "provider_rate_limit"},
 		{"account quota", "RateLimitError: openrouter_free_tier_daily", true, false, true, "provider_account_quota"},
 		{"account credits", "insufficient credits", true, false, false, "provider_quota"},
@@ -732,5 +736,31 @@ func TestWorkerPublishesFilesWrittenOnlyWhenReported(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBillingFailureIsToldApartFromARateLimit(t *testing.T) {
+	for stderr, want := range map[string]bool{
+		"litellm.APIError: APIError: OpenAIException - Insufficient balance. Please top up your balance to continue.": true,
+		"BadRequestError: Error code: 402 - Payment Required":                                                         true,
+		"credit balance is too low": true,
+		"litellm.RateLimitError: RateLimitError: OpenAIException - Rate limit exceeded": false,
+		"RateLimitError: openrouter_free_tier_daily":                                    false,
+	} {
+		if got := isBillingFailure(stderr); got != want {
+			t.Errorf("isBillingFailure(%q) = %v, want %v", stderr, got, want)
+		}
+	}
+}
+
+func TestSelectedModelParametersCarryTheContextWindowOnlyWhenKnown(t *testing.T) {
+	parameters := map[string]any{"llm_context_tokens": 99999}
+	applySelectedModelParameters(parameters, &routing.Model{ID: "small/model", ContextLimit: 8192})
+	if parameters["llm_context_tokens"] != 8192 {
+		t.Fatalf("the window was not passed to the worker: %v", parameters["llm_context_tokens"])
+	}
+	applySelectedModelParameters(parameters, &routing.Model{ID: "unknown/model"})
+	if _, present := parameters["llm_context_tokens"]; present {
+		t.Fatalf("a window left over from an earlier route was kept: %v", parameters["llm_context_tokens"])
 	}
 }
