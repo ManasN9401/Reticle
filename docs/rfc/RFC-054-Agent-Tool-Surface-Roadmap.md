@@ -18,7 +18,7 @@ A comparison with Claude Code, Cowork-style desktop agents and OpenClaw-style pe
 | --- | --- | --- |
 | A site of 457 KB did not parse; its CDN script URL was dead | gallery run | run the page (done, RFC-053), then see it, then test it |
 | A QA node briefed to run browser tests spent 30 turns on shell commands | `exec-856b…` qa-testing | run and observe; honest briefs |
-| `replace_file_content` "Expected exactly one match" loops; `write_file` refuses to overwrite | `exec-e1a8…` attempts 7 and 8 | edit tools |
+| `replace_file_content` "Expected exactly one match" loops; `write_file` refuses to overwrite | `exec-e1a8…` attempts 7 and 8 | edit tools (built: paged reads, overwrite after a read, informative and multi-edit replace, find/move/delete, nested-page guard; `apply_patch` remains) |
 | Generated images the model could never look at | image nodes | vision |
 | `browser-agent`, `quant-agent`, `osint-agent`, `hermes-coder-agent` workers are compatibility shells that run the code generator; Playwright and yfinance appear only in their YAML descriptions | repository | catalogue honesty |
 | Only `read_url`; no search | tool list | web search |
@@ -81,8 +81,10 @@ A comparison with Claude Code, Cowork-style desktop agents and OpenClaw-style pe
 
 **Interface.**
 - `apply_patch(patch)`: unified-diff or `*** Begin Patch` style, atomic across files, with fuzzy context matching and a precise failure message (the nearest matching lines).
-- `write_file(path, content, overwrite?: true)`: allowed only if `read_file` returned that file earlier in this attempt; the previous content hash is recorded.
-- `replace_file_content` accepts a list of `{target, replacement}` pairs and, on no match, returns the closest candidate lines.
+- `write_file(path, content, overwrite?: true)`: **built.** Allowed only if `read_file` returned that file earlier in this attempt and it has not changed since (a digest of the text read is compared); the swap is atomic and under the edit lock. A run in which a resumed node could not overwrite the page ended with nine pages nested in one file, each inserted by `replace_file_content` at a unique string, so that tool now also refuses an edit that would add a second `<!DOCTYPE>`, `<html>` or `</html>` to an HTML file.
+- `replace_file_content`: **built**, with `apply_edits(path, edits)` for several `{target_content, replacement_content}` pairs in one atomic swap. On no match both say what is in the file instead (the line where the text appears with different whitespace, or the closest lines); on several matches they list the line numbers and accept `occurrence`. An edit that puts the file's own opening into it again is refused for any file type.
+- `read_file(path, offset?, limit?)`: **built.** A long file comes back in whole lines with a header naming the lines shown and the offset of the next part, so a read is never silently cut. Only a complete read allows `write_file(overwrite=true)`.
+- `find_files(pattern)`, `move_path` and `delete_path`: **built**, workspace-scoped (`workspace.read` / `workspace.write`). A non-empty folder is deleted only with `recursive=true`. `apply_patch` (a unified diff across files) is **not built**; `apply_edits` covers most of it for one file.
 
 **Capability and containment.** `workspace.write`; the same path guards; all three are replay-safe file effects.
 

@@ -1,4 +1,5 @@
 """Shared bounded workspace tools. Native mode executes trusted code as the user."""
+import difflib
 import hashlib
 import http.client
 import ipaddress
@@ -121,7 +122,54 @@ def safe_path(workspace, relative, *, base="src", literal=False):
             raise ValueError("Symlink or junction path denied")
     return target
 
-def read_file(path, workspace_dir):
+# What one tool call may return to the model, in characters. worker_sdk raises or lowers it from the
+# model's context window when that is known. Reads page instead of cutting, so a long file is
+# never silently shortened: the reply always says what part it shows and where the next starts.
+TOOL_RESULT_CHARS = 20000
+READ_NOTICE = "[reticle: "
+
+def _positive_int(value, name):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value or int(value) < 1:
+        raise ValueError(f"{name} must be a whole number of 1 or more")
+    return int(value)
+
+def _page_of(text, offset, limit):
+    """The part of a text a read returns: all of it when it fits, otherwise whole lines from
+    `offset` (1-based) for at most `limit` lines and the per-call character budget."""
+    budget = max(2000, TOOL_RESULT_CHARS - 400)
+    truncated_source = len(text) >= MAX_FILE
+    if offset is None and limit is None and len(text) <= budget and not truncated_source:
+        return text
+    start = 1 if offset is None else _positive_int(offset, "offset")
+    cap = None if limit is None else _positive_int(limit, "limit")
+    lines = text.splitlines(keepends=True)
+    total = len(lines)
+    if start > max(total, 1):
+        raise ValueError(f"offset {start} is past the end of the file ({total} lines)")
+    shown, used, index, partial = [], 0, start - 1, False
+    while index < total and (cap is None or len(shown) < cap):
+        line = lines[index]
+        if used + len(line) > budget:
+            if not shown:
+                shown.append(line[:budget])
+                partial, index = True, index + 1
+            break
+        shown.append(line)
+        used += len(line)
+        index += 1
+    last = start - 1 + len(shown)
+    if start == 1 and last >= total and not partial and not truncated_source:
+        return "".join(shown)
+    notes = [f"lines {start}-{last} of {total}", f"{len(text)} characters"]
+    if partial:
+        notes.append(f"line {start} alone is longer than one reply, so only its first {budget} characters are shown; "
+                     "use search_codebase to find what you need, or edit by exact text")
+    if truncated_source:
+        notes.append("the file is larger than 1 MiB and only its first 1 MiB can be read")
+    more = f"Call read_file with offset={last + 1} for the next part." if last < total else "This is the end of the readable file."
+    return f"{READ_NOTICE}{'; '.join(notes)}. {more}]\n" + "".join(shown)
+
+def read_file(path, workspace_dir, offset=None, limit=None):
     try:
         target = safe_path(workspace_dir, path)
         if not target.exists() and isinstance(path, str) and path.startswith("src/"):
@@ -130,16 +178,48 @@ def read_file(path, workspace_dir):
             if literal.exists():
                 target = literal
         with target.open("r", encoding="utf-8") as stream:
-            return stream.read(MAX_FILE)
+            return _page_of(stream.read(MAX_FILE), offset, limit)
     except Exception as exc:
         return f"Error reading file: {exc}"
 
-def write_file(path, content, workspace_dir, files_modified):
+def text_digest(text):
+    """The identity of a file's text, so an overwrite can prove it is replacing what was read."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+def _overwrite_file(target, path, content, expected_digest, files_modified):
+    """Replace a whole existing file, but only the version the caller read. The swap is atomic
+    (a half-written page is never left behind) and holds the same edit lock as replace_file_content."""
+    if not expected_digest:
+        return (f"Error: {path} exists and you have not read it in this task. Call read_file on it first, "
+                "then write_file again with overwrite=true.")
+    lock = target.with_name(target.name + ".reticle-lock")
+    try:
+        os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    except OSError as exc:
+        return f"Error acquiring edit lock: {exc}"
+    temporary = None
+    try:
+        if text_digest(target.read_text(encoding="utf-8")) != expected_digest:
+            return f"Error: {path} changed since you read it. Read it again, then overwrite it."
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=target.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(content)
+        os.replace(temporary, target)
+        files_modified[path] = content
+        return f"Successfully overwrote {path}"
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        lock.unlink(missing_ok=True)
+
+def write_file(path, content, workspace_dir, files_modified, overwrite=False, expected_digest=None):
     try:
         target = safe_path(workspace_dir, path)
         if not isinstance(content, str) or len(content.encode()) > MAX_FILE:
             raise ValueError("Text file exceeds 1 MiB or content is not text")
         target.parent.mkdir(parents=True, exist_ok=True)
+        if overwrite is True and target.exists():
+            return _overwrite_file(target, path, content, expected_digest, files_modified)
         # Exclusive creation prevents two workers silently overwriting each other.
         with target.open("x", encoding="utf-8", newline="") as stream:
             stream.write(content)
@@ -147,12 +227,100 @@ def write_file(path, content, workspace_dir, files_modified):
         return f"Successfully wrote to {path}"
     except FileExistsError:
         return ("Error: File exists. If it already has the content you intend, read it with "
-                 "read_file to verify it, then call mark_task_complete — do not write_file it "
-                 "again. Only use replace_file_content if it actually needs a different change.")
+                 "read_file to verify it, then call mark_task_complete. To replace the whole file, read it "
+                 "with read_file and call write_file again with overwrite=true. To change one part, use "
+                 "replace_file_content with only that part.")
     except Exception as exc:
         return f"Error writing file: {exc}"
 
-def replace_file_content(path, target_content, replacement_content, workspace_dir):
+_DOCUMENT_ROOTS = {"<!doctype": "<!DOCTYPE> declaration", "<html": "<html> element", "</html>": "</html> tag"}
+
+def _extra_document_root(path, old, new):
+    """Name the HTML document marker an edit would duplicate, or "". A model that cannot overwrite a
+    file tends to "replace" one small unique string with a whole new page; each such edit matches
+    exactly once, succeeds, and nests another copy (one run ended with nine pages in one file)."""
+    if not str(path).lower().endswith((".html", ".htm")):
+        return ""
+    before, after = old.lower(), new.lower()
+    for marker, label in _DOCUMENT_ROOTS.items():
+        if before.count(marker) >= 1 and after.count(marker) > before.count(marker):
+            return label
+    return ""
+
+def _line_numbers(text, needle, limit=8):
+    found, start = [], 0
+    while len(found) < limit:
+        index = text.find(needle, start)
+        if index < 0:
+            break
+        found.append(text.count("\n", 0, index) + 1)
+        start = index + max(1, len(needle))
+    return found
+
+def _no_match_hint(old, target):
+    """Say what is in the file instead of repeating that there was no match: a model told only
+    "no match" tends to send the same request again until it is stopped."""
+    squash = lambda value: re.sub(r"\s+", " ", value).strip()
+    first = next((line for line in target.splitlines() if line.strip()), "")
+    if squash(target) and squash(target) in squash(old):
+        for number, line in enumerate(old.splitlines(), 1):
+            if squash(first) and squash(first) in squash(line):
+                return (f"that text is in the file near line {number}, but its whitespace, indentation or line breaks "
+                        "differ. Read that part again with read_file and copy it exactly.")
+        return "that text is in the file, but its whitespace, indentation or line breaks differ. Copy it exactly from read_file."
+    lines = old.splitlines()[:5000]
+    stripped = [line.strip() for line in lines]
+    if first.strip():
+        close = difflib.get_close_matches(first.strip(), stripped, n=3, cutoff=0.6)
+        shown = []
+        for candidate in close:
+            number = stripped.index(candidate) + 1
+            shown.append(f"line {number}: {lines[number - 1].strip()[:160]}")
+        if shown:
+            return "no exact match. The closest lines in the file are " + "; ".join(shown) + ". Read the file and copy the exact text."
+    return "that text is not in the file (it may have changed). Read the file again before editing."
+
+def _edit_once(text, target_content, replacement_content, occurrence=None):
+    """Apply one exact-text edit. Returns the new text; raises ValueError saying what to do next."""
+    if not isinstance(target_content, str) or not target_content:
+        raise ValueError("a nonempty exact target_content is required")
+    if not isinstance(replacement_content, str):
+        raise ValueError("replacement_content must be text")
+    head = text.lstrip()[:160]
+    if len(text) >= 400 and len(head) >= 60 and head in replacement_content and head not in target_content:
+        raise ValueError(
+            "replacement_content contains the start of the file again, so this edit would insert a second copy "
+            "of it. Pass only the part that changes, or, to replace the entire file, read it with read_file and "
+            "call write_file with overwrite=true.")
+    count = text.count(target_content)
+    if count == 0:
+        raise ValueError(_no_match_hint(text, target_content))
+    if occurrence is None:
+        if count > 1:
+            where = ", ".join(str(n) for n in _line_numbers(text, target_content))
+            raise ValueError(
+                f"that text matches {count} places (lines {where}). Include a few more surrounding lines in "
+                f"target_content so it matches once, or pass occurrence (1 to {count}) to choose one.")
+        position = text.find(target_content)
+    else:
+        number = _positive_int(occurrence, "occurrence")
+        if number > count:
+            raise ValueError(f"occurrence {number} was requested but the text matches only {count} time(s)")
+        position, start = -1, 0
+        for _ in range(number):
+            position = text.find(target_content, start)
+            start = position + len(target_content)
+    return text[:position] + replacement_content + text[position + len(target_content):]
+
+def _copies_the_file_start(old, new):
+    """True when an edit adds a second copy of the file's own opening. Any file type: a model that
+    cannot overwrite tends to insert the whole file again at one unique string."""
+    head = old.lstrip()[:160]
+    return len(old) >= 400 and len(head) >= 60 and new.count(head) > old.count(head)
+
+def _rewrite_locked(path, workspace_dir, transform, label):
+    """Read a file, let `transform` produce its new text (raising ValueError with advice), refuse
+    edits that corrupt it, and swap the result in atomically under the edit lock."""
     lock = None
     try:
         target = safe_path(workspace_dir, path)
@@ -162,14 +330,23 @@ def replace_file_content(path, target_content, replacement_content, workspace_di
     except Exception as exc:
         return f"Error acquiring edit lock: {exc}"
     try:
-        if not target_content:
-            raise ValueError("A nonempty exact match is required")
         old = target.read_text(encoding="utf-8")
-        if len(old.encode()) > MAX_FILE or old.count(target_content) != 1:
-            raise ValueError("Expected exactly one match in a file under 1 MiB")
-        new = old.replace(target_content, replacement_content, 1)
+        if len(old.encode()) > MAX_FILE:
+            raise ValueError("the file is larger than 1 MiB")
+        new = transform(old)
         if len(new.encode()) > MAX_FILE:
-            raise ValueError("Replacement exceeds 1 MiB")
+            raise ValueError("the result would exceed 1 MiB")
+        extra = _extra_document_root(str(path), old, new)
+        if extra:
+            raise ValueError(
+                f"this edit would leave the file with a second {extra}: replacement_content is a whole page "
+                "inserted into one. Pass only the part that changes, or, to replace the entire file, read "
+                "it with read_file and call write_file with overwrite=true.")
+        if _copies_the_file_start(old, new):
+            raise ValueError(
+                "this edit would insert a second copy of the start of the file. Pass only the part that "
+                "changes, or, to replace the entire file, read it with read_file and call write_file with "
+                "overwrite=true.")
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=target.parent, delete=False) as stream:
             temporary = Path(stream.name)
             stream.write(new)
@@ -179,11 +356,104 @@ def replace_file_content(path, target_content, replacement_content, workspace_di
             os.replace(temporary, target)
         finally:
             temporary.unlink(missing_ok=True)
-        return f"Successfully replaced content in {path}"
+        return label
     except Exception as exc:
         return f"Error replacing content: {exc}"
     finally:
         lock.unlink(missing_ok=True)
+
+def replace_file_content(path, target_content, replacement_content, workspace_dir, occurrence=None):
+    return _rewrite_locked(
+        path, workspace_dir,
+        lambda old: _edit_once(old, target_content, replacement_content, occurrence),
+        f"Successfully replaced content in {path}")
+
+MAX_EDITS = 20
+
+def apply_edits(path, edits, workspace_dir):
+    """Several exact-text edits to one file, in order, all or nothing."""
+    if not isinstance(edits, list) or not edits:
+        return "Error replacing content: edits must be a non-empty list of {target_content, replacement_content}"
+    if len(edits) > MAX_EDITS:
+        return f"Error replacing content: at most {MAX_EDITS} edits per call"
+
+    def transform(old):
+        text = old
+        for number, edit in enumerate(edits, 1):
+            if not isinstance(edit, dict):
+                raise ValueError(f"edit {number} must be an object with target_content and replacement_content")
+            try:
+                text = _edit_once(text, edit.get("target_content"), edit.get("replacement_content"), edit.get("occurrence"))
+            except ValueError as exc:
+                raise ValueError(f"edit {number} of {len(edits)} failed and nothing was changed: {exc}") from None
+        return text
+    return _rewrite_locked(path, workspace_dir, transform, f"Successfully applied {len(edits)} edit(s) to {path}")
+
+def find_files(pattern, workspace_dir):
+    """Workspace files whose path matches a glob such as **/*.js, src/*.html or just *.css."""
+    try:
+        if not isinstance(pattern, str) or not pattern.strip():
+            raise ValueError("a glob pattern such as **/*.js is required")
+        pattern = pattern.strip().replace("\\", "/")
+        if pattern.startswith("/") or ".." in pattern.split("/") or ":" in pattern:
+            raise ValueError("the pattern must be a relative glob inside the workspace")
+        if "/" not in pattern:
+            pattern = "**/" + pattern
+        root = safe_path(workspace_dir, ".")
+        found = []
+        for candidate in root.glob(pattern):
+            try:
+                rel = str(candidate.relative_to(root)).replace("\\", "/")
+                checked = safe_path(workspace_dir, rel, literal=True)
+                if checked.is_file() and not checked.name.endswith(".reticle-lock"):
+                    found.append(f"{rel} ({checked.stat().st_size} bytes)")
+            except (OSError, ValueError):
+                continue
+            if len(found) >= 500:
+                break
+        return "\n".join(sorted(found)) or "No files match."
+    except Exception as exc:
+        return f"Error finding files: {exc}"
+
+def move_path(source_path, destination_path, workspace_dir):
+    try:
+        root = safe_path(workspace_dir, ".")
+        source = safe_path(workspace_dir, source_path)
+        destination = safe_path(workspace_dir, destination_path)
+        if source == root:
+            raise ValueError("the workspace itself cannot be moved")
+        if not source.exists():
+            raise ValueError(f"{source_path} does not exist")
+        if destination.exists():
+            raise ValueError(f"{destination_path} already exists; choose another name or delete_path it first")
+        if destination == source or source in destination.parents:
+            raise ValueError("a path cannot be moved into itself")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(source, destination)
+        return f"Successfully moved {source_path} to {destination_path}"
+    except Exception as exc:
+        return f"Error moving path: {exc}"
+
+def delete_path(path, workspace_dir, recursive=False):
+    try:
+        root = safe_path(workspace_dir, ".")
+        target = safe_path(workspace_dir, path)
+        if target == root:
+            raise ValueError("the workspace itself cannot be deleted")
+        if not target.exists():
+            raise ValueError(f"{path} does not exist")
+        if target.is_dir():
+            if any(target.iterdir()):
+                if recursive is not True:
+                    raise ValueError(f"{path} is a directory that is not empty; pass recursive=true to delete it and everything in it")
+                shutil.rmtree(target)
+            else:
+                target.rmdir()
+        else:
+            target.unlink()
+        return f"Successfully deleted {path}"
+    except Exception as exc:
+        return f"Error deleting path: {exc}"
 
 def list_dir(path, workspace_dir):
     try:
@@ -262,6 +532,24 @@ def read_url(url, workspace_dir):
     except Exception as exc:
         return f"Error reading URL: {exc}"
 
+def _ensure_worker_image(image):
+    """Pull the container image once, before the command, so the pull's progress output is not handed
+    to the model as the command's output and does not use up the command's time limit. Returns an
+    error message, or "" when the image is ready."""
+    try:
+        if subprocess.run(["docker", "image", "inspect", image], capture_output=True, timeout=30).returncode == 0:
+            return ""
+        pulled = subprocess.run(["docker", "pull", "-q", image], capture_output=True, timeout=900)
+        if pulled.returncode != 0:
+            return "could not pull the worker image " + image + ": " + pulled.stderr.decode("utf-8", errors="replace").strip()[-300:]
+        return ""
+    except FileNotFoundError:
+        return "Docker is not installed or not on PATH; commands need a container unless native execution is enabled"
+    except subprocess.TimeoutExpired:
+        return "Docker did not answer in time (is Docker Desktop running?)"
+    except OSError as exc:
+        return f"Docker could not be used: {exc}"
+
 def execute_terminal_command(command, workspace_dir, allow_native=False):
     """Bounded validation command. Real training uses an explicit configured budget."""
     container = None
@@ -285,6 +573,9 @@ def execute_terminal_command(command, workspace_dir, allow_native=False):
             import uuid
             container = "reticle-" + uuid.uuid4().hex
             image = os.getenv("RETICLE_WORKER_IMAGE", "ghcr.io/astral-sh/uv:python3.12-bookworm-slim")
+            image_problem = _ensure_worker_image(image)
+            if image_problem:
+                return "Error executing command: " + image_problem
             argv = ["docker", "run", "--rm", "--name", container,
                     "--label", "reticle.execution="+os.getenv("RETICLE_EXECUTION_ID", "standalone"),
                     "--memory", os.getenv("RETICLE_MEMORY_LIMIT", "2g"), "--cpus", os.getenv("RETICLE_CPU_LIMIT", "2"),
@@ -314,13 +605,17 @@ def execute_terminal_command(command, workspace_dir, allow_native=False):
                 print(f"Container cleanup failed: {exc}", file=sys.stderr)
 
 _definitions = {
- "read_file": ("Read a workspace text file", {"path": "string"}),
- "write_file": ("Create a new workspace text file", {"path": "string", "content": "string"}),
- "replace_file_content": ("Replace one exact occurrence after reading the file", {"path": "string", "target_content": "string", "replacement_content": "string"}),
+ "read_file": ("Read a workspace text file. A long file comes back in parts: the reply names the lines it shows and the offset of the next part. Pass offset (1-based line number) and limit (number of lines) to read a specific part.", {"path": "string", "offset": {"type": "integer", "optional": True}, "limit": {"type": "integer", "optional": True}}),
+ "write_file": ("Create a new workspace text file. To replace the whole content of one that already exists, read it with read_file first and pass overwrite=true", {"path": "string", "content": "string", "overwrite": {"type": "boolean", "optional": True}}),
+ "replace_file_content": ("Change one exact piece of an existing file. target_content must match the file exactly, so read the file first. Pass only the part that changes, never the whole file. If the text matches more than once, include more surrounding lines or pass occurrence. To rewrite a whole file, read it and use write_file with overwrite=true.", {"path": "string", "target_content": "string", "replacement_content": "string", "occurrence": {"type": "integer", "optional": True}}),
+ "apply_edits": ("Make several exact-text edits to one existing file in one call, in order, all or nothing. Each edit is {target_content, replacement_content} and optionally occurrence. Prefer this to several replace_file_content calls.", {"path": "string", "edits": {"type": "array", "items": {"type": "object", "properties": {"target_content": {"type": "string"}, "replacement_content": {"type": "string"}, "occurrence": {"type": "integer"}}, "required": ["target_content", "replacement_content"], "additionalProperties": False}}}),
+ "find_files": ("List workspace files whose path matches a glob such as **/*.js, assets/*.png or just *.css (a pattern without a slash matches in every folder). Returns paths with sizes.", {"pattern": "string"}),
+ "move_path": ("Move or rename a file or folder inside the workspace. Fails if the destination exists.", {"source_path": "string", "destination_path": "string"}),
+ "delete_path": ("Delete a file, or an empty folder, inside the workspace. A folder that is not empty is deleted only with recursive=true.", {"path": "string", "recursive": {"type": "boolean", "optional": True}}),
  "list_dir": ("List a workspace directory", {"path": "string"}),
  "search_codebase": ("Search workspace text literally", {"regex_pattern": "string"}),
  "read_url": ("Read public documentation", {"url": "string"}),
- "execute_terminal_command": ("Run a bounded validation command in src", {"command": "string"}),
+ "execute_terminal_command": ("Run a shell command in the workspace folder and read its exit code and output (the first 10,000 characters of each of stdout and stderr). Use it to run the project's tests or scripts, install packages, execute what you wrote and see whether it works, or inspect files. Each call is independent: no state, such as cd or exported variables, carries over.", {"command": "string"}),
  "mark_task_complete": ("Finish with a summary after verification", {"summary": "string"}),
 }
 tools = [{"type":"function","function":{"name":name,"description":description,"parameters":{"type":"object","properties":{key:{"type":kind} for key,kind in properties.items()},"required":list(properties),"additionalProperties":False}}} for name,(description,properties) in _definitions.items()]

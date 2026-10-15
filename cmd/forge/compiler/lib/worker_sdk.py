@@ -81,7 +81,7 @@ def _broker_call(descriptor, call_id, arguments):
 
 # Tools that change the workspace; replaying a worker after one has run is unsafe.
 EFFECTFUL_LOCAL_TOOLS = frozenset({
-    "write_file", "replace_file_content", "execute_terminal_command",
+    "write_file", "replace_file_content", "apply_edits", "move_path", "delete_path", "execute_terminal_command",
     "generate_local_asset", "generate_local_assets", "index_directory", "remove_path_from_index",
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
     "run_page",
@@ -123,7 +123,9 @@ def _tool_argument_error(name, properties, args):
 # Everything else (terminal commands, RAG index changes, brokered tools) may have had an effect
 # that replaying would repeat, so it keeps the original no-replay rule.
 REPLAY_SAFE_LOCAL_TOOLS = frozenset({
-    "write_file", "replace_file_content", "generate_local_asset", "generate_local_assets",
+    # apply_edits is all-or-nothing and fails once its targets are gone; move and delete only touch
+    # workspace paths and fail harmlessly when run again.
+    "write_file", "replace_file_content", "apply_edits", "move_path", "delete_path", "generate_local_asset", "generate_local_assets",
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
     # Writes a new screenshot file; the page can only read from the network (browser_tools.request_allowed).
     "run_page",
@@ -731,6 +733,33 @@ _SECRETISH = re.compile(
     r"""(?i)\b(api[_-]?key|token|secret|password|passwd|authorization)\b(?:\s*[=:]\s*|\s+)(?:(?:bearer|basic|token)\s+)?[^\s'"]+"""
 )
 
+# How much one tool reply may put into the conversation. A fixed 20,000 characters is right for a
+# mid-sized window and wrong at both ends (it is most of an 8K model's context and a fraction of a
+# large one's), so it scales with the window when the router or an Ollama setting reports it, and
+# stays 20,000 when nothing is known. A reply that is cut says so and how to get the rest.
+DEFAULT_TOOL_RESULT_CHARS = 20000
+MIN_TOOL_RESULT_CHARS = 6000
+MAX_TOOL_RESULT_CHARS = 60000
+TOOL_RESULT_SHARE_OF_WINDOW = 0.2
+CHARS_PER_TOKEN = 3.5
+
+def _tool_result_budget(parameters, memory):
+    for value in ((parameters or {}).get("llm_context_tokens"), (memory or {}).get("llm_num_ctx")):
+        try:
+            tokens = int(value)
+        except (TypeError, ValueError):
+            continue
+        if tokens > 0:
+            share = int(tokens * CHARS_PER_TOKEN * TOOL_RESULT_SHARE_OF_WINDOW)
+            return max(MIN_TOOL_RESULT_CHARS, min(MAX_TOOL_RESULT_CHARS, share))
+    return DEFAULT_TOOL_RESULT_CHARS
+
+def _cap_tool_result(text, budget):
+    if len(text) <= budget:
+        return text or "(no output)"
+    return (text[:budget] + f"\n[reticle: output cut at {budget} of {len(text)} characters. Ask for a narrower result, "
+            "for example read_file with offset and limit, search_codebase, or a more specific command.]")
+
 def _tool_detail(name, args):
     """A short, redacted description of what a tool call was about, for the LLM panel. The log used
     to say only "Completed execute_terminal_command", which made a failed run unreadable."""
@@ -738,7 +767,7 @@ def _tool_detail(name, args):
         return ""
     if name == "generate_local_assets" and isinstance(args.get("items"), list):
         return f"{len(args['items'])} images"
-    for key in ("command", "path", "regex_pattern", "output_path", "source_dir", "query", "url", "summary"):
+    for key in ("command", "path", "source_path", "pattern", "regex_pattern", "output_path", "source_dir", "query", "url", "summary"):
         value = args.get(key)
         if isinstance(value, str) and value.strip():
             text = _SECRETISH.sub(lambda m: f"{m.group(1)}=[REDACTED]", " ".join(value.split()))
@@ -807,12 +836,16 @@ def run(instructions, kind="coding", skills=None):
     capabilities = set(req["capabilities"]) if "capabilities" in req else compatibility_capabilities
     native = (str(mem.get("allow_native_execution", False)).lower() == "true"
               and "process.native" in capabilities)
+    tool_result_budget = _tool_result_budget(req.get("parameters", {}), mem)
+    toolset.TOOL_RESULT_CHARS = tool_result_budget
     files = {}
     memory_updates = []
     graph_mutation = None
     tool_capabilities = {
         "read_file": "workspace.read", "list_dir": "workspace.read", "search_codebase": "workspace.read",
         "write_file": "workspace.write", "replace_file_content": "workspace.write",
+        "apply_edits": "workspace.write", "move_path": "workspace.write", "delete_path": "workspace.write",
+        "find_files": "workspace.read",
         "read_url": "network.public", "execute_terminal_command": "process.native" if native else "process.container",
         "mark_task_complete": None,
     }
@@ -924,6 +957,14 @@ def run(instructions, kind="coding", skills=None):
         for tool in ("resize_image", "make_thumbnails", "convert_image", "crop_image"):
             implementations[tool] = getattr(image_tools, tool)
             tool_capabilities[tool] = "image.local"
+    if "execute_terminal_command" in definitions:
+        description, properties = definitions["execute_terminal_command"]
+        where = ("directly on the user's machine (native execution), with whatever is installed there"
+                 if native else
+                 "in a throwaway Linux container with Python 3.12, pip and network access but no node, npm or git; "
+                 "only the workspace folder persists between calls")
+        seconds = os.getenv("RETICLE_COMMAND_TIMEOUT", "120")
+        definitions["execute_terminal_command"] = (f"{description} It runs {where}. Time limit {seconds} seconds.", properties)
     local_descriptors = {
         name: _local_tool_descriptor(name, desc, props, tool_capabilities.get(name))
         for name, (desc, props) in definitions.items()
@@ -946,6 +987,22 @@ def run(instructions, kind="coding", skills=None):
     # this attempt has read back. write_file refuses to overwrite, so without this a resumed node
     # could never satisfy "create your required output files" and stalled on every route.
     confirmed_outputs = set()
+    # path -> digest of the text read_file returned, so write_file(overwrite=true) can prove the file
+    # it replaces is the one this attempt read (and that nobody changed it in between).
+    read_digests = {}
+    def _remember_read(path_text, text=None):
+        """Record what this attempt now knows about a file; None forgets it."""
+        key = _normalized_workspace_path(path_text)
+        try:
+            if text is None:
+                text = Path(toolset.safe_path(workspace, path_text)).read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            read_digests.pop(key, None)
+            return
+        if len(text) < toolset.MAX_FILE:
+            read_digests[key] = toolset.text_digest(text)
+        else:
+            read_digests.pop(key, None)
     # A registered agent keeps its maintained worker, so the architect delivers its
     # node-specific prompt (goal, inputs, declared outputs) as a node parameter.
     # That prompt, when present, is the more specific source of declared outputs.
@@ -989,7 +1046,8 @@ def run(instructions, kind="coding", skills=None):
             "\nThis task is being resumed. An earlier attempt on a different model already created or changed "
             "files in the workspace before a provider error stopped it. Do not start over: list and read the "
             "existing files first, keep what is correct, and create or fix only what is missing or wrong. "
-            "write_file will not overwrite an existing file; use replace_file_content to change one. "
+            "write_file will not overwrite an existing file unless you have read it and pass overwrite=true; "
+            "use replace_file_content, with only the part that changes, to edit one. "
             "A required output file that already exists counts as created once you have read it back."
         )
     messages = [{"role":"system", "content": prompt_instructions + "\n" + req.get("parameters",{}).get("system_prompt","") + "\nUse workspace-relative paths. Terminal cwd is src. Finish only after checking your work. An exhausted loop is a failure." + resume_note},
@@ -1386,18 +1444,44 @@ def run(instructions, kind="coding", skills=None):
                             if script_path and script_path in pending_modified_paths:
                                 record_verification(name, args["command"], checked_path=script_path)
                 elif name == "write_file":
-                    result = toolset.write_file(workspace_dir=workspace, files_modified=files, **args)
+                    result = toolset.write_file(
+                        workspace_dir=workspace, files_modified=files,
+                        expected_digest=read_digests.get(_normalized_workspace_path(args["path"])), **args)
                     if result.startswith("Successfully"):
                         verified = False
+                        _remember_read(args["path"])
                         written_path = _normalized_workspace_path(args["path"])
                         pending_modified_paths.add(written_path)
                         written_paths.add(written_path)
                         if _is_web_file(written_path):
                             web_written, web_checked = True, False
-                elif name == "replace_file_content":
-                    result = toolset.replace_file_content(workspace_dir=workspace, **args)
+                elif name == "move_path":
+                    result = toolset.move_path(workspace_dir=workspace, **args)
                     if result.startswith("Successfully"):
                         verified = False
+                        source = _normalized_workspace_path(args["source_path"])
+                        destination = _normalized_workspace_path(args["destination_path"])
+                        for known in (written_paths, pending_modified_paths):
+                            moved = {p for p in known if p == source or p.startswith(source + "/")}
+                            known.difference_update(moved)
+                            known.update(destination + p[len(source):] for p in moved)
+                        for key in [p for p in read_digests if p == source or p.startswith(source + "/")]:
+                            read_digests.pop(key, None)
+                        if _is_web_file(destination):
+                            web_written, web_checked = True, False
+                elif name == "delete_path":
+                    result = toolset.delete_path(workspace_dir=workspace, **args)
+                    if result.startswith("Successfully"):
+                        gone = _normalized_workspace_path(args["path"])
+                        for known in (written_paths, pending_modified_paths):
+                            known.difference_update({p for p in known if p == gone or p.startswith(gone + "/")})
+                        for key in [p for p in read_digests if p == gone or p.startswith(gone + "/")]:
+                            read_digests.pop(key, None)
+                elif name in ("replace_file_content", "apply_edits"):
+                    result = getattr(toolset, name)(workspace_dir=workspace, **args)
+                    if result.startswith("Successfully"):
+                        verified = False
+                        _remember_read(args["path"])
                         written_path = _normalized_workspace_path(args["path"])
                         pending_modified_paths.add(written_path)
                         written_paths.add(written_path)
@@ -1408,6 +1492,11 @@ def run(instructions, kind="coding", skills=None):
                     if not result.startswith("Error"):
                         if name == "read_file":
                             path = _normalized_workspace_path(args["path"])
+                            if result.startswith(toolset.READ_NOTICE):
+                                # Only part of the file was shown: not enough to overwrite it blind.
+                                read_digests.pop(path, None)
+                            else:
+                                _remember_read(args["path"])
                             # A successful read proves the file exists; if it is a declared output the
                             # task needs no second copy of it.
                             if any(_output_satisfied(required, {path}) for required in required_outputs):
@@ -1424,7 +1513,7 @@ def run(instructions, kind="coding", skills=None):
             else:
                 _emit_llm("tool", f"\nCompleted {name}", name=name, detail=call_detail)
             # An empty tool message is rejected by some providers just like an empty reply.
-            messages.append({"role":"tool","tool_call_id":call.id,"content":result_text[:20000] or "(no output)"})
+            messages.append({"role":"tool","tool_call_id":call.id,"content":_cap_tool_result(result_text, tool_result_budget)})
         # A weak local model can keep exploring with other tools long after
         # verification is already satisfied, never returning to
         # mark_task_complete on its own. Surface that state explicitly rather
