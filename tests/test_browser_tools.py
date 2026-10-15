@@ -8,6 +8,7 @@ import struct
 import sys
 import tempfile
 import threading
+import time
 import types
 import unittest
 import urllib.error
@@ -332,6 +333,25 @@ class Report(unittest.TestCase):
         self.assertIn("and 188 more", text)
 
 
+class ProfileCleanup(unittest.TestCase):
+    def test_only_old_throwaway_profiles_are_swept(self):
+        import time
+        with tempfile.TemporaryDirectory() as temp, patch.object(tempfile, "tempdir", temp):
+            old = Path(temp) / (bt.PROFILE_PREFIX + "old")
+            fresh = Path(temp) / (bt.PROFILE_PREFIX + "fresh")
+            other = Path(temp) / "someone-elses-folder"
+            for folder in (old, fresh, other):
+                (folder / "Default").mkdir(parents=True)
+                (folder / "Default" / "Cookies").write_text("x", encoding="utf-8")
+            aged = time.time() - bt.STALE_PROFILE_SECONDS - 60
+            os.utime(old, (aged, aged))
+            os.utime(other, (aged, aged))
+            self.assertEqual(bt.sweep_stale_profiles(), 1)
+            self.assertFalse(old.exists())
+            self.assertTrue(fresh.exists(), "a profile a running call may still be using was removed")
+            self.assertTrue(other.exists(), "a folder that is not ours was removed")
+
+
 class Backends(unittest.TestCase):
     def test_playwright_is_preferred_whenever_it_is_importable(self):
         with patch.dict(os.environ, {}, clear=False):
@@ -412,6 +432,12 @@ class Backends(unittest.TestCase):
             self.assertIn("at most", bt.run_page(workspace, actions=[{"wait_ms": 1}] * (bt.MAX_ACTIONS + 1)))
 
 
+def in_process(executable, options, site, observation, deadline):
+    """Run the Playwright adapter in this process, where a stand-in module can be seen. Production
+    runs it in a supervised child, which is covered separately."""
+    return bt._playwright_inprocess(executable, options, site.port, site.url(options["page"]), observation, deadline)
+
+
 class PlaywrightBackend(unittest.TestCase):
     """The optional backend, against a stand-in for the package."""
 
@@ -484,7 +510,7 @@ class PlaywrightBackend(unittest.TestCase):
             (Path(workspace) / "src").mkdir()
             (Path(workspace) / "src" / "index.html").write_text("<p>x</p>", encoding="utf-8")
             with patch.dict(sys.modules, modules), patch.object(bt, "find_chromium", return_value=None), \
-                    patch.object(bt, "_playwright_available", return_value=True):
+                    patch.object(bt, "_playwright_available", return_value=True),                     patch.object(bt, "_playwright_session", side_effect=in_process):
                 report = bt.run_page(workspace, wait_ms=100)
             self.assertTrue((Path(workspace) / "src" / "run_page" / "index-1.png").is_file())
         self.assertIn("(playwright)", report)
@@ -502,7 +528,7 @@ class PlaywrightBackend(unittest.TestCase):
             (Path(workspace) / "src").mkdir()
             (Path(workspace) / "src" / "index.html").write_text("<p>x</p>", encoding="utf-8")
             with patch.dict(sys.modules, modules), patch.object(bt, "find_chromium", return_value=None), \
-                    patch.object(bt, "_playwright_available", return_value=True):
+                    patch.object(bt, "_playwright_available", return_value=True),                     patch.object(bt, "_playwright_session", side_effect=in_process):
                 bt.run_page(workspace, wait_ms=0, screenshot=False)
         self.assertEqual(len(record["routes"]), 1)
         outcomes = []
@@ -519,6 +545,88 @@ class PlaywrightBackend(unittest.TestCase):
         guard(request("https://93.184.216.34/collect", "POST"))
         guard(request("http://192.168.0.1/", "GET"))
         self.assertEqual(outcomes, ["continue", "abort", "abort"])
+
+
+class PlaywrightSupervisor(unittest.TestCase):
+    """The parent that runs the Playwright adapter in a child it can kill at the deadline."""
+
+    def fake_child(self, script):
+        def command(progress, result, shot):
+            return [sys.executable, "-B", "-c", script, str(progress), str(result), str(shot)]
+        return patch.object(bt, "_child_command", side_effect=command)
+
+    def session(self, deadline=20):
+        class Site:
+            port = 1
+
+            @staticmethod
+            def url(page):
+                return "http://127.0.0.1:1/" + page
+
+        observation = bt._new_observation()
+        options = {"page": "index.html", "wait_ms": 0, "actions": []}
+        started = time.monotonic()
+        image = bt._playwright_session(None, options, Site, observation, time.monotonic() + deadline)
+        return image, observation, time.monotonic() - started
+
+    def test_a_child_that_never_answers_is_killed_and_its_progress_kept(self):
+        script = "\n".join([
+            "import json, sys, time",
+            "sys.stdin.read()",
+            "json.dump({'console': [{'type': 'error', 'text': 'seen before the hang'}], 'unresponsive': False}, open(sys.argv[1], 'w'))",
+            "time.sleep(600)",
+        ])
+        with self.fake_child(script):
+            image, observation, elapsed = self.session(deadline=9)
+        self.assertLess(elapsed, 20, "the parent must enforce the deadline itself")
+        self.assertTrue(observation["unresponsive"])
+        self.assertEqual(observation["console"][0]["text"], "seen before the hang")
+        self.assertEqual(image, b"")
+
+    def test_a_finished_child_returns_its_observation_and_screenshot(self):
+        script = "\n".join([
+            "import json, sys",
+            "sys.stdin.read()",
+            "open(sys.argv[3], 'wb').write(b'PNG')",
+            "json.dump({'observation': {'loaded': True, 'unresponsive': False}}, open(sys.argv[2], 'w'))",
+        ])
+        with self.fake_child(script):
+            image, observation, _ = self.session()
+        self.assertEqual(image, b"PNG")
+        self.assertTrue(observation["loaded"])
+        self.assertFalse(observation["unresponsive"])
+
+    def test_a_child_that_reports_an_error_is_raised_so_the_fallback_can_run(self):
+        script = "\n".join([
+            "import json, sys",
+            "sys.stdin.read()",
+            "json.dump({'error': 'Error: Executable does not exist'}, open(sys.argv[2], 'w'))",
+            "sys.exit(1)",
+        ])
+        with self.fake_child(script), self.assertRaisesRegex(RuntimeError, "Executable does not exist"):
+            self.session()
+
+    def test_a_child_that_dies_without_output_is_an_error(self):
+        script = "\n".join([
+            "import sys",
+            "sys.stdin.read()",
+            "sys.stderr.write('boom\\n')",
+            "sys.exit(3)",
+        ])
+        with self.fake_child(script), self.assertRaisesRegex(RuntimeError, "no result.*boom"):
+            self.session()
+
+    def test_the_throwaway_folder_is_removed(self):
+        before = {p.name for p in Path(tempfile.gettempdir()).glob(bt.PROFILE_PREFIX + "*")}
+        script = "\n".join([
+            "import json, sys",
+            "sys.stdin.read()",
+            "json.dump({'observation': {}}, open(sys.argv[2], 'w'))",
+        ])
+        with self.fake_child(script):
+            self.session()
+        after = {p.name for p in Path(tempfile.gettempdir()).glob(bt.PROFILE_PREFIX + "*")}
+        self.assertEqual(after - before, set())
 
 
 # ---------------------------------------------------------------------------------------------
@@ -701,6 +809,27 @@ class RealPlaywright(unittest.TestCase):
         self.assertIn("alert: hi", report)
         self.assertIn('eval document.title -> "clicked"', report)
         self.assertNotIn("UNRESPONSIVE", report)
+
+    def test_a_click_that_matches_nothing_reads_like_the_other_backend(self):
+        report = self.report("<!doctype html><body><p>x</p>", actions=[{"click": "#missing"}])
+        self.assertIn("no element matches '#missing'", report)
+
+    def test_a_page_stuck_in_a_loop_cannot_outlast_the_deadline(self):
+        # Playwright's own calls have no timeout; the supervising parent is what bounds this.
+        # A short deadline also must not starve the wait: the hang is only reached by waiting.
+        with tempfile.TemporaryDirectory() as workspace:
+            target = Path(workspace) / "src"
+            target.mkdir()
+            (target / "index.html").write_text(
+                "<!doctype html><body><script>console.error('before');setTimeout(()=>{while(true){}}, 150)</script>",
+                encoding="utf-8")
+            started = time.monotonic()
+            with patch.dict(os.environ, {"RETICLE_BROWSER_BACKEND": "playwright"}):
+                report = bt.run_page(workspace, wait_ms=700, deadline_seconds=12, screenshot=False)
+        self.assertLess(time.monotonic() - started, 40)
+        self.assertIn("(playwright)", report)
+        self.assertIn("PAGE UNRESPONSIVE", report)
+        self.assertNotIn("NO PROBLEMS FOUND", report)
 
 
 if __name__ == "__main__":

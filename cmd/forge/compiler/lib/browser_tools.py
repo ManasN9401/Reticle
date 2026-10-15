@@ -48,6 +48,12 @@ LIST_LIMIT = 12          # entries listed per category
 LINE_LIMIT = 280         # characters kept of one message
 _GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
+PROFILE_PREFIX = "reticle-run-page-"
+# A profile older than this belongs to a call that could not delete it (on Windows a killed browser
+# tree can hold its files for a few seconds), never to one still running: a call lasts at most
+# MAX_DEADLINE_SECONDS.
+STALE_PROFILE_SECONDS = 30 * 60
+
 BROWSER_HELP = (
     "No Chromium-based browser was found. Install Google Chrome or Microsoft Edge, or set RETICLE_BROWSER "
     "to the path of a chrome/chromium/msedge executable. (Optional alternative: install the 'playwright' "
@@ -365,6 +371,24 @@ def _kill_tree(process):
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         pass
+
+
+def sweep_stale_profiles(now=None):
+    """Delete throwaway browser profiles left behind by earlier calls. Returns how many went."""
+    now = time.time() if now is None else now
+    removed = 0
+    try:
+        candidates = list(Path(tempfile.gettempdir()).glob(PROFILE_PREFIX + "*"))
+    except OSError:
+        return 0
+    for entry in candidates:
+        try:
+            if entry.is_dir() and now - entry.stat().st_mtime > STALE_PROFILE_SECONDS:
+                shutil.rmtree(entry, ignore_errors=True)
+                removed += 0 if entry.exists() else 1
+        except OSError:
+            continue
+    return removed
 
 
 def _launch(executable, profile, width, height):
@@ -700,7 +724,7 @@ class _Cdp:
 
 def _cdp_session(executable, options, site, observation, deadline):
     """Run the page in the system browser. Returns the full-size screenshot bytes (or b'')."""
-    profile = tempfile.mkdtemp(prefix="reticle-run-page-")
+    profile = tempfile.mkdtemp(prefix=PROFILE_PREFIX)
     process = None
     websocket = None
     try:
@@ -798,12 +822,12 @@ def _cdp_session(executable, options, site, observation, deadline):
                 pass
         if process is not None:
             _kill_tree(process)
-        for _ in range(10):
+        for _ in range(15):
             try:
                 shutil.rmtree(profile)
                 break
             except OSError:
-                time.sleep(0.2)
+                time.sleep(0.3)
 
 
 def _cdp_action(cdp, evaluate, action):
@@ -848,9 +872,13 @@ def _mouse_click(cdp, x, y):
 # Backend 2 (optional): Playwright
 # ---------------------------------------------------------------------------------------------
 
-def _playwright_session(executable, options, site, observation, deadline):
+def _playwright_inprocess(executable, options, site_port, page_url, observation, deadline, snapshot=None):
+    """The Playwright adapter, run in the calling process. Playwright's calls have no timeout of
+    their own (a page stuck in a loop never answers page.evaluate), so production use goes through
+    _playwright_session, which runs this in a child process the parent can kill at the deadline.
+    `snapshot` is called after each stage so that what was learned survives such a kill."""
     from playwright.sync_api import sync_playwright  # optional dependency
-    page_url = site.url(options["page"])
+    checkpoint = snapshot or (lambda: None)
     with sync_playwright() as driver:
         launch = {"headless": True, "args": ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]}
         if executable:
@@ -863,7 +891,7 @@ def _playwright_session(executable, options, site, observation, deadline):
 
             def guard(route):
                 request = route.request
-                allowed, reason = request_allowed(request.url, request.method, site.port)
+                allowed, reason = request_allowed(request.url, request.method, site_port)
                 if allowed:
                     route.continue_()
                 else:
@@ -905,6 +933,7 @@ def _playwright_session(executable, options, site, observation, deadline):
                 observation["load_ms"] = int((time.monotonic() - started) * 1000)
             except Exception as error:  # noqa: BLE001 - playwright raises its own hierarchy
                 observation["navigation_error"] = _short(error)
+            checkpoint()
 
             def frames():
                 try:
@@ -915,7 +944,9 @@ def _playwright_session(executable, options, site, observation, deadline):
             before, window_start = frames(), time.monotonic()
             page.wait_for_timeout(int(min(options["wait_ms"], max(0.0, deadline - time.monotonic() - 8) * 1000)))
             observation["wait_seconds"] = time.monotonic() - window_start
+            checkpoint()
             observation["frames_during_wait"] = max(0, frames() - before)
+            checkpoint()
             for action in options["actions"]:
                 if time.monotonic() > deadline - 6:
                     observation["action_errors"].append("stopped: out of time")
@@ -938,11 +969,17 @@ def _playwright_session(executable, options, site, observation, deadline):
                     else:
                         raise ValueError("unknown action; use click, click_at, press, scroll, wait_ms or eval")
                 except Exception as error:  # noqa: BLE001
-                    observation["action_errors"].append(f"{json.dumps(action)}: {_short(error)}")
+                    text = _short(error)
+                    if "click" in action and "Timeout" in text and "waiting for" in text:
+                        # Say it the way the other backend does, so a report reads the same either way.
+                        text = f"no element matches {str(action['click'])!r} (waited 3 s)"
+                    observation["action_errors"].append(f"{json.dumps(action)}: {text}")
+            checkpoint()
             try:
                 observation["page"] = json.loads(page.evaluate(_OBSERVE) or "{}")
             except Exception as error:  # noqa: BLE001
                 observation["page"] = {"error": _short(error)}
+            checkpoint()
             full = b""
             try:
                 full = page.screenshot(type="png")
@@ -955,6 +992,95 @@ def _playwright_session(executable, options, site, observation, deadline):
             return full
         finally:
             browser.close()
+
+
+def _child_command(progress_path, result_path, shot_path):
+    return [sys.executable, "-B", str(Path(__file__).resolve()), "--playwright-child", str(progress_path), str(result_path), str(shot_path)]
+
+
+def _read_json(path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _playwright_session(executable, options, site, observation, deadline):
+    """Run the Playwright adapter in a supervised child process.
+
+    The parent enforces the deadline by killing the child's whole process tree (driver and
+    browser included), so a page whose JavaScript never yields cannot hang the worker (it ends at
+    most three seconds past the deadline). A child also keeps Playwright's event loop out of the
+    worker process. Whatever the child had checkpointed is reported, marked unresponsive."""
+    budget = max(8.0, deadline - time.monotonic())
+    request = {
+        "executable": executable, "options": options, "site_port": site.port,
+        "page_url": site.url(options["page"]), "budget": budget,
+    }
+    folder = tempfile.mkdtemp(prefix=PROFILE_PREFIX)
+    try:
+        progress, result, shot = (Path(folder) / name for name in ("progress.json", "result.json", "shot.png"))
+        launch = {"stdin": subprocess.PIPE, "stdout": subprocess.DEVNULL, "stderr": subprocess.PIPE}
+        if sys.platform.startswith("win"):
+            launch["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        else:
+            launch["start_new_session"] = True
+        process = subprocess.Popen(_child_command(progress, result, shot), **launch)
+        timed_out, stderr = False, b""
+        try:
+            # The child works to `budget` itself; the extra seconds let one that is just finishing
+            # (closing the browser, writing the screenshot) do so before it is treated as hung.
+            _, stderr = process.communicate(json.dumps(request).encode("utf-8"), timeout=budget + 3.0)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill_tree(process)
+            try:
+                _, stderr = process.communicate(timeout=5)
+            except (subprocess.TimeoutExpired, OSError, ValueError):
+                stderr = b""
+        finished = _read_json(result)
+        if finished and finished.get("error"):
+            raise RuntimeError(finished["error"])
+        data = finished["observation"] if finished and "observation" in finished else _read_json(progress)
+        if data is None:
+            tail = stderr.decode("utf-8", errors="replace").strip().splitlines()[-1:] or ["no output"]
+            raise RuntimeError(f"the Playwright process produced no result ({tail[0][:200]})")
+        observation.update(data)
+        if timed_out:
+            observation["unresponsive"] = True
+        return shot.read_bytes() if shot.is_file() else b""
+    finally:
+        for _ in range(15):
+            try:
+                shutil.rmtree(folder)
+                break
+            except OSError:
+                time.sleep(0.3)
+
+
+def _playwright_child(progress_path, result_path, shot_path):
+    """Entry point of the supervised child (python browser_tools.py --playwright-child ...)."""
+    request = json.loads(sys.stdin.read())
+    observation = _new_observation()
+
+    def write(path, payload):
+        temporary = str(path) + ".tmp"
+        with open(temporary, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, default=str)
+        os.replace(temporary, path)
+
+    try:
+        full = _playwright_inprocess(
+            request["executable"], request["options"], request["site_port"], request["page_url"],
+            observation, time.monotonic() + float(request["budget"]), lambda: write(progress_path, observation),
+        )
+        if full:
+            Path(shot_path).write_bytes(full)
+        write(result_path, {"observation": observation})
+        return 0
+    except BaseException as error:  # noqa: BLE001 - the parent decides what a failure means
+        write(result_path, {"error": _short(f"{type(error).__name__}: {error}", 400)})
+        return 1
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1092,6 +1218,7 @@ def run_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, s
     if backend is None:
         return "Error: " + BROWSER_HELP
 
+    sweep_stale_profiles()
     observation = _new_observation()
     label = "playwright"
     site = _Site(root)
@@ -1125,3 +1252,7 @@ def run_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, s
             stream.write(image)
         shot = target
     return format_report(page_name, observation, shot, label)
+
+
+if __name__ == "__main__" and len(sys.argv) == 5 and sys.argv[1] == "--playwright-child":
+    sys.exit(_playwright_child(sys.argv[2], sys.argv[3], sys.argv[4]))
