@@ -24,6 +24,14 @@ Every manifest should carry `use_when`: one or two sentences saying which agents
 
 The architect only sees skills that have a manifest in `skills/` (or `compiler/skills/`). A `SKILL.md` without a manifest cannot be assigned. `TestEverySkillIsAssignableOrExcluded` fails for any instruction file that has neither a manifest nor an entry in its explicit unassignable list with a reason, so a skill cannot silently become unreachable again.
 
+## Keeping skills true to the tools
+
+A skill that tells a worker to call a tool it was never offered wastes turns and teaches it to invent tools.
+`tests/test_skill_tool_references.py` takes the tool names a worker is really offered (every capability granted)
+and fails when a manifest-bearing `SKILL.md` names a backticked tool that is not among them, so renaming or
+removing a tool fails the suite until the skills that mention it are updated. Skills should also say what the
+tool really does: for example the terminal has Python and pip but no node, and a long file is read in parts.
+
 ## Not active automatically
 
 For v1 compatibility, an unknown skill ID is logged and skipped instead of stopping all startup; generated workers also skip an instruction file that disappears after registry loading (the startup line above shows it). Treat either as a degraded worker and fix the manifest or file before relying on its output. Standalone reference skills and third-party hook examples (`continuous-learning`, `strategic-compact`, `eval-harness`, `project-guidelines-example`, `graphify`) are not assignable and not automatically active in Reticle.
