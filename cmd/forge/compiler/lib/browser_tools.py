@@ -94,8 +94,15 @@ def _addresses(host):
     return _dns_cache[host]
 
 
-def request_allowed(url, method, origin_port):
+def _same_site(host, first_party):
+    return bool(first_party) and (host == first_party or host.endswith("." + first_party))
+
+
+def request_allowed(url, method, origin_port, first_party=None):
     """(allowed, reason) for one request the page makes.
+
+    `first_party` (a host name) additionally lets requests to that host and its subdomains use any
+    method; browse_web sets it only when the caller allowed form submission.
 
     Allowed: the local origin (any method), data:/blob:/about:, and GET/HEAD/OPTIONS to public
     http(s) hosts, which is what CDN scripts, fonts and textures are. Refused: any other
@@ -122,6 +129,8 @@ def request_allowed(url, method, origin_port):
     if scheme in ("ws", "wss"):
         return False, "web sockets to remote hosts are not allowed"
     if method.upper() not in ("GET", "HEAD", "OPTIONS"):
+        if _same_site(host, first_party):
+            return True, ""
         return False, f"{method.upper()} to a remote host would send data out"
     return True, ""
 

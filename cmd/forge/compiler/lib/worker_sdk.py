@@ -85,6 +85,9 @@ EFFECTFUL_LOCAL_TOOLS = frozenset({
     "generate_local_asset", "generate_local_assets", "index_directory", "remove_path_from_index",
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
     "run_page",
+    # Specialist tools that save what they read under research/, browse/ or data/.
+    "web_search", "fetch_pages", "browse_web",
+    "price_history", "financial_statements", "technical_indicators", "risk_metrics",
 })
 
 _JSON_TYPES = {"string": str, "integer": int, "number": (int, float), "boolean": bool, "array": list, "object": dict}
@@ -129,6 +132,10 @@ REPLAY_SAFE_LOCAL_TOOLS = frozenset({
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
     # Writes a new screenshot file; the page can only read from the network (browser_tools.request_allowed).
     "run_page",
+    # They read the public web or Yahoo and write new files; browse_web with allow_submit=true is the
+    # exception and is made unsafe where the call is dispatched.
+    "web_search", "fetch_pages", "browse_web",
+    "price_history", "financial_statements", "technical_indicators", "risk_metrics",
 })
 
 def _print_retry_marker(effects_started, unsafe_effects):
@@ -675,7 +682,7 @@ def _iteration_limit(memory, capabilities, declared_outputs=0, declared_inputs=0
 # Roles whose purpose is to produce something. With no declared output files the generic
 # completion check is satisfied by merely reading a file, which once let a frontend node
 # "finish" a website by reading its design spec. They must change something first.
-BUILDER_KINDS = frozenset({"frontend"})
+BUILDER_KINDS = frozenset({"frontend", "hermes"})
 
 # Read-only inspection: none of these can change the workspace, so running one does not make a node
 # unreplayable. A QA node that only listed, read and syntax-checked files was lost to "unsafe effects".
@@ -760,6 +767,32 @@ def _cap_tool_result(text, budget):
     return (text[:budget] + f"\n[reticle: output cut at {budget} of {len(text)} characters. Ask for a narrower result, "
             "for example read_file with offset and limit, search_codebase, or a more specific command.]")
 
+def _hermes_after_run(state, command, result):
+    """Track a terminal run for Hermes and, when it failed, hand the model the next step of the loop."""
+    text = str(result)
+    if text.startswith("Error executing command"):
+        # The terminal itself is unavailable (no Docker, no image): the loop cannot run, so it must not
+        # trap the node. It may finish, but the report has to say that nothing was run.
+        state["terminal_broken"] = True
+        return text + "\n[hermes] The terminal could not run, so nothing can be verified by running. Say plainly in your final summary that the code was not run."
+    match = re.match(r"Exit code: (-?\d+)", text)
+    if not match:
+        return text
+    state["runs"] += 1
+    if match.group(1) == "0":
+        if not _is_inspection_command(command):
+            state["clean_at"] = state["changes"]
+        return text
+    lines = [line.strip() for line in text.splitlines()[1:] if line.strip()]
+    cause = re.sub(r"0x[0-9a-fA-F]+|\d+", "N", lines[-1])[:160] if lines else "no output"
+    count = state["failures"][cause] = state["failures"].get(cause, 0) + 1
+    note = (f"\n[hermes] Run failed (exit {match.group(1)}), failure {state['runs']}. Read the error from the bottom up, "
+            "say in one sentence what is wrong and why, change one thing, and run again.")
+    if count >= 3:
+        note += (f" This same error has now appeared {count} times: the last fixes did not address its cause. Stop patching that spot; re-read the "
+                 "file and the test, question your assumption about what the code receives, and try a different approach or a smaller experiment.")
+    return text + note
+
 def _tool_detail(name, args):
     """A short, redacted description of what a tool call was about, for the LLM panel. The log used
     to say only "Completed execute_terminal_command", which made a failed run unreadable."""
@@ -767,7 +800,7 @@ def _tool_detail(name, args):
         return ""
     if name == "generate_local_assets" and isinstance(args.get("items"), list):
         return f"{len(args['items'])} images"
-    for key in ("command", "path", "source_path", "pattern", "regex_pattern", "output_path", "source_dir", "query", "url", "summary"):
+    for key in ("command", "path", "source_path", "pattern", "symbol", "regex_pattern", "output_path", "source_dir", "query", "url", "summary"):
         value = args.get(key)
         if isinstance(value, str) and value.strip():
             text = _SECRETISH.sub(lambda m: f"{m.group(1)}=[REDACTED]", " ".join(value.split()))
@@ -792,6 +825,20 @@ IMAGE_OUTPUT_TOOLS = frozenset({
     "generate_local_asset", "generate_local_assets", "resize_image",
     "convert_image", "crop_image", "make_thumbnails",
 })
+
+SPECIALIST_FILE_TOOLS = frozenset({
+    "web_search", "fetch_pages", "browse_web",
+    "price_history", "financial_statements", "technical_indicators", "risk_metrics",
+})
+_SPECIALIST_PATH = re.compile(r"(?:saved|Saved|Screenshot|logged in|index is):? ?((?:research|browse|data)/[^\s),;]*[^\s),;.])")
+
+def _specialist_paths(result):
+    """Files a research, browser or market-data tool reports having saved (research/, browse/, data/)."""
+    found = []
+    for path in _SPECIALIST_PATH.findall(str(result)):
+        if path not in found:
+            found.append(path)
+    return found
 
 def _generated_paths(name, args, result):
     """Output paths a successful image tool call actually produced."""
@@ -866,6 +913,69 @@ def run(instructions, kind="coding", skills=None):
             definitions[name] = (name.replace("_"," "), {key:"string"})
             implementations[name] = getattr(rag_tools,name)
             tool_capabilities[name] = "rag.local"
+    if kind == "osint" and "network.public" in capabilities:
+        import research_tools
+        definitions["web_search"] = (
+            "Search the web and get ranked results (title, URL, snippet). Uses Google results through Serper when SERPER_API_KEY is "
+            "configured, else Brave (BRAVE_API_KEY) or a SearXNG server (SEARXNG_URL); with none configured it says so, and provider=\"wikipedia\" "
+            "is a keyless option for encyclopedic questions only. Every query is logged in research/search-log.jsonl. "
+            "Search first, then fetch_pages the results worth reading. limit is 1-20 (default 8).",
+            {"query": "string", "limit": {"type": "integer", "optional": True},
+             "provider": {"type": "string", "optional": True, "enum": ["serper", "brave", "searxng", "wikipedia"]}})
+        definitions["fetch_pages"] = (
+            "Download up to 20 public web pages in parallel and read them. Each is saved under research/sources/ with its URL, "
+            "retrieval time and a SHA-256 of what was downloaded, and indexed in research/sources.json under an id (S1, S2, ...) "
+            "that your report must cite. Respects robots.txt, never sends anything to a site, and refuses private addresses. "
+            "The reply shows the start of each page (max_chars_each, default 4000); read the saved file with read_file for the rest.",
+            {"urls": {"type": "array", "items": {"type": "string"}}, "max_chars_each": {"type": "integer", "optional": True}})
+        implementations["web_search"] = research_tools.web_search
+        implementations["fetch_pages"] = research_tools.fetch_pages
+        tool_capabilities["web_search"] = tool_capabilities["fetch_pages"] = "network.public"
+    if kind == "browser" and "browser.run" in capabilities and "network.public" in capabilities:
+        import browse_tools
+        definitions["browse_web"] = (
+            "Open a public website in a real headless browser (Playwright) and read it: the page's main text, headings, links, tables, "
+            "and anything you pick out with CSS selectors. It runs JavaScript, so it reads sites that a plain download cannot. "
+            "actions (at most 30) drive the page in order: {\"goto\": url}, {\"click\": selector or text=Label}, {\"fill\": [selector, text]}, "
+            "{\"press\": \"Enter\"}, {\"select\": [selector, value]}, {\"scroll\": pixels}, {\"wait_for\": selector}, {\"wait_ms\": n}, {\"eval\": js}. "
+            "extract: {\"links\": true, \"tables\": true, \"selectors\": {\"prices\": \".price\", \"urls\": {\"css\": \"a.item\", \"attr\": \"href\"}}}. "
+            "What it reads is saved under browse/. It is read-only: only GET requests leave the browser, unless allow_submit=true lets "
+            "forms post to the site you are on. It stops and says so at a CAPTCHA or access wall; do not try to get around one.",
+            {
+                "url": "string",
+                "actions": {"type": "array", "optional": True, "items": {"type": "object"}},
+                "extract": {"type": "object", "optional": True},
+                "wait_ms": {"type": "integer", "optional": True},
+                "screenshot": {"type": "boolean", "optional": True},
+                "allow_submit": {"type": "boolean", "optional": True},
+                "max_chars": {"type": "integer", "optional": True},
+            })
+        implementations["browse_web"] = browse_tools.browse_web
+        tool_capabilities["browse_web"] = "browser.run"
+    if kind == "quant" and "network.public" in capabilities:
+        import quant_tools
+        symbols = {"type": "array", "items": {"type": "string"}}
+        definitions["market_quote"] = ("Current price, day change, 52-week range, market cap, P/E and sector for up to 10 ticker symbols (exchange suffixes such as .L or .TO select other markets).", {"symbols": symbols})
+        definitions["price_history"] = (
+            "Download adjusted OHLCV price history for one symbol, save it as data/<SYMBOL>-<period>-<interval>.csv and summarise it "
+            "(first/last close, return, high, low, volume). period: 1d 5d 1mo 3mo 6mo 1y 2y 5y 10y ytd max; interval: 1m 5m 15m 30m 1h 1d 1wk 1mo (intraday is limited by Yahoo to recent days).",
+            {"symbol": "string", "period": {"type": "string", "optional": True}, "interval": {"type": "string", "optional": True}})
+        definitions["financial_statements"] = (
+            "Income statement, balance sheet and cash-flow statement for one symbol, annual or quarterly. Saves each as a CSV under data/ and "
+            "reports revenue, profit, margins, assets, debt, operating and free cash flow with the change from the prior period.",
+            {"symbol": "string", "statements": {"type": "array", "optional": True, "items": {"type": "string", "enum": ["income", "balance", "cashflow"]}},
+             "frequency": {"type": "string", "optional": True, "enum": ["annual", "quarterly"]}})
+        definitions["technical_indicators"] = (
+            "Compute technical indicators for one symbol (sma20/50/200, ema12/26, rsi14, macd, bollinger, atr14; all by default), save the series "
+            "as data/<SYMBOL>-indicators-<period>.csv and state where the latest price sits against each. Descriptions of past prices, not forecasts.",
+            {"symbol": "string", "period": {"type": "string", "optional": True}, "indicators": {"type": "array", "optional": True, "items": {"type": "string"}}})
+        definitions["risk_metrics"] = (
+            "Annualised return and volatility, Sharpe ratio (risk-free rate 0), maximum drawdown, best and worst day, and beta and correlation "
+            "against a benchmark (default ^GSPC) for up to 10 symbols, plus their return correlation matrix. Saved as a CSV under data/.",
+            {"symbols": symbols, "period": {"type": "string", "optional": True}, "benchmark": {"type": "string", "optional": True}})
+        for tool in ("market_quote", "price_history", "financial_statements", "technical_indicators", "risk_metrics"):
+            implementations[tool] = getattr(quant_tools, tool)
+            tool_capabilities[tool] = "network.public"
     import comfy_tools
     import urllib.request, urllib.parse
     comfy_checkpoints = ""
@@ -987,6 +1097,8 @@ def run(instructions, kind="coding", skills=None):
     # this attempt has read back. write_file refuses to overwrite, so without this a resumed node
     # could never satisfy "create your required output files" and stalled on every route.
     confirmed_outputs = set()
+    # Hermes works in a loop and may finish only when the code has run clean since its last change.
+    hermes = {"changes": 0, "clean_at": -1, "terminal_broken": False, "failures": {}, "runs": 0}
     # path -> digest of the text read_file returned, so write_file(overwrite=true) can prove the file
     # it replaces is the one this attempt read (and that nobody changed it in between).
     read_digests = {}
@@ -1320,7 +1432,7 @@ def run(instructions, kind="coding", skills=None):
                     name == "execute_terminal_command" and _is_inspection_command(args.get("command"))
                 ):
                     effects_started = True
-                    if name not in REPLAY_SAFE_LOCAL_TOOLS:
+                    if name not in REPLAY_SAFE_LOCAL_TOOLS or (name == "browse_web" and args.get("allow_submit") is True):
                         unsafe_effects = True
                     announced_effects = _announce_effects(announced_effects, effects_started, unsafe_effects)
                 if broker_descriptor is not None:
@@ -1342,6 +1454,14 @@ def run(instructions, kind="coding", skills=None):
                             "You wrote web files but have not checked that the page can run. Call check_web_page, "
                             "fix every problem it reports, and run it again until it reports no blocking problems; "
                             "then call mark_task_complete."
+                        )
+                    elif kind == "hermes" and "execute_terminal_command" in definitions and not hermes["terminal_broken"] and hermes["clean_at"] < hermes["changes"]:
+                        rejection = (
+                            "Hermes finishes only when the code has been run and passed. "
+                            + ("You have not run anything yet" if hermes["runs"] == 0 else "Nothing has run clean since your last change")
+                            + ": run your tests or the program with execute_terminal_command and get exit code 0 after your last edit, "
+                            "reading the output, then call mark_task_complete. If a run fails, read the error from the bottom, name the cause, "
+                            "change one thing and run again."
                         )
                     elif kind in BUILDER_KINDS and not required_outputs and not written_paths and not effects_started:
                         rejection = (
@@ -1424,6 +1544,10 @@ def run(instructions, kind="coding", skills=None):
                             for output_path in _generated_paths(name, args, result):
                                 written_paths.add(_normalized_workspace_path(output_path))
                                 record_verification(name, output_path)
+                        elif name in SPECIALIST_FILE_TOOLS:
+                            # Files the tool saved (sources, page text, CSV series) are outputs of this node.
+                            for output_path in _specialist_paths(result):
+                                written_paths.add(_normalized_workspace_path(output_path))
                         elif name == "run_page":
                             # The screenshot is a file the run produced; report it, but running the page
                             # is not a verification of any change (check_web_page is).
@@ -1436,6 +1560,8 @@ def run(instructions, kind="coding", skills=None):
                         if len(parts)<2 or parts[0] not in allowed or parts[1] not in allowed[parts[0]] or any(c in args["command"] for c in ";&|`$<>\n"):
                             raise PermissionError("This specialist supports validation/read-only operations. Protected deployment or active scanning requires a separately authorized execution adapter.")
                     result = toolset.execute_terminal_command(args["command"],workspace,native)
+                    if kind == "hermes":
+                        result = _hermes_after_run(hermes, args["command"], result)
                     if result.startswith("Exit code: 0\n"):
                         if _meaningful_terminal_verification(kind, parts):
                             record_verification(name, args["command"], covers_changes=True)
@@ -1449,6 +1575,7 @@ def run(instructions, kind="coding", skills=None):
                         expected_digest=read_digests.get(_normalized_workspace_path(args["path"])), **args)
                     if result.startswith("Successfully"):
                         verified = False
+                        hermes["changes"] += 1
                         _remember_read(args["path"])
                         written_path = _normalized_workspace_path(args["path"])
                         pending_modified_paths.add(written_path)
@@ -1459,6 +1586,7 @@ def run(instructions, kind="coding", skills=None):
                     result = toolset.move_path(workspace_dir=workspace, **args)
                     if result.startswith("Successfully"):
                         verified = False
+                        hermes["changes"] += 1
                         source = _normalized_workspace_path(args["source_path"])
                         destination = _normalized_workspace_path(args["destination_path"])
                         for known in (written_paths, pending_modified_paths):
@@ -1472,6 +1600,7 @@ def run(instructions, kind="coding", skills=None):
                 elif name == "delete_path":
                     result = toolset.delete_path(workspace_dir=workspace, **args)
                     if result.startswith("Successfully"):
+                        hermes["changes"] += 1
                         gone = _normalized_workspace_path(args["path"])
                         for known in (written_paths, pending_modified_paths):
                             known.difference_update({p for p in known if p == gone or p.startswith(gone + "/")})
@@ -1481,6 +1610,7 @@ def run(instructions, kind="coding", skills=None):
                     result = getattr(toolset, name)(workspace_dir=workspace, **args)
                     if result.startswith("Successfully"):
                         verified = False
+                        hermes["changes"] += 1
                         _remember_read(args["path"])
                         written_path = _normalized_workspace_path(args["path"])
                         pending_modified_paths.add(written_path)

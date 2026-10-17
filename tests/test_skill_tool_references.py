@@ -19,12 +19,15 @@ ALL_CAPABILITIES = [
     "workspace.read", "workspace.write", "network.public", "process.container", "process.native",
     "memory.execution", "graph.delegate", "image.local", "browser.run", "rag.local",
 ]
+# The generic worker and every specialist kind: a skill written for the research, browser, market-data
+# or REPL agent names that agent's tools.
+KINDS = ("writing", "rag", "osint", "browser", "quant", "hermes")
 
 # A backticked word that starts with a verb these tools use and has an underscore: read_file,
 # check_web_page, generate_local_asset(s). Words such as output_path do not start with one.
 TOOL_LIKE = re.compile(
     r"`((?:read|write|list|search|replace|apply|find|move|delete|execute|check|run|generate|resize|make|"
-    r"convert|crop|mark|index|query|remove|remember|delegate)_[a-z_]+)(\(s\))?`"
+    r"convert|crop|mark|index|query|remove|remember|delegate|fetch|browse|web|market|price|financial|technical|risk)_[a-z_]+)(\(s\))?`"
 )
 
 
@@ -57,12 +60,14 @@ def offered_tool_names(kind):
 class SkillsNameRealTools(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tools = offered_tool_names("writing") | offered_tool_names("rag")
+        cls.tools = set().union(*(offered_tool_names(kind) for kind in KINDS))
 
     def test_the_offered_set_is_the_real_one(self):
         # If this fails the harness above broke and the other test would pass vacuously.
         for name in ("read_file", "write_file", "replace_file_content", "apply_edits", "find_files",
-                     "execute_terminal_command", "check_web_page", "run_page", "mark_task_complete"):
+                     "execute_terminal_command", "check_web_page", "run_page", "mark_task_complete",
+                     "web_search", "fetch_pages", "browse_web", "market_quote", "price_history",
+                     "financial_statements", "technical_indicators", "risk_metrics"):
             self.assertIn(name, self.tools)
 
     def test_every_tool_a_skill_names_exists(self):
