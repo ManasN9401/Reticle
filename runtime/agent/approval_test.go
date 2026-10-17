@@ -194,3 +194,27 @@ func TestApprovalRequestIsReadableAndKeepsOneJSONBlock(t *testing.T) {
 		t.Fatalf("the exact request lost data: %+v", request)
 	}
 }
+
+func TestOnlyTheResearchAgentReceivesSearchKeysAndEveryWorkerGetsTheBrowserChoice(t *testing.T) {
+	t.Setenv("SERPER_API_KEY", "serper-secret")
+	t.Setenv("BRAVE_API_KEY", "brave-secret")
+	t.Setenv("RETICLE_BROWSER", "C:/browser.exe")
+	t.Setenv("RETICLE_BROWSER_BACKEND", "cdp")
+	osint := strings.Join(workerEnvironment(Task{AgentID: "osint-agent"}, nil), "\n")
+	for _, want := range []string{"SERPER_API_KEY=serper-secret", "BRAVE_API_KEY=brave-secret"} {
+		if !strings.Contains(osint, want) {
+			t.Fatalf("the research agent did not receive %s", want)
+		}
+	}
+	other := strings.Join(workerEnvironment(Task{AgentID: "coder-agent"}, nil), "\n")
+	for _, secret := range []string{"serper-secret", "brave-secret"} {
+		if strings.Contains(other, secret) {
+			t.Fatalf("a search key reached an agent that does not search: %s", other)
+		}
+	}
+	for _, want := range []string{"RETICLE_BROWSER=C:/browser.exe", "RETICLE_BROWSER_BACKEND=cdp"} {
+		if !strings.Contains(other, want) {
+			t.Fatalf("the browser choice documented in environment.md did not reach the worker: missing %s", want)
+		}
+	}
+}
