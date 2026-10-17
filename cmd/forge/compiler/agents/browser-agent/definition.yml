@@ -1,15 +1,15 @@
 id: browser-agent
 name: Browser Automation Expert
-description: A highly-skilled agent capable of navigating complex websites and
-  extracting information using Playwright automation.
-version: 1.0.0
+description: "Reads and extracts information from public websites with a real headless browser (Playwright): navigates multi-step pages, clicks, fills search forms and returns what the pages show. Read-only by default, stops at access walls, and saves every page it read under browse/."
+version: 2.0.0
 runtime: python
 entrypoint: workers/browser.py
 inputs:
-  - application/json
+  - text/plain
 outputs:
   - application/json
-skills: []
+skills:
+  - browser-automation
 memory:
   - user_prompt
   - workspace_dir
@@ -17,3 +17,8 @@ memory:
   - prompt_attachments
   - ide_context
   - global_effort
+capabilities:
+  - workspace.read
+  - workspace.write
+  - network.public
+  - browser.run

@@ -1,16 +1,15 @@
 id: hermes-coder-agent
 name: Hermes Coder Expert
-description: A highly-skilled self-improvising coder agent that strictly follows
-  a Read-Eval-Print Loop (REPL). It writes code, runs terminal tests, analyzes
-  errors, and self-corrects until the code flawlessly passes all requirements.
-version: 1.0.0
+description: "A coder that works in a read-eval-print loop: it writes tests first, writes code, runs it in the terminal, reads the failure, fixes one thing and runs again, and finishes only when the code has run clean after its last change."
+version: 2.0.0
 runtime: python
 entrypoint: workers/hermes.py
 inputs:
-  - application/json
+  - text/plain
 outputs:
   - application/json
-skills: []
+skills:
+  - hermes-repl
 memory:
   - user_prompt
   - workspace_dir
@@ -18,3 +17,9 @@ memory:
   - prompt_attachments
   - ide_context
   - global_effort
+capabilities:
+  - workspace.read
+  - workspace.write
+  - network.public
+  - process.container
+  - process.native

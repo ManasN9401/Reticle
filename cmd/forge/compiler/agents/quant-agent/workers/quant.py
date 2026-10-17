@@ -1,6 +1,11 @@
-"""Compatibility entrypoint for the shared worker generator."""
 from pathlib import Path
-import runpy
-
+import sys
+sys.path.insert(0,str(Path(__file__).resolve().parents[3]/"lib"))
+from worker_sdk import run
+from forge_utils import load_skill_instructions
 if __name__ == "__main__":
-    runpy.run_path(str(Path(__file__).resolve().parents[2] / "coder-agent/workers/coder.py"), run_name="__main__")
+    root=Path(__file__).resolve().parents[6]
+    instructions='Quantitative finance analyst. Pulls quotes, price history and financial statements from Yahoo Finance, computes technical indicators and risk metrics in code, and reports findings with the data behind them. Analysis, not investment advice.'
+    report = load_skill_instructions(root/"skills", ['quant-finance'])
+    instructions += report["text"]
+    run(instructions,'quant',skills={"applied": report["applied"], "missing": report["missing"]})

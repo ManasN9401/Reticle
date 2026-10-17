@@ -1,16 +1,15 @@
 id: quant-agent
-name: Quantitative Finance Expert
-description: A specialized agent equipped with yfinance tools to analyze stock
-  market data, financial statements, and technical indicators.
-version: 1.0.0
+name: Quantitative Finance Analyst
+description: "Analyses listed securities with Yahoo Finance data through yfinance: quotes, price history, financial statements, technical indicators and risk metrics, computed in code and saved as CSV. Analysis, not investment advice."
+version: 2.0.0
 runtime: python
 entrypoint: workers/quant.py
 inputs:
-  - application/json
+  - text/plain
 outputs:
   - application/json
 skills:
-  - data-analytics-stats
+  - quant-finance
 memory:
   - user_prompt
   - workspace_dir
@@ -18,3 +17,8 @@ memory:
   - prompt_attachments
   - ide_context
   - global_effort
+capabilities:
+  - workspace.read
+  - workspace.write
+  - network.public
+  - process.container

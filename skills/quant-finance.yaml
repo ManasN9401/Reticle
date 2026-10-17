@@ -1,0 +1,11 @@
+id: "quant-finance"
+name: "Quantitative Finance"
+version: "1.0.0"
+description: "Market-data analysis with Yahoo Finance: quotes, price history, financial statements, technical indicators and risk, computed by code."
+use_when: "Use for agents analysing listed stocks, ETFs, indices or currencies: price history, financial statements, technical indicators, risk and correlation. Not for non-market datasets (use data-analytics-stats)."
+dependency_policy: "locked"
+dependencies:
+  - "yfinance==1.7.0"
+  - "pandas==3.0.6"
+  - "numpy==2.5.4"
+env_vars: []

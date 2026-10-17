@@ -1,0 +1,8 @@
+id: "browser-automation"
+name: "Browser Automation"
+version: "1.0.0"
+description: "How to read and extract information from public websites with a real headless browser."
+use_when: "Use for agents that navigate rendered or JavaScript-heavy public websites, click through pages and extract data with browse_web. Not for testing the user's own generated site (run-and-observe), and not for plain documents that fetch_pages can read."
+dependency_policy: "floating"
+dependencies: []
+env_vars: []

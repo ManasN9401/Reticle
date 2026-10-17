@@ -75,7 +75,10 @@ class WorkerContracts(unittest.TestCase):
         self.assertEqual(hits,[],f"literal provider credentials found in {hits}")
 
     def test_generated_workers_and_workflow(self):
-        for agent, file in [("coder-agent","coder.py"),("hermes-coder-agent","hermes.py"),("quant-agent","quant.py"),("osint-agent","osint.py"),("browser-agent","browser.py"),("scaffolder-agent","scaffolder.py")]:
+        # Only the two real generators. hermes-coder, quant, osint and browser were once registered as
+        # shells that ran coder.py, so this test fed them a DAG; they are workers now (see
+        # tests/test_specialist_workers.py) and generate nothing.
+        for agent, file in [("coder-agent","coder.py"),("scaffolder-agent","scaffolder.py")]:
             with self.subTest(agent=agent), tempfile.TemporaryDirectory() as temp:
                 dag={"agents":[{"id":"fixture","is_new":True,"system_prompt":"A quote: ' and newline\nfixture","skills":[]}],"nodes":[{"id":"node","agent_id":"fixture","modality":"coding","parameters":{"effort":"high"}}],"edges":[]}
                 req={"id":"compile-exec-test|generate","execution":"compile-exec-test","memory":{"workspace_dir":temp},"inputs":[{"name":"DAG JSON","data":json.dumps(dag)}]}

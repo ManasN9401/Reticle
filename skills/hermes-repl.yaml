@@ -1,0 +1,8 @@
+id: "hermes-repl"
+name: "Hermes REPL"
+version: "1.0.0"
+description: "The loop for writing code that is proven to work: criteria, tests first, run, read the error, fix one thing, repeat until it passes."
+use_when: "Use for agents that write or repair code and must prove it by running it: tests first, run in the terminal, read the failure, fix one thing, run again until exit code 0. Needs execute_terminal_command."
+dependency_policy: "floating"
+dependencies: []
+env_vars: []

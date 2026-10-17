@@ -1,10 +1,8 @@
 id: "osint-investigation"
 name: "OSINT Investigation"
-version: "1.0.0"
-description: "Production-grade Open Source Intelligence (OSINT) methodologies and toolchains."
-use_when: "Use for agents gathering public-web intelligence: searching, scraping and cross-checking sources."
+version: "2.0.0"
+description: "Open-source research that can be checked: search, read sources in parallel, cross-check and cite."
+use_when: "Use for agents gathering public-web intelligence with web_search and fetch_pages: searching, reading many sources, cross-checking claims and writing a cited report. Passive and public sources only."
 dependency_policy: "floating"
-dependencies:
-  - "requests"
-  - "beautifulsoup4"
+dependencies: []
 env_vars: []
