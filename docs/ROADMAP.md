@@ -53,8 +53,10 @@ it does not authorize implementation of autonomous self-modification.
 
 [RFC-053](rfc/RFC-053-Run-Page-Browser-Observation.md) is accepted and implemented: workers granted
 `browser.run` can load their site in a sandboxed headless browser (`run_page`).
+[RFC-055](rfc/RFC-055-Specialist-Agents.md) is accepted and implemented: `browser-agent`, `osint-agent`, `quant-agent` and
+`hermes-coder-agent` are real workers with their own tools instead of shells around the code generator.
 [RFC-054](rfc/RFC-054-Agent-Tool-Surface-Roadmap.md) is a draft that specifies the tools still missing
-(vision, web search, diagnostics, dev server, git checkpoints, plan and ask, documents, connectors,
+(vision, diagnostics, dev server, git checkpoints, plan and ask, documents, connectors,
 memory, scheduling, steering, `apply_patch`) and a recommended order. Its edit-tools section is built:
 paged reads, overwrite after a read, informative and multi-edit replacement, find/move/delete, and a
 guard against nesting a page inside a page. Route and credential health now persists across restarts
@@ -111,6 +113,7 @@ additional claim about implementation completeness.
 | [RFC-052](rfc/RFC-052-Request-Level-Inference-Recovery.md) | Request-Level Inference Recovery | `draft` |
 | [RFC-053](rfc/RFC-053-Run-Page-Browser-Observation.md) | Run-Page Browser Observation | `accepted` |
 | [RFC-054](rfc/RFC-054-Agent-Tool-Surface-Roadmap.md) | Agent Tool Surface Roadmap | `draft` |
+| [RFC-055](rfc/RFC-055-Specialist-Agents.md) | Specialist Agents (Browser, OSINT, Quant, Hermes) | `accepted` |
 
 ## Unfiled identifiers
 

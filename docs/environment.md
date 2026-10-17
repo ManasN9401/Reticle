@@ -141,6 +141,13 @@ How much one tool reply may carry follows the model's context window when it is 
 and 20,000 when nothing is known. This is a per-reply ceiling, not congestion control: the router's AIMD
 only adjusts how many requests run at once per credential.
 
+## Specialist agents (RFC-055)
+
+- **`osint-agent`** searches through an official API. Set one of `SERPER_API_KEY` (Google results), `BRAVE_API_KEY` or `SEARXNG_URL` (a SearXNG server with JSON output) in the environment Forge starts in; `RETICLE_SEARCH_PROVIDER` (`serper`, `brave`, `searxng`, `wikipedia`) forces a choice. These variables reach `osint-agent` and no other worker. With none set `web_search` says so; `provider="wikipedia"` needs no key but searches Wikipedia only. Pages it reads are kept in the node's workspace under `research/`.
+- **`browser-agent`** uses `browse_web`, which needs Playwright (installed as the optional `browser.run` dependency) and a Chromium-based browser; `RETICLE_BROWSER` and `RETICLE_BROWSER_BACKEND` now reach workers. What it reads is saved under `browse/`. It is read-only unless a task asks it to submit a form.
+- **`quant-agent`** needs `yfinance`, `pandas` and `numpy`, which the `quant-finance` skill pins (`yfinance==1.7.0`, `pandas==3.0.6`, `numpy==2.5.4`) in a shared environment folder. Data comes from Yahoo Finance without a key and is saved under `data/`. Custom analysis uses the terminal (`uv run --with pandas python analysis.py`).
+- **`hermes-coder-agent`** needs `execute_terminal_command`: Docker running (or native execution enabled). Without a working terminal it says the code was not run instead of claiming success.
+
 ## Browser for `run_page`
 
 A worker granted the `browser.run` capability can load its site in a headless browser with `run_page` ([RFC-053](rfc/RFC-053-Run-Page-Browser-Observation.md)). Two drivers exist. **Playwright** is used whenever its package is importable in the agent's environment; it drives the system Chrome or Edge (nothing is downloaded when one is installed). Otherwise a built-in **DevTools client** drives the Chrome or Edge already installed, with nothing to install. If Playwright is chosen automatically but cannot start, the call falls back to the system browser and the report says so. A system browser is looked for at `RETICLE_BROWSER` (a path to a chrome, chromium or msedge executable), the usual Edge and Chrome install locations, and `PATH`.

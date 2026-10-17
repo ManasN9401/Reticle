@@ -20,7 +20,7 @@ A comparison with Claude Code, Cowork-style desktop agents and OpenClaw-style pe
 | A QA node briefed to run browser tests spent 30 turns on shell commands | `exec-856b…` qa-testing | run and observe; honest briefs |
 | `replace_file_content` "Expected exactly one match" loops; `write_file` refuses to overwrite | `exec-e1a8…` attempts 7 and 8 | edit tools (built: paged reads, overwrite after a read, informative and multi-edit replace, find/move/delete, nested-page guard; `apply_patch` remains) |
 | Generated images the model could never look at | image nodes | vision |
-| `browser-agent`, `quant-agent`, `osint-agent`, `hermes-coder-agent` workers are compatibility shells that run the code generator; Playwright and yfinance appear only in their YAML descriptions | repository | catalogue honesty |
+| `browser-agent`, `quant-agent`, `osint-agent`, `hermes-coder-agent` workers were compatibility shells that run the code generator (fixed, RFC-055) | repository | catalogue honesty |
 | Only `read_url`; no search | tool list | web search |
 
 ## 3. Principles
@@ -46,6 +46,8 @@ A comparison with Claude Code, Cowork-style desktop agents and OpenClaw-style pe
 **Depends on.** RFC-053. Unlocks QA nodes that judge a screenshot, not only count its pixels.
 
 ## 5. Web search
+
+**Status: built for the OSINT agent** (RFC-055): `web_search` over Serper (Google), Brave or SearXNG, and `fetch_pages`. It is not yet offered to generic workers.
 
 **Problem.** Only `read_url` exists, so a worker cannot find documentation, a library's current CDN path or an API reference. `osint-agent` advertises search but has no implementation.
 
@@ -172,6 +174,8 @@ A comparison with Claude Code, Cowork-style desktop agents and OpenClaw-style pe
 
 ## 17. Catalogue honesty
 
+**Status: done** (RFC-055). The four shells are real workers and `tests/test_catalogue_agents.py` fails if any catalogue agent runs the code generator again.
+
 **Problem.** The architect picks agents from the catalogue, and four of them do nothing: their workers run the generator, and the capabilities in their descriptions (Playwright, yfinance, search) do not exist.
 
 **Interface.** Either implement them on the new tools (a browser agent on RFC-053 and `web_search`; a finance connector through section 13) or mark them internal so the catalogue stops listing them. A test fails when a catalogue agent's entrypoint is the compatibility shim.
@@ -182,7 +186,7 @@ A comparison with Claude Code, Cowork-style desktop agents and OpenClaw-style pe
 
 | Step | Item | Why now | Size |
 | --- | --- | --- | --- |
-| 1 | Catalogue honesty (17) | Stops the architect choosing agents that do nothing; an afternoon | S |
+| 1 | Catalogue honesty (17) | **Done.** Stops the architect choosing agents that do nothing | S |
 | 2 | Edit tools (8) | Removes an observed loop class; small and local | M |
 | 3 | Vision (4) | Turns RFC-053 screenshots into judgement; needs router metadata | M |
 | 4 | Diagnostics (6) | Gives verification a structured signal beyond pages | M |
