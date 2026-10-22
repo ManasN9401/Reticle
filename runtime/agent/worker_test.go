@@ -360,6 +360,10 @@ func TestWorkerChild(t *testing.T) {
 		time.Sleep(time.Minute)
 	case "produce":
 		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Artifact: &memory.Artifact{ID: "fixture", Name: "fixture", Type: "text/plain", Data: "output"}, Memory: []MemoryMutation{{Key: "shared", Value: "expected"}}})
+	case "delegate":
+		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, GraphMutation: &GraphMutation{Action: "delegate", TargetAgent: "other"}})
+	case "delegate-with-memory":
+		json.NewEncoder(os.Stdout).Encode(TaskResponse{ID: req.ID, Memory: []MemoryMutation{{Key: "should-not-commit", Value: "unauthorized target"}}, GraphMutation: &GraphMutation{Action: "delegate", TargetAgent: "other"}})
 	case "consume":
 		meta := req.MemoryMetadata["shared"]
 		if req.Memory["shared"] != "expected" || meta.Scope != memory.ScopeExecution || meta.Version != 1 || len(req.Inputs) != 1 || req.Inputs[0].Data != "output" {
@@ -398,6 +402,7 @@ func TestResultCommitBeforeDependentDispatch(t *testing.T) {
 	for _, mode := range []string{"produce", "consume"} {
 		w := NewWorker(WorkerID(mode), exe, []string{"-test.run=^TestWorkerChild$"}, []string{"RETICLE_TEST_CHILD=" + mode}, l, bus)
 		w.RequiredMemory = []string{"shared"}
+		w.Capabilities = []Capability{CapabilityMemoryExecution}
 		dispatcher.RegisterWorker(w)
 	}
 	engine := NewGraphEngine(l, bus)
@@ -668,6 +673,7 @@ func TestGraphMutationRequiresActiveAttemptAndBudget(t *testing.T) {
 	bus := events.NewBus("mutation")
 	engine := NewGraphEngine(&logger.Logger{}, bus)
 	engine.SetWorkerValidator(func(_ string, worker string) bool { return worker == "delegate" })
+	engine.SetDelegationValidator(func(_, _, _ string) bool { return true })
 	engine.Start()
 	wf := &WorkflowDefinition{ID: "fixture", Nodes: map[string]WorkflowNode{"supervisor": {ID: "supervisor", WorkerID: "supervisor"}}, Roots: []string{"supervisor"}, Parents: map[string][]string{}, Children: map[string][]string{}}
 	if err := engine.SubmitWorkflow(wf, "mutation-run"); err != nil {

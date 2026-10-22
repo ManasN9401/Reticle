@@ -21,7 +21,7 @@ ML workers use an explicit `cpu`, `amd-rocm`, `nvidia-cuda` or `user` profile. A
 
 The execution and effect stores are durable local snapshots rather than a transactional database and outbox. Memory/result idempotency and execution state are separate atomic files, so a machine failure between them can still require reconciliation. Multi-process writers and remote schedulers are unsupported.
 
-The generic DevOps terminal remains read-only/validation-only. The effect ledger is infrastructure for future provider adapters; it does not authorize AWS, Terraform, Kubernetes or other mutation. A provider adapter must define its target identity, plan hash, approval binding, idempotency behavior and reconciliation logic before receiving `cloud.apply`.
+The generic DevOps terminal remains read-only/validation-only. The effect ledger now records brokered MCP/plugin calls before adapter execution and supports authenticated operator reconciliation; see [external effect recovery](../external-effect-recovery.md). This does not authorize AWS, Terraform, Kubernetes or other mutation. A provider adapter must define its target identity, plan hash, approval binding, idempotency behavior and reconciliation logic before receiving `cloud.apply`.
 
 GPU leases coordinate attempts in one Reticle process. They do not reserve devices across unrelated processes and do not replace an AMD ROCm or NVIDIA CUDA compatibility smoke test.
 

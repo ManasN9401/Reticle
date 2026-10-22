@@ -108,16 +108,21 @@ class ToolsOffered(Worker):
 
 
 class Effects(Worker):
+    def test_public_fetch_is_not_assumed_replay_safe(self):
+        with patch.object(research_tools, "fetch_pages", return_value="Fetched fixture"):
+            _, _, errors = self.run_worker("osint", [tool_response("fetch_pages", {"urls": ["https://example.test/"]})], BASE + ["network.public"])
+        self.assertIn("[RETICLE_EFFECTS: UNSAFE]", errors)
+        self.assertNotIn("[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]", errors)
+
     def stubbed_browse(self, **arguments):
         reply = "Browsed https://shop.example/\nSaved: browse/shop-example-1.md"
         with patch.object(browse_tools, "browse_web", return_value=reply):
             return self.run_worker("browser", [tool_response("browse_web", dict({"url": "https://shop.example/"}, **arguments))],
                                    BASE + ["network.public", "browser.run"])
 
-    def test_a_read_only_browse_stays_replay_safe(self):
+    def test_a_public_browse_is_not_assumed_replay_safe(self):
         _, _, err = self.stubbed_browse()
-        self.assertIn("[RETICLE_EFFECTS: FILES]", err)
-        self.assertNotIn("UNSAFE", err)
+        self.assertIn("[RETICLE_EFFECTS: UNSAFE]", err)
 
     def test_a_browse_that_may_submit_forms_is_not_replay_safe(self):
         _, _, err = self.stubbed_browse(allow_submit=True)
@@ -150,7 +155,7 @@ class Hermes(Worker):
         outputs = list(outputs)
         commands = []
 
-        def run(command, workspace, allow_native=False):
+        def run(command, workspace, allow_native=False, allow_network=False, allow_workspace_write=True):
             commands.append(command)
             return outputs.pop(0)
         run.commands = commands

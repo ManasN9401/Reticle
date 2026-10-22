@@ -8,7 +8,7 @@
 
   [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go)](https://go.dev/)
   [![Python Version](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python)](https://python.org)
-  [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](#license)
+  License terms pending (the repository LICENSE file is currently empty).
   [![Status](https://img.shields.io/badge/Status-Active-success.svg?style=flat-square)]()
 </div>
 

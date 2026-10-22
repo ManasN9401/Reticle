@@ -66,6 +66,19 @@ class Site(BaseHTTPRequestHandler):
 class Sandbox(unittest.TestCase):
     """Rules that need no browser."""
 
+    def setUp(self):
+        # Reserved fixture domains must not depend on live DNS or permissive
+        # unresolved-host handling. Keep literal private addresses private.
+        import ipaddress
+        def addresses(host):
+            try:
+                return [ipaddress.ip_address(host)]
+            except ValueError:
+                return [ipaddress.ip_address("8.8.8.8")]
+        dns = patch.object(bt, "_addresses", side_effect=addresses)
+        dns.start()
+        self.addCleanup(dns.stop)
+
     def test_private_local_and_odd_urls_are_refused_before_anything_starts(self):
         for url in ("http://127.0.0.1:8080/", "http://localhost/", "http://192.168.1.1/", "http://10.0.0.1/x",
                     "file:///etc/passwd", "ftp://example.com/", "javascript:alert(1)", "https://user:pw@example.com/", "", None, 5):

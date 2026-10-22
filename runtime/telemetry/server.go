@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
+	"github.com/reticle/runtime/agent"
 	"github.com/reticle/runtime/events"
 	"github.com/reticle/runtime/mcp"
 	runtimeplugin "github.com/reticle/runtime/plugin"
@@ -45,6 +46,7 @@ type Server struct {
 	mcp       *mcp.Manager
 	plugins   *runtimeplugin.Manager
 	router    *routing.ModelRouter
+	effects   *agent.EffectManager
 }
 
 func (s *Server) SetRouter(router *routing.ModelRouter) {
@@ -346,6 +348,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/mcp/servers/", s.handleMCPServer)
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
 	mux.HandleFunc("/api/plugins/", s.handlePlugin)
+	mux.HandleFunc("/api/effects", s.handleEffects)
+	mux.HandleFunc("/api/effects/reconcile", s.handleEffectReconcile)
 
 	mux.HandleFunc("/ws", s.wsHandler)
 

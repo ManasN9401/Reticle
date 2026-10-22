@@ -26,6 +26,18 @@ def digest_of(text):
 
 
 class WriteFileOverwrite(unittest.TestCase):
+    def test_a_concurrent_change_during_temp_write_is_preserved(self):
+        original = tools.tempfile.NamedTemporaryFile
+        def temporary(*args, **kwargs):
+            stream = original(*args, **kwargs)
+            self.page.write_text("concurrent edit", encoding="utf-8")
+            return stream
+        with patch.object(tools.tempfile, "NamedTemporaryFile", side_effect=temporary):
+            result = self.write(REWRITTEN, overwrite=True, expected_digest=digest_of(PAGE))
+        self.assertIn("changed during overwrite", result)
+        self.assertEqual(self.page.read_text(encoding="utf-8"), "concurrent edit")
+        self.assertEqual(self.modified, {})
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -38,7 +50,7 @@ class WriteFileOverwrite(unittest.TestCase):
         return tools.write_file("index.html", content, self.temp.name, self.modified, **options)
 
     def leftovers(self):
-        return sorted(p.name for p in self.page.parent.iterdir() if p.name != "index.html")
+        return sorted(p.name for p in self.page.parent.iterdir() if p.name not in {"index.html", "index.html.reticle-lock"})
 
     def test_an_existing_file_is_still_refused_and_the_refusal_names_the_way_out(self):
         result = self.write(REWRITTEN)
@@ -57,7 +69,7 @@ class WriteFileOverwrite(unittest.TestCase):
         self.assertEqual(result, "Successfully overwrote index.html")
         self.assertEqual(self.page.read_text(encoding="utf-8"), REWRITTEN)
         self.assertEqual(self.modified["index.html"], REWRITTEN)
-        self.assertEqual(self.leftovers(), [], "no lock file or temporary file may remain")
+        self.assertEqual(self.leftovers(), [], "no temporary file may remain; the OS lock inode stays stable")
 
     def test_overwrite_is_refused_when_the_file_changed_after_it_was_read(self):
         stale = digest_of(PAGE)

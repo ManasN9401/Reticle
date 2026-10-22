@@ -43,7 +43,7 @@ Routes learn across tasks, because a dead model or a size cap is a fact about th
 
 A route that reports a partly used rate window (`Limit L, Used U, Requested R ... try again in S`) is cooled on its own for S seconds (5 s to 15 min, 30 s when none is given) without penalising the credential's other models, and, for a per-minute window where R exceeds 60 % of L, learns an effective request cap of 60 % of L. A provider and credential with three or more distinct not-found routes in the last two hours is suspect: while any of its routes has completed work, never-used routes of it are tried after the proven ones. Both are soft preferences that never remove the last candidate.
 
-Terminal commands that cannot change the workspace (inspection verbs, `node --check`, `tsc --noEmit`, `git status|log|diff|show`, piped only into one another, no redirection, chaining or substitution) do not set the node's unsafe-effects state, so a node that only inspected stays resumable.
+Only the bounded inspection-command allowlist can preserve no-effects status. Explicit executable paths, ripgrep pre-processors, Git commands (helpers/hooks), Node checks (preload hooks), and TypeScript checks (incremental files) are conservatively unsafe. Public browser requests also prevent automatic replay: GET can transmit data. This classification is not an OS security boundary.
 
 Besides its exit marker a worker prints `[RETICLE_EFFECTS: NONE|FILES|UNSAFE]` each time what it has changed so far changes. Each attempt of a Python worker also runs under its own limit (3,900 s by default, or `attempt_timeout_seconds`; an approval has none), so a hung attempt cannot spend the node's whole shared deadline. An attempt stopped by the limit is classified from its last progress line: `NONE` or `FILES` is retryable and, with files, resumed on another route; `UNSAFE`, or no report at all, is terminal and says `Attempt time limit of N seconds reached`.
 
@@ -65,8 +65,8 @@ configured request once per route. This consumes another normal attempt, require
 no-effects proof, and tries that route again without a learning penalty for the
 adjustable request. The bound is task-local; a different model receives the original
 budget. Context/input overflow is not an output limit. Forced models retain their
-single-route/no-fallback behavior. Stalls and exhausted worker budgets require the
-no-effects proof; the file-effects proof does not cover them.
+single-route/no-fallback behavior. Stalls and exhausted worker budgets accept the same explicit no-effects or
+file-effects-only continuation proof described above; unsafe effects prevent replay.
 
 Recovery diagnostics distinguish attempt-budget exhaustion, unavailable routes,
 cancellation/deadline, forced-model failure, worker-contract failure and
@@ -74,9 +74,9 @@ unclassified/unsafe replay. They include tried and still-untried route/provider
 counts. The default three attempts (maximum fifteen) and task deadline are shared
 by ordinary retries and output-limit adjustments.
 
-The dispatcher stays the only recovery owner while it can act. Once a worker has
-changed the workspace the dispatcher can no longer replay it, so the worker SDK
-repairs the failed model request itself, and only then: before any change every
+The dispatcher stays the only recovery owner while it can act. After workspace changes the SDK first repairs the failed model request in place.
+If it exhausts recovery, the dispatcher may continue from files only with explicit
+file-effects-only proof. Unsafe effects prohibit dispatcher replay. In the SDK: before any change every
 provider error is raised untouched for the rules above. After a change the SDK
 may repeat the same request after a bounded wait (a rate limit, using the
 provider's own wait up to two minutes; a gateway or connection failure on a short

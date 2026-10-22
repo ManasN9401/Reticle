@@ -23,6 +23,7 @@ type GraphEngine struct {
 	paused       map[string]bool
 	store        *ExecutionStore
 	workerExists func(string, string) bool
+	canDelegate  func(string, string, string) bool
 	maxNodes     int
 }
 
@@ -112,6 +113,12 @@ func (we *GraphEngine) SetWorkerValidator(validate func(execution, worker string
 	we.mu.Lock()
 	defer we.mu.Unlock()
 	we.workerExists = validate
+}
+
+func (we *GraphEngine) SetDelegationValidator(validate func(execution, source, target string) bool) {
+	we.mu.Lock()
+	defer we.mu.Unlock()
+	we.canDelegate = validate
 }
 
 func (we *GraphEngine) persistLocked() error {
@@ -262,6 +269,11 @@ func (we *GraphEngine) Start() {
 			return
 		}
 		before := cloneWorkflowExecution(exec)
+		source, present := exec.Workflow.Nodes[supervisorNodeID]
+		if !present || we.canDelegate == nil || !we.canDelegate(execID, source.WorkerID, mutation.TargetAgent) {
+			we.Logger.Error("Graph mutation authorization rejected", "exec_id", execID, "source", source.WorkerID, "target", mutation.TargetAgent)
+			return
+		}
 
 		we.Logger.Info("GraphEngine received mutation request", "exec_id", execID, "action", mutation.Action)
 
@@ -282,7 +294,7 @@ func (we *GraphEngine) Start() {
 			exec.Workflow.Parents[dynamicWorkerNode] = append(exec.Workflow.Parents[dynamicWorkerNode], supervisorNodeID)
 
 			if mutation.ReturnToSupervisor {
-				supervisorAgentID := WorkerID(fmt.Sprint(payload["worker_id"]))
+				supervisorAgentID := WorkerID(source.WorkerID)
 				dynamicSuperNode := fmt.Sprintf("dyn-%s-%d", string(supervisorAgentID), iterCount+1)
 				exec.Workflow.Nodes[dynamicSuperNode] = WorkflowNode{
 					ID:       dynamicSuperNode,

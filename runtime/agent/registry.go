@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -63,7 +64,9 @@ type SkillDefinition struct {
 	EnvVars              []string `yaml:"env_vars"`
 	// InstructionsBytes is the size of <skills dir>/<id>/SKILL.md, which is copied whole into the
 	// prompt of every agent that lists the skill. Zero means a dependencies-only skill.
-	InstructionsBytes int `yaml:"-"`
+	InstructionsBytes  int    `yaml:"-"`
+	InstructionsPath   string `yaml:"-"`
+	InstructionsSHA256 string `yaml:"-"`
 }
 
 // SubscriptionYAML defines an event subscription for an agent.
@@ -91,7 +94,7 @@ func (r *Registry) CatalogSnapshot() (map[WorkerID]AgentDefinition, map[string]S
 		definition.Inputs = append([]string(nil), definition.Inputs...)
 		definition.Outputs = append([]string(nil), definition.Outputs...)
 		definition.Skills = append([]string(nil), definition.Skills...)
-		definition.Capabilities = append([]Capability(nil), definition.Capabilities...)
+		definition.Capabilities = append([]Capability{}, definition.Capabilities...)
 		definition.MCPServers = append([]string(nil), definition.MCPServers...)
 		agents[id] = definition
 	}
@@ -158,9 +161,6 @@ func (r *Registry) LoadSkills(directory string) error {
 		if err != nil {
 			return err
 		}
-		if info, statErr := os.Stat(filepath.Join(directory, def.ID, "SKILL.md")); statErr == nil && info.Mode().IsRegular() {
-			def.InstructionsBytes = int(info.Size())
-		}
 		r.mu.Lock()
 		r.Skills[def.ID] = def
 		r.mu.Unlock()
@@ -187,7 +187,14 @@ func ReadAgentDefinition(path string) (AgentDefinition, error) {
 	if def.Entrypoint == "" || (def.Runtime != RuntimePython && def.Runtime != RuntimeBinary && def.Runtime != RuntimeGo) {
 		return AgentDefinition{}, fmt.Errorf("%s: valid runtime and entrypoint required", path)
 	}
-	if len(def.Capabilities) == 0 {
+	if def.Capabilities == nil {
+		var fields map[string]any
+		if err := yaml.Unmarshal(data, &fields); err != nil {
+			return AgentDefinition{}, err
+		}
+		if _, present := fields["capabilities"]; present {
+			return AgentDefinition{}, fmt.Errorf("%s: capabilities must be an array; use [] for no grants", path)
+		}
 		def.Capabilities = defaultWorkerCapabilities()
 	}
 	if err := validateCapabilities(def.Capabilities); err != nil {
@@ -226,6 +233,20 @@ func ReadSkillDefinition(path string) (SkillDefinition, error) {
 	}
 	if err := validateSkillDependencies(&def); err != nil {
 		return SkillDefinition{}, fmt.Errorf("%s: %w", path, err)
+	}
+	source, err := filepath.Abs(filepath.Join(filepath.Dir(path), def.ID, "SKILL.md"))
+	if err != nil {
+		return SkillDefinition{}, err
+	}
+	if body, err := os.ReadFile(source); err == nil {
+		if len(body) > 1024*1024 {
+			return SkillDefinition{}, fmt.Errorf("skill %s instructions exceed 1 MiB", def.ID)
+		}
+		def.InstructionsPath = source
+		def.InstructionsBytes = len(body)
+		def.InstructionsSHA256 = fmt.Sprintf("%x", sha256.Sum256(body))
+	} else if !os.IsNotExist(err) {
+		return SkillDefinition{}, err
 	}
 	return def, nil
 }
@@ -475,7 +496,7 @@ func (r *Registry) BuildWorkers(l *logger.Logger, b *events.Bus, em *Environment
 
 		w := NewWorker(id, executable, args, envVars, l, b)
 		w.RequiredMemory = def.Memory
-		w.Capabilities = append([]Capability(nil), def.Capabilities...)
+		w.Capabilities = append([]Capability{}, def.Capabilities...)
 		w.MCPServers = append([]string(nil), def.MCPServers...)
 		w.BrokerPolicies = append([]string(nil), def.BrokerPolicies...)
 		for _, skillID := range def.Skills {

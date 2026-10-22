@@ -22,7 +22,7 @@ MAX_FILE = 1024 * 1024
 
 SKILL_ID = re.compile(r"[a-zA-Z0-9_-]+")
 
-def load_skill_instructions(skills_root, skill_ids):
+def load_skill_instructions(skills_root, skill_ids, catalog=None):
     """Read skills/<id>/SKILL.md for each id.
 
     Returns {"text", "applied", "missing"}: the instructions to append to a worker's prompt, the
@@ -30,18 +30,36 @@ def load_skill_instructions(skills_root, skill_ids):
     legitimately be dependencies only (llm-worker), so a missing file is reported, not raised;
     the worker shows both lists at startup so a degraded worker is visible.
     """
-    text, applied, missing = "", [], []
+    text, applied, missing, provenance = "", [], [], []
     for skill in skill_ids:
         if not isinstance(skill, str) or not SKILL_ID.fullmatch(skill):
             raise ValueError("Invalid skill ID")
-        source = Path(skills_root) / skill / "SKILL.md"
+        registered = None
+        if catalog is not None:
+            registered = next((entry for entry in catalog.get("skills", []) if entry.get("id") == skill), None)
+            if registered is None:
+                raise ValueError(f"Skill is not registered: {skill}")
+            if not registered.get("instructions_path"):
+                if registered.get("instructions_bytes", 0):
+                    raise ValueError(f"Registered skill has no instruction source: {skill}")
+                continue  # Legacy dependency-only entry, explicitly present in the registry.
+        source = Path(registered["instructions_path"]) if registered else Path(skills_root) / skill / "SKILL.md"
         if not source.is_file():
+            if registered:
+                raise ValueError(f"Registered skill instructions disappeared: {skill}")
             missing.append(skill)
             continue
-        body = source.read_text(encoding="utf-8")
+        raw = source.read_bytes()
+        if len(raw) > MAX_FILE:
+            raise ValueError(f"Skill instructions exceed 1 MiB: {skill}")
+        if registered and hashlib.sha256(raw).hexdigest() != registered.get("instructions_sha256"):
+            raise ValueError(f"Registered skill instructions changed: {skill}; reload the registry")
+        body = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
         text += "\n\n" + body
         applied.append([skill, len(body)])
-    return {"text": text, "applied": applied, "missing": missing}
+        provenance.append({"id": skill, "version": registered.get("version") if registered else None,
+                           "source": str(source), "sha256": hashlib.sha256(raw).hexdigest()})
+    return {"text": text, "applied": applied, "missing": missing, "provenance": provenance}
 
 
 def detect_ml_host_environment():
@@ -105,6 +123,8 @@ def safe_path(workspace, relative, *, base="src", literal=False):
     if base == "src" and not literal:
         relative = canonical_workspace_path(relative)
     rel = Path(relative)
+    if any(part.endswith(".reticle-lock") for part in rel.parts):
+        raise ValueError("Runtime edit lock paths are reserved")
     if rel.is_absolute() or ".." in rel.parts:
         raise ValueError("Path escapes workspace")
     workspace = Path(workspace).absolute()
@@ -186,15 +206,41 @@ def text_digest(text):
     """The identity of a file's text, so an overwrite can prove it is replacing what was read."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+def _acquire_edit_lock(target):
+    """An OS-owned lock is released on process death. Keep the lock inode stable;
+    unlinking it would allow two processes to lock different inodes for one file.
+    Old empty lock files are safe to reuse after upgrading.
+    """
+    lock = target.with_name(target.name + ".reticle-lock")
+    if lock.is_symlink():
+        raise ValueError("Edit lock must not be a symlink")
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    stream = os.fdopen(fd, "r+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            if lock.stat().st_size == 0:
+                stream.write(b"\0")
+                stream.flush()
+            stream.seek(0)
+            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return stream
+    except BaseException:
+        stream.close()
+        raise
+
+
 def _overwrite_file(target, path, content, expected_digest, files_modified):
     """Replace a whole existing file, but only the version the caller read. The swap is atomic
     (a half-written page is never left behind) and holds the same edit lock as replace_file_content."""
     if not expected_digest:
         return (f"Error: {path} exists and you have not read it in this task. Call read_file on it first, "
                 "then write_file again with overwrite=true.")
-    lock = target.with_name(target.name + ".reticle-lock")
     try:
-        os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+        lock = _acquire_edit_lock(target)
     except OSError as exc:
         return f"Error acquiring edit lock: {exc}"
     temporary = None
@@ -204,13 +250,15 @@ def _overwrite_file(target, path, content, expected_digest, files_modified):
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=target.parent, delete=False) as stream:
             temporary = Path(stream.name)
             stream.write(content)
+        if text_digest(target.read_text(encoding="utf-8")) != expected_digest:
+            return f"Error: {path} changed during overwrite. Read it again before overwriting."
         os.replace(temporary, target)
         files_modified[path] = content
         return f"Successfully overwrote {path}"
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
-        lock.unlink(missing_ok=True)
+        lock.close()
 
 def write_file(path, content, workspace_dir, files_modified, overwrite=False, expected_digest=None):
     try:
@@ -324,9 +372,7 @@ def _rewrite_locked(path, workspace_dir, transform, label):
     lock = None
     try:
         target = safe_path(workspace_dir, path)
-        lock = target.with_name(target.name + ".reticle-lock")
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        os.close(fd)
+        lock = _acquire_edit_lock(target)
     except Exception as exc:
         return f"Error acquiring edit lock: {exc}"
     try:
@@ -360,7 +406,7 @@ def _rewrite_locked(path, workspace_dir, transform, label):
     except Exception as exc:
         return f"Error replacing content: {exc}"
     finally:
-        lock.unlink(missing_ok=True)
+        lock.close()
 
 def replace_file_content(path, target_content, replacement_content, workspace_dir, occurrence=None):
     return _rewrite_locked(
@@ -457,7 +503,7 @@ def delete_path(path, workspace_dir, recursive=False):
 
 def list_dir(path, workspace_dir):
     try:
-        return "\n".join(sorted(p.name for p in safe_path(workspace_dir, path).iterdir())[:1000])
+        return "\n".join(sorted(p.name for p in safe_path(workspace_dir, path).iterdir() if not p.name.endswith(".reticle-lock"))[:1000])
     except Exception as exc:
         return f"Error listing directory: {exc}"
 
@@ -550,11 +596,14 @@ def _ensure_worker_image(image):
     except OSError as exc:
         return f"Docker could not be used: {exc}"
 
-def execute_terminal_command(command, workspace_dir, allow_native=False):
+def execute_terminal_command(command, workspace_dir, allow_native=False, allow_network=False, command_cwd=".", allow_workspace_write=True):
     """Bounded validation command. Real training uses an explicit configured budget."""
     container = None
     try:
         root = safe_path(workspace_dir, ".")
+        cwd = safe_path(workspace_dir, command_cwd)
+        if not cwd.is_dir():
+            raise ValueError("Command working directory does not exist")
         timeout = min(max(int(os.getenv("RETICLE_COMMAND_TIMEOUT", "120")), 1), 3600)
         gpu = os.getenv("RETICLE_GPU_DEVICES", "").strip()
         profile = os.getenv("RETICLE_ML_PROFILE", "cpu").strip().lower()
@@ -564,7 +613,14 @@ def execute_terminal_command(command, workspace_dir, allow_native=False):
             argv = command
             env = os.environ.copy()
             env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
-            options = dict(shell=True, cwd=root, env=env)
+            if isinstance(command, list):
+                if not command or not all(isinstance(arg, str) and "\0" not in arg for arg in command):
+                    raise ValueError("Command arguments must be nonempty strings")
+                executable = shutil.which(command[0], path=env["PATH"])
+                if executable is None:
+                    raise ValueError(f"Executable is not available: {command[0]}")
+                argv = [executable, *command[1:]]
+            options = dict(shell=isinstance(command, str), cwd=cwd, env=env)
         else:
             if profile == "amd-rocm" and host == "windows":
                 raise ValueError("Native Windows AMD execution requires the explicit native-execution setting; Linux ROCm device mappings cannot be applied to this Windows container path")
@@ -580,8 +636,10 @@ def execute_terminal_command(command, workspace_dir, allow_native=False):
                     "--label", "reticle.execution="+os.getenv("RETICLE_EXECUTION_ID", "standalone"),
                     "--memory", os.getenv("RETICLE_MEMORY_LIMIT", "2g"), "--cpus", os.getenv("RETICLE_CPU_LIMIT", "2"),
                     "--pids-limit", "256", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-                    "--mount", f"type=bind,source={root},target=/workspace/src", "-w", "/workspace/src",
-                    image, "sh", "-c", command]
+                    "--mount", f"type=bind,source={root},target=/workspace/src"+("" if allow_workspace_write else ",readonly"), "-w", "/workspace/src" if cwd == root else "/workspace/src/"+cwd.relative_to(root).as_posix(),
+                    image, "sh", "-c", command if isinstance(command, str) else shlex.join(command)]
+            if not allow_network:
+                argv[2:2] = ["--network", "none"]
             if profile == "amd-rocm":
                 argv[2:2] = ["--device=/dev/kfd", "--device=/dev/dri", "--group-add=video"]
             if gpu:
@@ -592,7 +650,10 @@ def execute_terminal_command(command, workspace_dir, allow_native=False):
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
             result = subprocess.run(argv, stdout=stdout, stderr=stderr, timeout=timeout, **options)
             stdout.seek(0); stderr.seek(0)
-            output = (stdout.read(10000) + b"\n" + stderr.read(10000)).decode("utf-8", errors="replace")
+            out, err = stdout.read(10001), stderr.read(10001)
+            output = (out[:10000] + b"\n" + err[:10000]).decode("utf-8", errors="replace")
+            if len(out) > 10000 or len(err) > 10000:
+                output += "\n[reticle: output truncated at 10000 bytes per stream]"
         warning_text = "".join(f"ML environment warning: {warning}\n" for warning in warnings)
         return f"Exit code: {result.returncode}\n{warning_text}{output}"
     except Exception as exc:

@@ -40,7 +40,7 @@ def index_directory(path, workspace_dir):
     chunks=0
     try:
         for file in source.rglob("*"):
-            if not file.is_file() or any(p in {".git",".reticle","node_modules","__pycache__",".venv"} for p in file.parts):
+            if not file.is_file() or any(p in {".git",".reticle","node_modules","__pycache__",".venv"} for p in file.relative_to(source).parts):
                 continue
             rel=file.relative_to(Path(workspace_dir).resolve()/"src").as_posix()
             file=safe_path(workspace_dir,rel,literal=True)

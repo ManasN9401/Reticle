@@ -142,7 +142,7 @@ class InspectionCommands(unittest.TestCase):
     def test_commands_that_only_read_are_inspection(self):
         for command in (
             "ls -la src", "cat src/main.js", "head -n 20 index.html", "grep -rn THREE src | head -5",
-            "find . -name '*.js'", "node --check src/main.js", "tsc --noEmit", "git status", "git diff --stat",
+            "find . -name '*.js'",
             "wc -l src/*.js",
         ):
             self.assertTrue(worker_sdk._is_inspection_command(command), command)
@@ -152,6 +152,9 @@ class InspectionCommands(unittest.TestCase):
             "", "rm -rf src", "echo hi", "npm install", "python validate.py", "node main.js", "ls > out.txt",
             "cat a && rm a", "ls; rm a", "find . -delete", "find . -exec rm {} +", "grep x f | tee out",
             "git checkout main", "git diff --output=patch.diff", "cat $(whoami)", "ls `pwd`", "node --check a.js || true",
+            "node --check src/main.js", "tsc --noEmit", "git status", "git diff --stat",
+            "git branch injected", "git branch -D main", "rg --pre ./helper text .", "tsc --noEmit --incremental",
+            "./cat secret", "./ls",
         ):
             self.assertFalse(worker_sdk._is_inspection_command(command), command)
         self.assertFalse(worker_sdk._is_inspection_command(None))
@@ -159,7 +162,7 @@ class InspectionCommands(unittest.TestCase):
     def test_a_node_that_only_inspects_stays_replayable(self):
         script = [
             tool_response("execute_terminal_command", {"command": "ls -la"}),
-            tool_response("execute_terminal_command", {"command": "node --check main.js"}),
+            tool_response("execute_terminal_command", {"command": "cat main.js"}),
         ] + [tool_response("list_dir", {"path": "."})] * 4
         harness = Harness()
         failure, errors, _, _, _ = harness.run_worker(

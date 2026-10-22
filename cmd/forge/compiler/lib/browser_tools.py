@@ -11,8 +11,9 @@ backend: Playwright, used only when no system browser is found and the package i
 
 The page is LLM-written code, so it is contained: it is served from a loopback server rooted at
 the workspace's src folder, the browser profile is thrown away, public subresources may be
-fetched (CDN scripts are normal) but nothing may be sent anywhere except the local origin, and
-private networks and other local ports are unreachable. Everything is bounded by a deadline and
+fetched (CDN scripts are normal). Public requests can transmit data in URLs and headers;
+this request filter is not an OS egress boundary. Known private addresses and other local ports
+are blocked, but DNS rebinding is not contained. Everything is bounded by a deadline and
 the browser's process tree is always killed.
 """
 import base64
@@ -106,7 +107,7 @@ def request_allowed(url, method, origin_port, first_party=None):
 
     Allowed: the local origin (any method), data:/blob:/about:, and GET/HEAD/OPTIONS to public
     http(s) hosts, which is what CDN scripts, fonts and textures are. Refused: any other
-    method to a remote host (nothing is sent out), any private, link-local or loopback address
+    method to a remote host, any private, link-local or loopback address
     other than the local origin, and every other scheme."""
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
@@ -119,6 +120,8 @@ def request_allowed(url, method, origin_port, first_party=None):
         return False, "no host"
     port = parts.port or (443 if scheme in ("https", "wss") else 80)
     addresses = _addresses(host)
+    if not addresses and host not in _LOOPBACK_NAMES:
+        return False, f"{host} could not be resolved"
     is_local = host in _LOOPBACK_NAMES or (addresses and all(a.is_loopback for a in addresses))
     if is_local:
         if port == origin_port and scheme in ("http", "ws"):
@@ -405,7 +408,7 @@ def _launch(executable, profile, width, height):
         executable, "--headless=new", "--remote-debugging-port=0", f"--user-data-dir={profile}",
         "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--disable-sync",
         "--disable-background-networking", "--disable-component-update", "--disable-default-apps",
-        "--mute-audio", "--hide-scrollbars", "--disable-dev-shm-usage",
+        "--mute-audio", "--hide-scrollbars", "--disable-dev-shm-usage", "--enable-logging=stderr",
         "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist",
         f"--window-size={width},{height}", "about:blank",
     ]
@@ -416,7 +419,27 @@ def _launch(executable, profile, width, height):
         options["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
     else:
         options["start_new_session"] = True
-    return subprocess.Popen(arguments, **options)
+    # Keep startup diagnostics out of pipes (which can fill and hang Chromium).
+    # The profile and log share the session's existing bounded lifetime/cleanup.
+    with (Path(profile)/"browser-startup.log").open("wb") as startup:
+        options["stderr"] = startup
+        return subprocess.Popen(arguments, **options)
+
+
+def _startup_failure(profile, process):
+    message = f"the browser exited before it started listening (exit {process.poll()})"
+    try:
+        path = Path(profile)/"browser-startup.log"
+        with path.open("rb") as stream:
+            stream.seek(0, 2)
+            size = stream.tell()
+            stream.seek(max(0, size-4000))
+            detail = stream.read(4000).decode("utf-8", errors="replace").strip()
+        if detail:
+            message += ": " + detail
+    except OSError:
+        pass
+    return message
 
 
 # ---------------------------------------------------------------------------------------------
@@ -742,7 +765,7 @@ def _cdp_session(executable, options, site, observation, deadline):
         started = time.monotonic()
         while not port_file.is_file() or len(port_file.read_text().split()) < 2:
             if process.poll() is not None:
-                raise WebSocketError("the browser exited before it started listening")
+                raise WebSocketError(_startup_failure(profile, process))
             if time.monotonic() - started > 20:
                 raise TimeoutError("the browser did not start within 20 seconds")
             time.sleep(0.1)

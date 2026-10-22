@@ -1,0 +1,17 @@
+=== RUN   TestAuditEmptyCapabilities
+    audit_probes_test.go:24: explicit empty capabilities resolves to [workspace.read workspace.write network.public process.container process.native memory.execution graph.delegate image.local rag.local]
+--- PASS: TestAuditEmptyCapabilities (0.01s)
+=== RUN   TestAuditWorkerHelper
+--- PASS: TestAuditWorkerHelper (0.00s)
+=== RUN   TestAuditProtocolCapabilitiesAndVerification
+[13:36:49] INFO: GraphEngine started execution (exec_id: audit-run, workflow_id: fixture)
+[13:36:49] INFO: GraphEngine received mutation request (exec_id: audit-run, action: delegate)
+    audit_probes_test.go:56: read-only grant accepted memory=1, graph mutation=true, verification count=0, graph nodes=2
+--- PASS: TestAuditProtocolCapabilitiesAndVerification (0.14s)
+PASS
+ok  	github.com/reticle/runtime/agent	0.551s
+=== RUN   TestAuditSchemaConstraints
+    audit_probes_test.go:11: enum, maximum and nested required/additionalProperties violations: <nil>
+--- PASS: TestAuditSchemaConstraints (0.00s)
+PASS
+ok  	github.com/reticle/runtime/toolbroker	0.549s

@@ -270,7 +270,8 @@ class WorkerContracts(unittest.TestCase):
             def delete_collection(self,name): del self.collections[name]
         client=Client()
         with tempfile.TemporaryDirectory() as temp,patch.object(rag_tools,"_client",return_value=client),patch.object(rag_tools,"_embedding",return_value=None):
-            src=Path(temp)/"src";src.mkdir()
+            temp = str(Path(temp)/".reticle"/"sessions"/"fixture")
+            src=Path(temp)/"src";src.mkdir(parents=True)
             (src/"a.tsx").write_text("a"*1800)
             (src/"b.py").write_text("b")
             rag_tools.index_directory(".",temp)

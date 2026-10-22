@@ -211,6 +211,7 @@ func main() {
 		return
 	}
 	effectManager.Start(orch.Bus)
+	telemetryServer.SetEffectManager(effectManager)
 
 	registry := agent.NewRegistry()
 	compilerDir, _ := filepath.Abs(filepath.Join("compiler"))
@@ -256,6 +257,10 @@ func main() {
 		return
 	}
 	defer dispatcher.CloseToolBroker(context.Background())
+	if err := dispatcher.ToolBroker.SetEffectJournal(effectManager); err != nil {
+		orch.Logger.Error("Tool broker effect journal failed", "error", err)
+		return
+	}
 	mcpRegistry, err := mcp.NewRegistry(rootDir, filepath.Join(rootDir, ".reticle", "mcp", "servers.json"))
 	if err != nil {
 		orch.Logger.Error("MCP registry failed", "error", err)
@@ -303,6 +308,7 @@ func main() {
 		fmt.Printf("[UI] Legacy Telemetry running on http://localhost:%d\n", *portFlag)
 	}
 	graphEngine.SetWorkerValidator(dispatcher.HasWorker)
+	graphEngine.SetDelegationValidator(dispatcher.CanDelegate)
 	graphEngine.Start()
 
 	waitlistPath := filepath.Join(workspaceDir, "waitlist.json")

@@ -1,6 +1,6 @@
 # Core agents
 
-The compiler uses architect-agent to propose a DAG, scaffolder-agent to serialize definitions, coder-agent to generate small SDK entrypoints, and writer-agent to aggregate explicit file maps. Writer is not a prose-authoring model. Hermes/Quant/OSINT/Browser generator entrypoints share the tested generator implementation.
+The compiler uses architect-agent to propose a DAG, scaffolder-agent to serialize definitions, coder-agent to generate small SDK entrypoints, and writer-agent to aggregate explicit file maps. Writer is not a prose-authoring model. Hermes, Quant, OSINT and Browser are maintained specialist workers with task-specific tool loops; see RFC-055.
 
 Task specialists include DevOps, ML, frontend, RAG and LaTeX/writing. Their definitions use the common manifest schema and shared worker SDK. Skills are read explicitly for configured specialists/generated workers. A configured dependency or capability is not proof that a cloud account, GPU or external service is available.
 

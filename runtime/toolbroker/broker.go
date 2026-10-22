@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"reflect"
@@ -114,19 +115,22 @@ type attemptSession struct {
 }
 
 type Broker struct {
-	mu           sync.RWMutex
-	tools        map[string]registeredTool
-	names        map[string]string
-	adapters     map[string]Adapter
-	adapterSlots map[string]chan struct{}
-	sessions     map[string]*attemptSession
-	tokens       map[string]string
-	listener     net.Listener
-	server       *http.Server
-	bus          *events.Bus
-	global       chan struct{}
-	closeOnce    sync.Once
-	closeErr     error
+	mu                sync.RWMutex
+	tools             map[string]registeredTool
+	names             map[string]string
+	adapters          map[string]Adapter
+	adapterSlots      map[string]chan struct{}
+	sessions          map[string]*attemptSession
+	tokens            map[string]string
+	listener          net.Listener
+	server            *http.Server
+	bus               *events.Bus
+	global            chan struct{}
+	closeOnce         sync.Once
+	closeErr          error
+	journal           EffectJournal
+	persistenceFailed bool
+	attemptsOpened    bool
 }
 
 func New(bus *events.Bus) (*Broker, error) {
@@ -176,6 +180,9 @@ func (b *Broker) ReplaceAdapterTools(adapterID string, adapter Adapter, descript
 		var schema map[string]any
 		if json.Unmarshal(descriptor.Schema, &schema) != nil || schema["type"] != "object" {
 			return fmt.Errorf("tool %s schema must be a JSON object schema", descriptor.ID)
+		}
+		if err := admitSchema(schema, 0); err != nil {
+			return fmt.Errorf("tool %s schema: %w", descriptor.ID, err)
 		}
 		if seenIDs[descriptor.ID] || seenNames[descriptor.Name] {
 			return fmt.Errorf("duplicate tool identity or name in adapter %s", adapterID)
@@ -261,6 +268,9 @@ func (b *Broker) BeginAttemptWithPolicies(attemptID, executionID, taskID string,
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.persistenceFailed {
+		return Credentials{}, ErrJournalPersistence
+	}
 	if _, exists := b.sessions[attemptID]; exists {
 		return Credentials{}, fmt.Errorf("attempt %s already active", attemptID)
 	}
@@ -268,6 +278,7 @@ func (b *Broker) BeginAttemptWithPolicies(attemptID, executionID, taskID string,
 		attemptID: attemptID, executionID: executionID, taskID: taskID, token: token,
 		capabilities: grants, policies: policyGrants, calls: make(map[string]*callRecord), slots: make(chan struct{}, 4),
 	}
+	b.attemptsOpened = true
 	b.tokens[token] = attemptID
 	return Credentials{URL: b.URL(), Token: token, AttemptID: attemptID}, nil
 }
@@ -434,6 +445,11 @@ func (b *Broker) handleCall(w http.ResponseWriter, r *http.Request) {
 	fingerprint := sha256.Sum256(fingerprintInput)
 
 	b.mu.Lock()
+	if b.persistenceFailed {
+		b.mu.Unlock()
+		writeError(w, http.StatusServiceUnavailable, "effect_journal_unavailable")
+		return
+	}
 	if session.revoked {
 		b.mu.Unlock()
 		writeError(w, http.StatusUnauthorized, "revoked_attempt")
@@ -525,16 +541,55 @@ func (b *Broker) handleCall(w http.ResponseWriter, r *http.Request) {
 	defer func() { <-adapterSlots }()
 
 	started := time.Now()
-	b.publish("BrokerToolCallStarted", session, request.CallID, registered.descriptor, "", "", 0)
 	adapterCallID := session.attemptID + "/" + request.CallID
-	result, effect, err := registered.adapter.Call(ctx, adapterCallID, registered.descriptor.ID, request.Arguments)
-	if effect == "" {
+	canonicalArguments, _ := json.Marshal(args)
+	intentHash := sha256.Sum256(canonicalArguments)
+	intent := CallIntent{ID: adapterCallID, AttemptID: session.attemptID, ExecutionID: session.executionID, TaskID: session.taskID,
+		Adapter: registered.descriptor.Adapter, Tool: registered.descriptor.ID, RequestHash: hex.EncodeToString(intentHash[:])}
+	b.mu.RLock()
+	journal := b.journal
+	admitted := !b.persistenceFailed && !session.revoked && !session.paused && ctx.Err() == nil
+	b.mu.RUnlock()
+	if !admitted {
+		response := CallResponse{OK: false, Error: &CallError{Code: "attempt_inactive", Message: "attempt is no longer active"}, Effect: NoEffect}
+		b.finishCall(session, request.CallID, response)
+		writeJSON(w, http.StatusConflict, response)
+		return
+	}
+	var journalErr error
+	if journal != nil {
+		journalErr = journal.BeginCall(intent)
+	} else if registered.descriptor.Effect != NoEffect {
+		journalErr = errors.New("durable effect journal is not configured")
+	}
+	if journalErr != nil {
+		if errors.Is(journalErr, ErrJournalPersistence) {
+			b.failPersistence(session, "broker_effect_begin")
+		}
+		response := CallResponse{OK: false, Error: &CallError{Code: "effect_admission_failed", Message: "effect could not be durably admitted; inspect and reconcile the effect ledger"}, Effect: NoEffect}
+		b.finishCall(session, request.CallID, response)
+		writeJSON(w, http.StatusConflict, response)
+		return
+	}
+	b.publish("BrokerToolCallStarted", session, request.CallID, registered.descriptor, "", "", 0)
+	result, effect, err := invokeAdapter(ctx, registered.adapter, adapterCallID, registered.descriptor.ID, canonicalArguments)
+	if effect != NoEffect && effect != EffectStarted && effect != Uncertain {
 		effect = Uncertain
 	}
 	response := CallResponse{OK: err == nil, Result: result, Effect: effect}
 	if err != nil {
 		response.Result = nil
 		response.Error = &CallError{Code: "adapter_error", Message: boundedMessage(err.Error())}
+	}
+	if journal != nil {
+		outcome := CallOutcome{OK: err == nil, Effect: effect}
+		if response.Error != nil {
+			outcome.Code = response.Error.Code
+		}
+		if err := journal.FinishCall(intent.ID, outcome); err != nil {
+			b.failPersistence(session, "broker_effect_finish")
+			response = CallResponse{OK: false, Effect: Uncertain, Error: &CallError{Code: "effect_commit_failed", Message: "effect completion could not be persisted; reconcile before retry"}}
+		}
 	}
 	encoded, marshalErr := json.Marshal(response)
 	if marshalErr != nil || len(encoded) > registered.descriptor.OutputLimit {
@@ -650,55 +705,10 @@ func validateArguments(raw json.RawMessage, arguments map[string]any) error {
 	if err := json.Unmarshal(raw, &schema); err != nil {
 		return err
 	}
-	if required, ok := schema["required"].([]any); ok {
-		for _, item := range required {
-			name, ok := item.(string)
-			if ok {
-				if _, exists := arguments[name]; !exists {
-					return fmt.Errorf("required argument %s is missing", name)
-				}
-			}
-		}
+	if err := admitSchema(schema, 0); err != nil {
+		return err
 	}
-	properties, _ := schema["properties"].(map[string]any)
-	if additional, exists := schema["additionalProperties"].(bool); exists && !additional {
-		for name := range arguments {
-			if _, exists := properties[name]; !exists {
-				return fmt.Errorf("argument %s is not allowed", name)
-			}
-		}
-	}
-	for name, value := range arguments {
-		property, exists := properties[name].(map[string]any)
-		if !exists {
-			continue
-		}
-		types := make([]string, 0, 1)
-		switch declared := property["type"].(type) {
-		case string:
-			types = append(types, declared)
-		case []any:
-			for _, item := range declared {
-				if typeName, ok := item.(string); ok {
-					types = append(types, typeName)
-				}
-			}
-		}
-		if len(types) == 0 {
-			continue
-		}
-		valid := false
-		for _, declared := range types {
-			if matchesJSONType(value, declared) {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			return fmt.Errorf("argument %s has the wrong type", name)
-		}
-	}
-	return nil
+	return validateSchemaValue(schema, arguments, "arguments")
 }
 
 func matchesJSONType(value any, declared string) bool {
@@ -711,7 +721,7 @@ func matchesJSONType(value any, declared string) bool {
 		return ok
 	case "integer":
 		number, ok := value.(float64)
-		return ok && number == float64(int64(number))
+		return ok && math.Trunc(number) == number
 	case "boolean":
 		_, ok := value.(bool)
 		return ok
@@ -724,7 +734,7 @@ func matchesJSONType(value any, declared string) bool {
 	case "null":
 		return value == nil
 	default:
-		return true
+		return false
 	}
 }
 

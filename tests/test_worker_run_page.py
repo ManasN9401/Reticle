@@ -80,13 +80,12 @@ class Registration(unittest.TestCase):
 
 
 class Effects(unittest.TestCase):
-    def test_the_screenshot_is_reported_as_a_file_and_the_node_stays_replayable(self):
+    def test_public_browser_requests_prevent_automatic_replay(self):
         script = [tool_response("run_page", {})] + [tool_response("list_dir", {"path": "."})] * 5
         failure, errors, _, told, _, _ = run_worker(script, CAPABILITIES, fake_report=FAKE)
         self.assertIn("repeated identical tool requests", str(failure))
-        # A new screenshot is a replay-safe file effect, like a generated image: resumable.
-        self.assertIn("[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]", errors)
-        self.assertNotIn("[RETICLE_EFFECTS: UNSAFE]", errors)
+        self.assertNotIn("[RETICLE_RETRY_SAFE: FILE_EFFECTS_ONLY]", errors)
+        self.assertIn("[RETICLE_EFFECTS: UNSAFE]", errors)
         self.assertTrue(any("NO PROBLEMS FOUND" in text for text in told))
 
     def test_arguments_are_validated_before_the_browser_starts(self):

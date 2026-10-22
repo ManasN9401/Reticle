@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/reticle/runtime/agent"
 	"github.com/reticle/runtime/events"
 	"github.com/reticle/runtime/toolbroker"
 )
@@ -70,6 +71,13 @@ func TestManagerDiscoversAndBrokersLegacyServerWithTwoGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ledger, err := agent.NewPersistentEffectManager(filepath.Join(root, "effects.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := broker.SetEffectJournal(ledger); err != nil {
+		t.Fatal(err)
+	}
 	manager, err := NewManager(registry, broker, bus, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -104,6 +112,9 @@ func TestManagerDiscoversAndBrokersLegacyServerWithTwoGrants(t *testing.T) {
 	})
 	if status != http.StatusOK || !bytes.Contains(body, []byte("hello")) {
 		t.Fatalf("brokered MCP call failed: %d %s", status, body)
+	}
+	if effect, exists := ledger.Get("allowed/echo-1"); !exists || effect.State != agent.EffectInterrupted || effect.RequestHash == "" {
+		t.Fatalf("MCP call lacked durable uncertainty record: %#v", effect)
 	}
 	worker := exec.Command(os.Args[0], "-test.run=TestMCPWorkerFixtureProcess")
 	worker.Env = append(os.Environ(), append(allowed.Environment(),

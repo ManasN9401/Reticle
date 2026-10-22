@@ -4,6 +4,8 @@ import { BrowserWindow, Notification, app, clipboard, dialog, ipcMain, nativeThe
 import { IPC } from '../src/shared/ipc'
 import type {
   ApiResult,
+  EffectReconcile,
+  ExternalEffect,
   RunFileBytes,
   ColorScheme,
   ColorToken,
@@ -406,6 +408,8 @@ function registerIpc(): void {
   handle(IPC.apiOutputs, (_e, execId: string) => rest.outputs(execId))
   handle(IPC.apiUpload, (_e, paths: string[]) => rest.upload(paths ?? []))
   handle(IPC.apiMcpList, () => rest.mcpServers())
+  handle(IPC.apiEffects, (_e, state?: ExternalEffect['state']) => rest.effects(state))
+  handle(IPC.apiEffectReconcile, (_e, request: EffectReconcile) => rest.reconcileEffect(request))
   handle(IPC.apiMcpSave, (_e, config: McpServerConfig) => rest.saveMcpServer(config))
   handle(IPC.apiMcpDelete, (_e, id: string) => rest.deleteMcpServer(id))
   handle(IPC.apiMcpAction, (_e, id: string, action: McpAction) => rest.actOnMcpServer(id, action))

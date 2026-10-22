@@ -27,6 +27,7 @@ export type SettingsSection =
   | 'models'
   | 'mcp'
   | 'plugins'
+  | 'effects'
   | 'logs'
   | 'about'
 
@@ -124,6 +125,10 @@ export const SETTINGS_SECTIONS: {
     label: 'Logs',
     hint: 'Buffer and tailing',
     description: 'How much log history Studio keeps, and how the log panel behaves.',
+  },
+  {
+    id: 'effects', group: 'diagnostics', label: 'External Effects', hint: 'Review uncertain operations',
+    description: 'Inspect external tool operations and record their observed outcome before retrying interrupted work.',
   },
   {
     id: 'about',

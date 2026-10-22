@@ -4,6 +4,9 @@ import path from 'node:path'
 import type { RoutingModel } from '../../src/shared/events'
 import type {
   ApiResult,
+  EffectSnapshot,
+  EffectReconcile,
+  ExternalEffect,
   McpAction,
   McpServerConfig,
   McpServerStatus,
@@ -144,6 +147,16 @@ export class ForgeRest {
 
   mcpServers(): Promise<ApiResult<McpServerStatus[]>> {
     return request<McpServerStatus[]>(this.baseUrl, '/api/mcp/servers')
+  }
+
+  effects(state?: ExternalEffect['state']): Promise<ApiResult<EffectSnapshot>> {
+    return request<EffectSnapshot>(this.baseUrl, '/api/effects'+(state ? `?state=${encodeURIComponent(state)}` : ''))
+  }
+
+  reconcileEffect(observation: EffectReconcile): Promise<ApiResult<void>> {
+    return request<void>(this.baseUrl, '/api/effects/reconcile', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(observation),
+    }, 'void')
   }
 
   saveMcpServer(config: McpServerConfig): Promise<ApiResult<McpServerStatus>> {

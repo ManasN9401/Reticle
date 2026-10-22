@@ -64,9 +64,19 @@ type Task struct {
 	MemoryMetadata map[string]MemoryReference `json:"memory_metadata,omitempty"`
 	Instructions   []string                   `json:"instructions,omitempty"`
 	Modality       string                     `json:"modality,omitempty"`
-	Capabilities   []Capability               `json:"capabilities,omitempty"`
+	Capabilities   []Capability               `json:"capabilities"`
 	MCPServers     []string                   `json:"mcp_servers,omitempty"`
 	BrokerPolicies []string                   `json:"-"`
+}
+
+// Always serialize explicit grants. A nil Go slice is a deny-all task, not an
+// invitation for a legacy SDK to restore its compatibility capabilities.
+func (t Task) MarshalJSON() ([]byte, error) {
+	type taskAlias Task
+	if t.Capabilities == nil {
+		t.Capabilities = []Capability{}
+	}
+	return json.Marshal(taskAlias(t))
 }
 
 // MemoryReference defines the scope, entity, and required version of a shared memory dependency.
@@ -150,15 +160,16 @@ type VerificationEvidence struct {
 
 // Worker manages the lifecycle and OS process of a single Reticle agent.
 type Worker struct {
-	Prepare        func(context.Context, Task) (string, []string, error)
-	ID             WorkerID
-	Executable     string
-	Args           []string
-	EnvVars        []string
-	RequiredMemory []string
-	Capabilities   []Capability
-	MCPServers     []string
-	BrokerPolicies []string
+	AuthorizeDelegation func(execution, source, target string) bool
+	Prepare             func(context.Context, Task) (string, []string, error)
+	ID                  WorkerID
+	Executable          string
+	Args                []string
+	EnvVars             []string
+	RequiredMemory      []string
+	Capabilities        []Capability
+	MCPServers          []string
+	BrokerPolicies      []string
 	// PromptBytes is the size of the skill instructions this worker adds to every request. The
 	// dispatcher uses it to keep the task off routes whose size limit it cannot fit.
 	PromptBytes int
@@ -292,6 +303,15 @@ func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEn
 	}
 	if resp.Artifact != nil && (resp.Artifact.ID == "" || resp.Artifact.Name == "" || resp.Artifact.Type == "") {
 		return fail(WorkerProtocolError, fmt.Errorf("artifact requires id, name and type"))
+	}
+	if len(resp.Memory) > 0 && !hasCapability(req.Capabilities, CapabilityMemoryExecution) {
+		return fail(WorkerProtocolError, fmt.Errorf("explicit memory mutations require %s", CapabilityMemoryExecution))
+	}
+	if resp.GraphMutation != nil && !hasCapability(req.Capabilities, CapabilityGraphDelegate) {
+		return fail(WorkerProtocolError, fmt.Errorf("graph mutation requires %s", CapabilityGraphDelegate))
+	}
+	if resp.GraphMutation != nil && (w.AuthorizeDelegation == nil || !w.AuthorizeDelegation(req.ExecutionID, req.AgentID, resp.GraphMutation.TargetAgent)) {
+		return fail(WorkerProtocolError, fmt.Errorf("graph target is not authorized"))
 	}
 	if resp.Result != "" && len(resp.Memory) == 0 {
 		resp.Memory = append(resp.Memory, MemoryMutation{Key: string(req.ID), Value: resp.Result})

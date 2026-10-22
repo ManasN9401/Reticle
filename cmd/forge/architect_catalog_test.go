@@ -138,7 +138,7 @@ func TestArchitectCatalogOffersRunPageBehindItsCapability(t *testing.T) {
 	if tool == nil {
 		t.Fatal("run_page is missing from the architect catalogue")
 	}
-	if tool.Capability != "browser.run" || !strings.Contains(tool.Constraint, "cannot send data out") {
+	if tool.Capability != "browser.run" || !strings.Contains(tool.Constraint, "can transmit data") {
 		t.Fatalf("run_page is not gated or its constraint is not stated: %+v", *tool)
 	}
 	found := false

@@ -166,6 +166,9 @@ class CompilerContractsTest(unittest.TestCase):
             workers = Path(tmp) / "agents/generated/workers"
             source = (workers / "generated.py").read_text(encoding="utf-8")
             instructions = (workers / "generated.instructions.md").read_text(encoding="utf-8")
+            provenance = json.loads((workers / "generated.skills.json").read_text(encoding="utf-8"))
+            self.assertEqual(provenance[0]["id"], "verification-loop")
+            self.assertEqual(len(provenance[0]["sha256"]), 64)
         # The prompt is data beside the entrypoint, so a traceback shows one short line, not the prompt.
         self.assertTrue(instructions.startswith("Build the page."))
         self.assertIn("# Verification loop", instructions)

@@ -85,8 +85,9 @@ EFFECTFUL_LOCAL_TOOLS = frozenset({
     "generate_local_asset", "generate_local_assets", "index_directory", "remove_path_from_index",
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
     "run_page",
+    "run_diagnostics",
     # Specialist tools that save what they read under research/, browse/ or data/.
-    "web_search", "fetch_pages", "browse_web",
+    "read_url", "web_search", "fetch_pages", "browse_web", "market_quote",
     "price_history", "financial_statements", "technical_indicators", "risk_metrics",
 })
 
@@ -130,12 +131,6 @@ REPLAY_SAFE_LOCAL_TOOLS = frozenset({
     # workspace paths and fail harmlessly when run again.
     "write_file", "replace_file_content", "apply_edits", "move_path", "delete_path", "generate_local_asset", "generate_local_assets",
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
-    # Writes a new screenshot file; the page can only read from the network (browser_tools.request_allowed).
-    "run_page",
-    # They read the public web or Yahoo and write new files; browse_web with allow_submit=true is the
-    # exception and is made unsafe where the call is dispatched.
-    "web_search", "fetch_pages", "browse_web",
-    "price_history", "financial_statements", "technical_indicators", "risk_metrics",
 })
 
 def _print_retry_marker(effects_started, unsafe_effects):
@@ -328,6 +323,14 @@ def _meaningful_terminal_verification(kind, parts):
     """Recognize commands that inspect or validate the produced work."""
     if not parts:
         return False
+    if any(re.search(r"[;&|<>`\n\r]|\$\(", arg) for arg in parts):
+        return False
+    if any(arg.lower().split("=", 1)[0] in {
+        "--help", "-h", "--version", "--collect-only", "--co",
+        "--listtests", "--list-tests", "--showconfig", "--show-config",
+        "--init", "--dry-run", "--passwithnotests",
+    } for arg in parts[1:]) or "-V" in parts[1:]:
+        return False
     command = Path(parts[0]).stem.lower()
     subcommand = parts[1].lower() if len(parts) > 1 else ""
     if kind == "devops":
@@ -372,6 +375,8 @@ def _direct_script_verification_path(parts):
         return None
     for arg in parts[1:]:
         if arg.startswith("-"):
+            if arg not in {"-u", "-B", "-I"}:
+                return None
             continue
         return _normalized_workspace_path(arg)
     return None
@@ -697,19 +702,22 @@ def _inspection_segment(parts):
     if not parts:
         return False
     verb = Path(parts[0]).stem.lower()
+    # A workspace executable named like a utility is not that utility.
+    if "/" in parts[0] or "\\" in parts[0]:
+        return False
     rest = [part.lower() for part in parts[1:]]
-    if any(part.startswith("--output") for part in rest):
+    if any(part.startswith(("--output", "--pre", "--exec")) for part in rest):
         return False
     if verb in _INSPECTION_VERBS:
         return True
     if verb == "find":
         return not any(part in _FIND_WRITES or part.startswith("-fprint") for part in rest)
     if verb == "node":
-        return len(parts) >= 3 and rest[0] in ("--check", "-c")
+        return False  # NODE_OPTIONS can preload arbitrary code.
     if verb == "tsc":
-        return "--noemit" in rest
+        return False  # Project configuration can enable incremental writes.
     if verb == "git":
-        return bool(rest) and rest[0] in ("status", "log", "diff", "show", "branch", "ls-files")
+        return False  # Repository configuration can invoke helpers and hooks.
     return False
 
 def _is_inspection_command(command):
@@ -880,7 +888,7 @@ def run(instructions, kind="coding", skills=None):
         "workspace.read", "workspace.write", "network.public", "process.container",
         "process.native", "memory.execution", "graph.delegate", "image.local", "rag.local",
     }
-    capabilities = set(req["capabilities"]) if "capabilities" in req else compatibility_capabilities
+    capabilities = set(req["capabilities"] or []) if "capabilities" in req else compatibility_capabilities
     native = (str(mem.get("allow_native_execution", False)).lower() == "true"
               and "process.native" in capabilities)
     tool_result_budget = _tool_result_budget(req.get("parameters", {}), mem)
@@ -888,6 +896,7 @@ def run(instructions, kind="coding", skills=None):
     files = {}
     memory_updates = []
     graph_mutation = None
+    latest_diagnostic = None
     tool_capabilities = {
         "read_file": "workspace.read", "list_dir": "workspace.read", "search_codebase": "workspace.read",
         "write_file": "workspace.write", "replace_file_content": "workspace.write",
@@ -898,6 +907,19 @@ def run(instructions, kind="coding", skills=None):
     }
     definitions = {name: spec for name, spec in toolset._definitions.items()
                    if tool_capabilities.get(name) is None or tool_capabilities[name] in capabilities}
+    if "workspace.read" in capabilities:
+        definitions["read_diagnostics"] = (
+            "Read captured output from a saved diagnostic receipt for this task. check is a zero-based check index; offset is a one-based line; limit defaults to 200. Use the receipt reference returned by run_diagnostics.",
+            {"receipt": "string", "check": {"type": "integer", "optional": True},
+             "offset": {"type": "integer", "optional": True}, "limit": {"type": "integer", "optional": True}})
+        tool_capabilities["read_diagnostics"] = "workspace.read"
+    process_capability = "process.native" if native else "process.container"
+    if kind not in {"devops", "pentest"} and "workspace.read" in capabilities and process_capability in capabilities:
+        definitions["run_diagnostics"] = (
+            "Detect and run project tests, type checks, lint or build scripts. Returns structured errors, exit status and a receipt bound to the current artifacts. kind defaults to auto; path is a project directory. Reports nothing to run for an unsupported project. A test run must actually observe tests; help/version and empty suites cannot verify work.",
+            {"kind": {"type": "string", "optional": True, "enum": ["auto", "test", "typecheck", "lint", "build"]},
+             "path": {"type": "string", "optional": True}})
+        tool_capabilities["run_diagnostics"] = process_capability
     if "memory.execution" in capabilities:
         definitions["remember"] = ("Save a JSON value in this execution's memory", {"key":"string", "value_json":"string"})
         definitions["remember_if_version"] = ("Update an execution-memory key only if its execution-scoped revision in memory_metadata still matches; use 0 to create an absent execution key", {"key":"string", "value_json":"string", "expected_version":"string"})
@@ -925,7 +947,7 @@ def run(instructions, kind="coding", skills=None):
         definitions["fetch_pages"] = (
             "Download up to 20 public web pages in parallel and read them. Each is saved under research/sources/ with its URL, "
             "retrieval time and a SHA-256 of what was downloaded, and indexed in research/sources.json under an id (S1, S2, ...) "
-            "that your report must cite. Respects robots.txt, never sends anything to a site, and refuses private addresses. "
+            "that your report must cite. Respects robots.txt and refuses known private addresses. GET requests can transmit query and header data. "
             "The reply shows the start of each page (max_chars_each, default 4000); read the saved file with read_file for the rest.",
             {"urls": {"type": "array", "items": {"type": "string"}}, "max_chars_each": {"type": "integer", "optional": True}})
         implementations["web_search"] = research_tools.web_search
@@ -1000,7 +1022,7 @@ def run(instructions, kind="coding", skills=None):
     if "browser.run" in capabilities:
         import browser_tools
         definitions["run_page"]=(
-            "Load a page of the generated site in a real headless browser and report what happened: uncaught exceptions, console errors, failed or 404 requests (a missing texture, a wrong CDN URL), whether each canvas got a context, whether animation frames ran, and whether the screenshot is blank. A screenshot is saved under run_page/. Run check_web_page first, then this; fix every problem it names and run it again. path is the .html file (default: the first page); wait_ms (default 3000, max 15000) is how long the page runs; actions (at most 20) drive it: {\"click\": \"#enter\"}, {\"click_at\": [x, y]}, {\"press\": \"ArrowRight\", \"hold_ms\": 300}, {\"scroll\": 600}, {\"wait_ms\": 500}, {\"eval\": \"document.title\"}. The page can read public CDN files but cannot send data out or reach other local services.",
+            "Load a page of the generated site in a real headless browser and report what happened: uncaught exceptions, console errors, failed or 404 requests (a missing texture, a wrong CDN URL), whether each canvas got a context, whether animation frames ran, and whether the screenshot is blank. A screenshot is saved under run_page/. Run check_web_page first, then this; fix every problem it names and run it again. path is the .html file (default: the first page); wait_ms (default 3000, max 15000) is how long the page runs; actions (at most 20) drive it: {\"click\": \"#enter\"}, {\"click_at\": [x, y]}, {\"press\": \"ArrowRight\", \"hold_ms\": 300}, {\"scroll\": 600}, {\"wait_ms\": 500}, {\"eval\": \"document.title\"}. The page can read public CDN files and can transmit data in public requests; known private addresses and other local services are filtered, without an OS egress guarantee.",
             {
                 "path": {"type": "string", "optional": True},
                 "wait_ms": {"type": "integer", "optional": True},
@@ -1164,6 +1186,33 @@ def run(instructions, kind="coding", skills=None):
         )
     messages = [{"role":"system", "content": prompt_instructions + "\n" + req.get("parameters",{}).get("system_prompt","") + "\nUse workspace-relative paths. Terminal cwd is src. Finish only after checking your work. An exhausted loop is a failure." + resume_note},
                 {"role":"user", "content":json.dumps(build_user_context(req, mem))}]
+    guidance_paths = set(required_outputs)
+    guidance_identity = None
+    guidance_resolver = None
+    def refresh_repository_guidance(extra_paths=()):
+        nonlocal guidance_identity, guidance_resolver
+        if "workspace.read" not in capabilities:
+            return False
+        import repository_rules
+        guidance_paths.update(extra_paths)
+        if guidance_resolver is None:
+            guidance_resolver = repository_rules.RuleResolver(workspace, max_total_bytes=tool_result_budget)
+        report = guidance_resolver.resolve(guidance_paths)
+        identity = repository_rules.provenance(report)
+        if identity == guidance_identity:
+            return False
+        previous = guidance_identity
+        context = build_user_context(req, mem)
+        if report["sources"]:
+            context["repository_guidance"] = report
+            context["repository_guidance_receipt"] = repository_rules.save_provenance(workspace, report)
+        messages[1]["content"] = json.dumps(context)
+        guidance_identity = identity
+        if report["sources"]:
+            names = ", ".join(source["path"] for source in report["sources"][:12])
+            _emit_llm("status", f"Loaded repository guidance: {names} ({report['bytes']} bytes); provenance: {context['repository_guidance_receipt']}")
+        return previous is not None
+    refresh_repository_guidance()
     kwargs = generation_options(model, mem)
     key_name = req.get("parameters", {}).get("api_key")
     configured_api_base = req.get("parameters", {}).get("llm_api_base")
@@ -1215,6 +1264,7 @@ def run(instructions, kind="coding", skills=None):
             _print_retry_marker(effects_started, unsafe_effects)
             raise TimeoutError("Agent time budget exhausted")
         try:
+            refresh_repository_guidance()
             extra_headers = {
                 "HTTP-Referer": "https://github.com/ManasN9401/Reticle",
                 "X-Title": "Reticle Agentic Harness",
@@ -1428,6 +1478,14 @@ def run(instructions, kind="coding", skills=None):
                     argument_error = _tool_argument_error(name, expected[1], args)
                     if argument_error:
                         raise ValueError(argument_error)
+                if broker_descriptor is None and name in {
+                    "read_file", "write_file", "replace_file_content", "apply_edits", "move_path", "delete_path",
+                    "check_web_page", "run_page", "run_diagnostics", "resize_image", "crop_image", "convert_image",
+                }:
+                    paths = [args[key] for key in ("path", "source_path", "destination_path", "output_path")
+                             if isinstance(args.get(key), str)]
+                    if refresh_repository_guidance(paths):
+                        raise ValueError("Scoped repository guidance changed and has been loaded into the task context. Review it before retrying this tool.")
                 if name in EFFECTFUL_LOCAL_TOOLS and not (
                     name == "execute_terminal_command" and _is_inspection_command(args.get("command"))
                 ):
@@ -1449,7 +1507,17 @@ def run(instructions, kind="coding", skills=None):
                         result = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
                 elif name == "mark_task_complete":
                     rejection = None
-                    if web_written and not web_checked and _has_page(workspace):
+                    if latest_diagnostic is not None:
+                        import diagnostics_tools
+                        if not diagnostics_tools.receipt_matches(workspace, latest_diagnostic):
+                            pending_modified_paths.update(latest_diagnostic["checked_files"])
+                            verification[:] = [item for item in verification if item["tool"] != "run_diagnostics"]
+                            latest_diagnostic = None
+                            verified = False
+                            rejection = "Artifacts changed after diagnostics. Run diagnostics again against the current files before completing."
+                    if rejection is not None:
+                        pass
+                    elif web_written and not web_checked and _has_page(workspace):
                         rejection = (
                             "You wrote web files but have not checked that the page can run. Call check_web_page, "
                             "fix every problem it reports, and run it again until it reports no blocking problems; "
@@ -1520,6 +1588,20 @@ def run(instructions, kind="coding", skills=None):
                         raise ValueError("Invalid agent identifier")
                     graph_mutation = {"action":"delegate","target_agent":args["target_agent"],"return_to_supervisor":True}
                     result = "Delegation will be committed with the final response"
+                elif name == "run_diagnostics":
+                    import diagnostics_tools
+                    diagnostic = diagnostics_tools.run_diagnostics(workspace, **args,
+                        tracked_paths=sorted(pending_modified_paths), allow_native=native,
+                        allow_network="network.public" in capabilities,
+                        allow_workspace_write="workspace.write" in capabilities,
+                        attempt_id=req.get("attempt_id", ""), task_id=req["id"])
+                    if diagnostic["ok"]:
+                        latest_diagnostic = diagnostic
+                        record_verification(name, diagnostic["receipt"], covers_changes=True)
+                    result = diagnostics_tools.model_report(diagnostic, budget=max(1000, tool_result_budget-200))
+                elif name == "read_diagnostics":
+                    import diagnostics_tools
+                    result = diagnostics_tools.read_diagnostics(workspace, **args, task_id=req["id"])
                 elif name == "check_web_page":
                     import web_tools
                     result, blocking = web_tools.run_check(workspace, args.get("path"))
@@ -1559,7 +1641,8 @@ def run(instructions, kind="coding", skills=None):
                         allowed = {"terraform":{"version","fmt","validate","plan"},"docker":{"version","images","inspect"},"kubectl":{"version","get","describe"},"bandit":{"--version","-r"}}
                         if len(parts)<2 or parts[0] not in allowed or parts[1] not in allowed[parts[0]] or any(c in args["command"] for c in ";&|`$<>\n"):
                             raise PermissionError("This specialist supports validation/read-only operations. Protected deployment or active scanning requires a separately authorized execution adapter.")
-                    result = toolset.execute_terminal_command(args["command"],workspace,native)
+                    result = toolset.execute_terminal_command(args["command"],workspace,native,
+                        allow_network="network.public" in capabilities, allow_workspace_write="workspace.write" in capabilities)
                     if kind == "hermes":
                         result = _hermes_after_run(hermes, args["command"], result)
                     if result.startswith("Exit code: 0\n"):

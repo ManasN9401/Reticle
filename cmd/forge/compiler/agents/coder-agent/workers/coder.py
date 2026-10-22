@@ -13,6 +13,9 @@ def main():
     dag = json.loads(next(i["data"] for i in req["inputs"] if i.get("name") == "DAG JSON"))
     workspace = Path(req["memory"]["workspace_dir"]).resolve()
     root = Path(__file__).resolve().parents[6]
+    catalog = req["memory"].get("architect_catalog")
+    if isinstance(catalog, str):
+        catalog = json.loads(catalog)
     for agent in dag.get("agents", []):
         # Registered agents already have a maintained manifest and entrypoint.
         # A model commonly emits the schema placeholder "TBD" for these; that
@@ -24,7 +27,7 @@ def main():
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}", agent_id):
             raise ValueError("Invalid generated agent ID")
         instructions = agent.get("system_prompt", "Complete the assigned task and verify the result.")
-        report = load_skill_instructions(root / "skills", agent.get("skills", []))
+        report = load_skill_instructions(root / "skills", agent.get("skills", []), catalog=catalog)
         instructions += report["text"]
         for skill in report["missing"]:
             print(f"Warning: Missing skill instructions for '{skill}', skipping.", file=sys.stderr)
@@ -34,6 +37,7 @@ def main():
         if target.resolve() != target:
             raise ValueError("Aliased generated worker path")
         target.mkdir(parents=True, exist_ok=True)
+        (target / f"{agent_id}.skills.json").write_text(json.dumps(report["provenance"], indent=2), encoding="utf-8")
         # The instructions (task prompt plus skill text, tens of KB) live in their own file. Embedded in
         # the entrypoint they were echoed whole by every Python traceback, burying the real error and
         # putting skill text in front of the failure classifier.
@@ -47,7 +51,7 @@ def main():
             encoding="utf-8",
         )
         for name in ("forge_utils.py", "worker_sdk.py", "comfy_tools.py", "image_tools.py", "web_tools.py", "browser_tools.py",
-                     "browse_tools.py", "research_tools.py", "quant_tools.py"):
+                     "browse_tools.py", "research_tools.py", "quant_tools.py", "diagnostics_tools.py", "repository_rules.py"):
             (target / name).write_bytes((LIB / name).read_bytes())
     (workspace / "src").mkdir(exist_ok=True)
     print(json.dumps({"id":req["id"],"artifact":{"id":req["id"]+"_output","name":"Python Files","type":"application/json","data":"{}"}}))

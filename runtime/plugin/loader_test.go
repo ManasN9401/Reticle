@@ -11,6 +11,10 @@ func TestLoadBundleBuildsBoundedContributions(t *testing.T) {
 	writeFixture(t, root, "worker.py", "print('ok')\n")
 	writeFixture(t, root, "tool.py", "print('{}')\n")
 	writeFixture(t, root, "skill.yaml", "id: fixture-skill\nname: Fixture\nversion: 1.0.0\ndescription: Test skill\ndependency_policy: profile\n")
+	if err := os.MkdirAll(filepath.Join(root, "fixture-skill"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, root, "fixture-skill/SKILL.md", "# Registered plugin instructions\n")
 	writeFixture(t, root, "agent.yaml", "id: fixture-agent\nname: Fixture Agent\ndescription: Test agent\nversion: 1.0.0\nruntime: python\nentrypoint: worker.py\ninputs: []\noutputs: []\nskills: [fixture-skill]\ncapabilities: [workspace.read]\n")
 	writeFixture(t, root, ManifestFilename, `{
   "id":"fixture-plugin","version":"1.2.3","description":"Fixture",
@@ -26,6 +30,10 @@ func TestLoadBundleBuildsBoundedContributions(t *testing.T) {
 		t.Fatalf("missing contributions: %#v", bundle)
 	}
 	descriptor := bundle.descriptors[0]
+	skill := bundle.skills["fixture-skill"]
+	if skill.InstructionsPath != filepath.Join(root, "fixture-skill", "SKILL.md") || skill.InstructionsBytes == 0 || len(skill.InstructionsSHA256) != 64 {
+		t.Fatalf("plugin skill lost its instruction resource: %#v", skill)
+	}
 	if descriptor.ID != "plugin.fixture-plugin.inspect" || descriptor.RequiredPolicy != "plugin:fixture-plugin" {
 		t.Fatalf("unscoped plugin descriptor: %#v", descriptor)
 	}

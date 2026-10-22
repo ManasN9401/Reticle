@@ -76,6 +76,7 @@ func (d *Dispatcher) CloseToolBroker(ctx context.Context) error {
 func (d *Dispatcher) RegisterWorker(w *Worker) {
 	d.workersMu.Lock()
 	defer d.workersMu.Unlock()
+	w.AuthorizeDelegation = d.CanDelegate
 	d.Workers[w.ID] = w
 }
 
@@ -95,6 +96,47 @@ func (d *Dispatcher) HasWorker(execution, worker string) bool {
 	}
 	_, ok := d.Workers[WorkerID(worker)]
 	return ok
+}
+
+// CanDelegate prevents dynamic delegation from increasing the caller's grants.
+// Static workflows may still explicitly schedule a more privileged worker.
+func (d *Dispatcher) CanDelegate(execution, source, target string) bool {
+	d.workersMu.RLock()
+	defer d.workersMu.RUnlock()
+	lookup := func(id string) *Worker {
+		if worker, ok := d.Workers[WorkerID(execution+"__"+id)]; ok {
+			return worker
+		}
+		return d.Workers[WorkerID(id)]
+	}
+	caller, callee := lookup(source), lookup(target)
+	if caller == nil || callee == nil || !hasCapability(caller.Capabilities, CapabilityGraphDelegate) {
+		return false
+	}
+	for _, grant := range callee.Capabilities {
+		if !hasCapability(caller.Capabilities, grant) {
+			return false
+		}
+	}
+	contains := func(values []string, required string) bool {
+		for _, value := range values {
+			if value == required {
+				return true
+			}
+		}
+		return false
+	}
+	for _, server := range callee.MCPServers {
+		if !contains(caller.MCPServers, server) {
+			return false
+		}
+	}
+	for _, policy := range callee.BrokerPolicies {
+		if !contains(caller.BrokerPolicies, policy) {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *Dispatcher) Start() {
@@ -187,7 +229,7 @@ func (d *Dispatcher) Start() {
 		task.Parameters = copyParameters(task.Parameters)
 		task.Memory = copyParameters(task.Memory)
 		task.MemoryMetadata = make(map[string]MemoryReference)
-		task.Capabilities = append([]Capability(nil), worker.Capabilities...)
+		task.Capabilities = append([]Capability{}, worker.Capabilities...)
 		task.MCPServers = append([]string(nil), worker.MCPServers...)
 		task.BrokerPolicies = append([]string(nil), worker.BrokerPolicies...)
 		// Inject instructions dynamically

@@ -28,10 +28,13 @@ type architectSkillCatalogEntry struct {
 	Description string `json:"description"`
 	UseWhen     string `json:"use_when,omitempty"`
 	// InstructionsBytes is what the skill adds to an agent's prompt; zero means dependencies only.
-	InstructionsBytes int      `json:"instructions_bytes"`
-	DependencyPolicy  string   `json:"dependency_policy"`
-	Dependencies      []string `json:"dependencies"`
-	EnvVars           []string `json:"env_vars"`
+	InstructionsBytes  int      `json:"instructions_bytes"`
+	InstructionsPath   string   `json:"instructions_path,omitempty"`
+	InstructionsSHA256 string   `json:"instructions_sha256,omitempty"`
+	Version            string   `json:"version"`
+	DependencyPolicy   string   `json:"dependency_policy"`
+	Dependencies       []string `json:"dependencies"`
+	EnvVars            []string `json:"env_vars"`
 }
 
 type architectToolCatalogEntry struct {
@@ -65,12 +68,14 @@ func buildArchitectCatalog(reg *agent.Registry, brokerTools ...[]toolbroker.Desc
 			"rag.local", "cloud.plan", "cloud.apply", "security.active", "gpu.use", "mcp.call", "browser.run",
 		},
 		Tools: []architectToolCatalogEntry{
+			{ID: "read_diagnostics", Capability: "workspace.read", Description: "Read paged captured diagnostic output from a receipt owned by the current task."},
+			{ID: "run_diagnostics", Capability: "process.container", Description: "Detect project tests, type checks, lint and build scripts; return structured errors and artifact-bound verification receipts.", Constraint: "Also requires workspace.read. Uses the command container unless native execution is explicitly enabled; unavailable to DevOps and pentest specialists. Missing toolchains and empty test suites do not count as success."},
 			{ID: "read_file", Capability: "workspace.read", Description: "Read a workspace text file; long files come back in parts with an offset to continue from."},
 			{ID: "list_dir", Capability: "workspace.read", Description: "List a workspace directory."},
 			{ID: "search_codebase", Capability: "workspace.read", Description: "Search workspace text."},
 			{ID: "find_files", Capability: "workspace.read", Description: "List workspace files matching a glob such as **/*.js."},
 			{ID: "check_web_page", Capability: "workspace.read", Description: "Statically check a generated web page and its scripts for problems a browser would hit (classic scripts using import, bare module imports, missing files)."},
-			{ID: "run_page", Capability: "browser.run", Description: "Load a page of the site in a sandboxed headless browser and report uncaught exceptions, console errors, failed requests, canvas and animation state and whether the screen is blank; saves a screenshot.", Constraint: "Grant to integration and QA nodes that verify a web page. The page may read public files but cannot send data out or reach other local services."},
+			{ID: "run_page", Capability: "browser.run", Description: "Load a page of the site in a sandboxed headless browser and report uncaught exceptions, console errors, failed requests, canvas and animation state and whether the screen is blank; saves a screenshot.", Constraint: "Grant to integration and QA nodes that verify a web page. The page may read public files but can transmit data in public requests; known private addresses and other local services are filtered, without an OS egress guarantee."},
 			{ID: "write_file", Capability: "workspace.write", Description: "Create a workspace text file, or replace one it has just read with overwrite=true."},
 			{ID: "replace_file_content", Capability: "workspace.write", Description: "Change one exact piece of an existing file; reports the closest lines when the text is not found."},
 			{ID: "apply_edits", Capability: "workspace.write", Description: "Make several exact-text edits to one file in one call, all or nothing."},
@@ -128,7 +133,8 @@ func buildArchitectCatalog(reg *agent.Registry, brokerTools ...[]toolbroker.Desc
 		catalog.Skills = append(catalog.Skills, architectSkillCatalogEntry{
 			ID: def.ID, Name: def.Name, Description: def.Description, UseWhen: def.UseWhen,
 			InstructionsBytes: def.InstructionsBytes,
-			DependencyPolicy:  def.DependencyPolicy, Dependencies: def.Dependencies, EnvVars: def.EnvVars,
+			InstructionsPath:  def.InstructionsPath, InstructionsSHA256: def.InstructionsSHA256, Version: def.Version,
+			DependencyPolicy: def.DependencyPolicy, Dependencies: def.Dependencies, EnvVars: def.EnvVars,
 		})
 	}
 	sort.Slice(catalog.Agents, func(i, j int) bool { return catalog.Agents[i].ID < catalog.Agents[j].ID })

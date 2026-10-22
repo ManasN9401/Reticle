@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -25,6 +26,8 @@ const (
 type EffectRecord struct {
 	ID              string      `json:"id"`
 	AttemptID       string      `json:"attempt_id"`
+	ExecutionID     string      `json:"execution,omitempty"`
+	TaskID          string      `json:"task_id,omitempty"`
 	Adapter         string      `json:"adapter"`
 	Target          string      `json:"target"`
 	RequestHash     string      `json:"request_hash"`
@@ -62,6 +65,14 @@ type EffectFinishRequest struct {
 func NewPersistentEffectManager(path string) (*EffectManager, error) {
 	m := &EffectManager{path: path, records: make(map[string]EffectRecord)}
 	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		// Windows replacement can briefly leave only the previous snapshot.
+		if previous, previousErr := os.ReadFile(path + ".previous"); previousErr == nil {
+			data, err = previous, nil
+		} else if !os.IsNotExist(previousErr) {
+			return nil, fmt.Errorf("read previous effect state: %w", previousErr)
+		}
+	}
 	if err == nil {
 		if err := json.Unmarshal(data, &m.records); err != nil {
 			return nil, fmt.Errorf("decode effect state: %w", err)
@@ -70,7 +81,18 @@ func NewPersistentEffectManager(path string) (*EffectManager, error) {
 		return nil, fmt.Errorf("read effect state: %w", err)
 	}
 	changed := false
+	if m.records == nil {
+		return nil, fmt.Errorf("effect snapshot must contain an object")
+	}
 	for id, record := range m.records {
+		if id != record.ID || record.ID == "" || record.AttemptID == "" || record.Adapter == "" || record.Target == "" || record.RequestHash == "" {
+			return nil, fmt.Errorf("invalid effect identity in snapshot")
+		}
+		switch record.State {
+		case EffectPrepared, EffectRunning, EffectInterrupted, EffectSucceeded, EffectFailed, EffectCancelled:
+		default:
+			return nil, fmt.Errorf("invalid effect state in snapshot")
+		}
 		if record.State == EffectRunning || record.State == EffectPrepared {
 			record.State = EffectInterrupted
 			record.Detail = "runtime restarted before completion was recorded"
@@ -165,6 +187,26 @@ func (m *EffectManager) Get(id string) (EffectRecord, bool) {
 	return record, ok
 }
 
+func (m *EffectManager) Snapshot() []EffectRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]EffectRecord, 0, len(m.records))
+	for _, record := range m.records {
+		if record.CleanupDeadline != nil {
+			deadline := *record.CleanupDeadline
+			record.CleanupDeadline = &deadline
+		}
+		result = append(result, record)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
+			return result[i].ID < result[j].ID
+		}
+		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+	})
+	return result
+}
+
 // Reconcile resolves an interrupted record from adapter-observed remote state.
 // A retry is represented by a new effect ID; interrupted records never move
 // back to running because that would hide uncertainty in the original call.
@@ -182,6 +224,13 @@ func (m *EffectManager) Reconcile(id string, observed EffectState, externalID, d
 }
 
 func (m *EffectManager) saveLocked() error {
+	if info, err := os.Lstat(m.path); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("effect snapshot path must be a regular file")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
 	data, err := json.Marshal(m.records)
 	if err != nil {
 		return fmt.Errorf("encode effect state: %w", err)

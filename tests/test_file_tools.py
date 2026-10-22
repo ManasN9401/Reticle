@@ -187,7 +187,7 @@ class SeveralEdits(Workspace):
         self.assertTrue(reply.startswith("Error"))
         self.assertIn("edit 2 of 2 failed and nothing was changed", reply)
         self.assertEqual(self.text("page.html"), before)
-        self.assertEqual([p.name for p in self.src.iterdir()], ["page.html"], "no lock or temporary file may remain")
+        self.assertEqual(sorted(p.name for p in self.src.iterdir()), ["page.html", "page.html.reticle-lock"], "only the stable OS lock file may remain")
 
     def test_bad_arguments_are_explained(self):
         self.assertIn("non-empty list", tools.apply_edits("page.html", [], self.temp.name))
@@ -389,7 +389,7 @@ class TerminalImage(unittest.TestCase):
     def test_a_failed_pull_says_why_and_the_command_is_not_attempted(self):
         def run(argv, **kwargs):
             return SimpleNamespace(returncode=1 if argv[1] == "image" else 1, stderr=b"pull access denied")
-        with tempfile.TemporaryDirectory() as workspace, patch.object(tools.subprocess, "run", side_effect=run):
+        with tempfile.TemporaryDirectory() as workspace, patch.object(tools, "detect_ml_host_environment", return_value="windows"), patch.object(tools.subprocess, "run", side_effect=run):
             reply = tools.execute_terminal_command("echo hi", workspace, False)
         self.assertTrue(reply.startswith("Error executing command: could not pull"), reply)
         self.assertIn("pull access denied", reply)

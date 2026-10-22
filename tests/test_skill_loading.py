@@ -1,4 +1,5 @@
 import io
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -20,6 +21,23 @@ def tool_response(name, args):
 
 
 class LoadSkillInstructions(unittest.TestCase):
+    def test_registered_plugin_resource_is_loaded_and_hash_checked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "plugin" / "alpha" / "SKILL.md"
+            source.parent.mkdir(parents=True)
+            source.write_text("# Plugin instructions", encoding="utf-8")
+            catalog = {"skills": [{"id": "alpha", "instructions_path": str(source),
+                                  "instructions_bytes": source.stat().st_size,
+                                  "instructions_sha256": hashlib.sha256(source.read_bytes()).hexdigest()}]}
+            report = forge_utils.load_skill_instructions(Path(temp)/"wrong-root", ["alpha"], catalog)
+            self.assertIn("Plugin instructions", report["text"])
+            source.write_text("changed", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "changed"):
+                forge_utils.load_skill_instructions(temp, ["alpha"], catalog)
+            source.unlink()
+            with self.assertRaisesRegex(ValueError, "disappeared"):
+                forge_utils.load_skill_instructions(temp, ["alpha"], catalog)
+
     def test_applied_skills_are_appended_and_sized_and_missing_ones_are_named(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

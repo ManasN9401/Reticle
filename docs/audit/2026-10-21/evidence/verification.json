@@ -1,0 +1,131 @@
+{
+  "date": "2026-10-21",
+  "baseline": "ca04c9e3e2656b93cf1cc1a65bfdd694738d3339",
+  "scope": "Focused code/documentation audit and offline verification; no live provider or Docker acceptance run.",
+  "environment": {
+    "os": "Windows",
+    "python": "3.14.7",
+    "go": "1.27.1",
+    "node": "26.8.1",
+    "cgo_enabled": false,
+    "loopback_connections": "blocked by executor (EACCES / WinError 10013)"
+  },
+  "results": {
+    "go_runtime": {
+      "exit_code": 1,
+      "passed_packages": [
+        "agent",
+        "events",
+        "logger",
+        "memory",
+        "plugin",
+        "telemetry"
+      ],
+      "blocked_packages": [
+        "mcp",
+        "routing",
+        "toolbroker"
+      ],
+      "no_tests": [
+        "orchestrator"
+      ],
+      "failures": [
+        "TestManagerDiscoversAndBrokersLegacyServerWithTwoGrants",
+        "TestConfiguredProviderDiscoversOpenAICompatibleModels",
+        "TestConfiguredProviderExcludesAdvertisedNonChatModels",
+        "TestConfiguredProviderDoesNotForwardCredentialThroughRedirect",
+        "TestRegistryRejectsMalformedAndCollidingDescriptors",
+        "TestAttemptIsolationCapabilitiesDuplicateAndRevocation",
+        "TestBrokerTelemetryExcludesArgumentsResultsAndCredentials",
+        "TestExplicitCancellationAndLateResultDiscard",
+        "TestPauseDeadlineOutputLimitAndCancellation",
+        "TestAdapterAndAttemptConcurrencyAreBounded",
+        "TestRealWorkerUsesBrokerWithoutChangingStdoutProtocol"
+      ]
+    },
+    "go_forge": {
+      "exit_code": 0
+    },
+    "go_vet_runtime": {
+      "exit_code": 0
+    },
+    "go_vet_forge": {
+      "exit_code": 0
+    },
+    "python_root": {
+      "tests": 353,
+      "passed": 282,
+      "failures": 16,
+      "errors": 7,
+      "skipped": 48,
+      "failure_names": [
+        "test_it_serves_files_with_their_types (test_browser_tools.SiteServer.test_it_serves_files_with_their_types)",
+        "test_traversal_dotfiles_and_foreign_hosts_are_refused (test_browser_tools.SiteServer.test_traversal_dotfiles_and_foreign_hosts_are_refused)",
+        "test_a_quiet_connection_times_out_instead_of_blocking (test_browser_tools.WebSocketClient.test_a_quiet_connection_times_out_instead_of_blocking)",
+        "test_a_server_that_does_not_upgrade_is_an_error (test_browser_tools.WebSocketClient.test_a_server_that_does_not_upgrade_is_an_error)",
+        "test_messages_fragments_and_pings (test_browser_tools.WebSocketClient.test_messages_fragments_and_pings)",
+        "test_a_node_runs_its_page_for_real_and_the_screenshot_is_a_reported_file (test_worker_run_page.ThroughTheWorker.test_a_node_runs_its_page_for_real_and_the_screenshot_is_a_reported_file)",
+        "test_sdk_attempt_scoped_broker_protocol (test_workers.WorkerContracts.test_sdk_attempt_scoped_broker_protocol)",
+        "test_a_blank_page_is_called_blank (test_browser_tools.RealBrowser.test_a_blank_page_is_called_blank)",
+        "test_a_canvas_nothing_draws_to_is_not_mistaken_for_a_renderer (test_browser_tools.RealBrowser.test_a_canvas_nothing_draws_to_is_not_mistaken_for_a_renderer)",
+        "test_a_hung_page_is_cut_off_at_the_deadline_and_the_browser_is_killed (test_browser_tools.RealBrowser.test_a_hung_page_is_cut_off_at_the_deadline_and_the_browser_is_killed)",
+        "test_a_page_that_opens_dialogs_is_not_mistaken_for_a_hung_one (test_browser_tools.RealBrowser.test_a_page_that_opens_dialogs_is_not_mistaken_for_a_hung_one)",
+        "test_a_working_animated_page_is_clean (test_browser_tools.RealBrowser.test_a_working_animated_page_is_clean)",
+        "test_actions_click_press_and_eval (test_browser_tools.RealBrowser.test_actions_click_press_and_eval)",
+        "test_exceptions_missing_files_and_console_errors_are_all_reported (test_browser_tools.RealBrowser.test_exceptions_missing_files_and_console_errors_are_all_reported)",
+        "test_the_page_cannot_send_data_out_or_reach_other_local_services (test_browser_tools.RealBrowser.test_the_page_cannot_send_data_out_or_reach_other_local_services)",
+        "test_webgl_works_without_a_gpu (test_browser_tools.RealBrowser.test_webgl_works_without_a_gpu)",
+        "test_a_failed_pull_says_why_and_the_command_is_not_attempted (test_file_tools.TerminalImage.test_a_failed_pull_says_why_and_the_command_is_not_attempted)",
+        "test_a_redirect_to_a_private_address_is_refused_at_the_hop (test_research_tools.Fetching.test_a_redirect_to_a_private_address_is_refused_at_the_hop)",
+        "test_fetching_the_same_unchanged_page_again_keeps_its_id (test_research_tools.Fetching.test_fetching_the_same_unchanged_page_again_keeps_its_id)",
+        "test_many_pages_are_fetched_in_parallel_and_each_is_cited (test_research_tools.Fetching.test_many_pages_are_fetched_in_parallel_and_each_is_cited)",
+        "test_pages_are_read_saved_indexed_and_summarised (test_research_tools.Fetching.test_pages_are_read_saved_indexed_and_summarised)",
+        "test_robots_txt_is_respected_and_said_so (test_research_tools.Fetching.test_robots_txt_is_respected_and_said_so)",
+        "test_rag_snapshot_replaces_stale_sources (test_workers.WorkerContracts.test_rag_snapshot_replaces_stale_sources)"
+      ],
+      "interpretation": "Most failures are blocked loopback/browser execution. RAG exclusion is independently reproduced. Docker failed-pull test has a mock/platform interaction. Optional image/Playwright-related coverage is incomplete."
+    },
+    "compiler_contracts": {
+      "tests": 28,
+      "exit_code": 0,
+      "included_in_current_ci": false
+    },
+    "studio_tests": {
+      "tests": 84,
+      "passed": 75,
+      "failed": 9,
+      "skipped": 0,
+      "interpretation": "All nine failures are loopback EACCES."
+    },
+    "studio_typecheck": {
+      "exit_code": 0
+    },
+    "studio_lint": {
+      "exit_code": 0,
+      "warnings": true
+    },
+    "studio_build": {
+      "exit_code": 0,
+      "warnings": "Large application/editor/model-viewer chunks; no installer acceptance test."
+    },
+    "audit_go_probes": {
+      "exit_code": 0,
+      "interpretation": "Characterization probes: success means observations were captured, not that production defects are fixed."
+    },
+    "audit_python_probes": {
+      "exit_code": 0
+    }
+  },
+  "not_verified": [
+    "Live model/API behavior",
+    "Docker execution and network isolation",
+    "Native GUI end-to-end operation",
+    "Clean-machine install/update",
+    "Signed packaging",
+    "Race detector (CGO disabled)",
+    "Dependency vulnerability scan",
+    "Remote CI"
+  ],
+  "preexisting_untracked_file": "test_list_models.py (not read, changed, or executed)",
+  "production_source_changes": false
+}

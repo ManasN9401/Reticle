@@ -1,0 +1,46 @@
+{
+  "rag_path_comparison": {
+    "ordinary": "Indexed 1 files. Queries now use the complete new snapshot; removed files and trailing chunks are excluded.",
+    "production_layout": "Indexed 0 files. Queries now use the complete new snapshot; removed files and trailing chunks are excluded."
+  },
+  "inspection_classifier": {
+    "git branch audit-probe": true,
+    "git branch -D audit-probe": true,
+    "rg --pre ./helper needle .": true,
+    "tsc --noEmit --incremental": true
+  },
+  "verification_classifier": {
+    "pytest --version": true,
+    "tsc --version": true,
+    "eslint --help": true,
+    "npm run build": true
+  },
+  "invalid_python_completed_after_version_probe": [
+    {
+      "tool": "execute_terminal_command",
+      "target": "pytest --version",
+      "outcome": "succeeded"
+    }
+  ],
+  "interrupted_edit": {
+    "child_exit": 23,
+    "lock_remains": true,
+    "next_edit": "Error acquiring edit lock: [Errno 17] File exists: 'C:\\\\Users\\\\nathm\\\\code\\\\Reticle\\\\docs\\\\audit\\\\2026-10-21\\\\evidence\\\\reticle-audit-9ds7vmob\\\\stale-lock\\\\src\\\\file.txt.reticle-lock'"
+  },
+  "browser_get_with_data_allowed": [
+    true,
+    ""
+  ],
+  "browser_unresolved_host_allowed": [
+    true,
+    ""
+  ],
+  "container_command_network_flags": [],
+  "plugin_instruction_discovery": {
+    "compiler_exit": 0,
+    "diagnostic": "Warning: Missing skill instructions for 'audit-plugin-only-skill', skipping.",
+    "plugin_text_present": false,
+    "qualification": "Compiler-side fixture; plugin registration/enablement was not invoked. Source review confirms registry metadata does not carry an instruction path."
+  },
+  "scope": "Local and mocked policy probes only. No browser, container, API, real secret, or network request."
+}

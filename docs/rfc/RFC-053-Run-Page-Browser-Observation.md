@@ -60,7 +60,7 @@ The page is LLM-written code. The tool therefore:
 - enforces an overall deadline (default 45 s, at most 120 s) on every protocol call, so a page stuck in an endless loop is reported as `PAGE UNRESPONSIVE` instead of hanging the node;
 - kills the browser's whole process tree on every exit path.
 
-Because a page cannot send data out, `run_page` is classified like an image tool: its only effect is a new file, so it is replay-safe and a node that used it can still be resumed on another route.
+Correction (2026-10-21): public GET requests can send data through URLs and headers. The implementation now classifies `run_page` and `browse_web` as unsafe for automatic replay. The URL filter does not enforce an OS network boundary; the original no-exfiltration premise was incorrect. See [current environment limits](../environment.md).
 
 ### Capability
 

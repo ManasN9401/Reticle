@@ -13,6 +13,9 @@ import { IPC } from '../src/shared/ipc'
 import type {
   AgentCard,
   ApiResult,
+  EffectSnapshot,
+  EffectReconcile,
+  ExternalEffect,
   RunFileBytes,
   ColorScheme,
   CommandId,
@@ -146,6 +149,10 @@ const bridge: ReticleBridge = {
       >,
     mcpServers: () =>
       ipcRenderer.invoke(IPC.apiMcpList) as Promise<ApiResult<McpServerStatus[]>>,
+    effects: (state?: ExternalEffect['state']) =>
+      ipcRenderer.invoke(IPC.apiEffects, state) as Promise<ApiResult<EffectSnapshot>>,
+    reconcileEffect: (request: EffectReconcile) =>
+      ipcRenderer.invoke(IPC.apiEffectReconcile, request) as Promise<ApiResult<void>>,
     saveMcpServer: (config: McpServerConfig) =>
       ipcRenderer.invoke(IPC.apiMcpSave, config) as Promise<ApiResult<McpServerStatus>>,
     deleteMcpServer: (id: string) =>

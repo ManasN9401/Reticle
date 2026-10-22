@@ -10,3 +10,4 @@ outputs:
   - "python_files"
 memory:
   - "workspace_dir"
+  - "architect_catalog"

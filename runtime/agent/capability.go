@@ -24,7 +24,8 @@ const (
 	CapabilityMCPCall          Capability = "mcp.call"
 	// CapabilityBrowserRun lets a worker load its workspace site in a sandboxed headless browser
 	// (run_page). The page is untrusted generated code: it is served from a loopback server, may
-	// read public subresources, and cannot send data out or reach other local services. It is not
+	// read public subresources, which can transmit data in requests. Its URL filter
+	// is not an OS-backed network sandbox. It is not
 	// part of the compatibility default profile; an agent must declare it.
 	CapabilityBrowserRun Capability = "browser.run"
 )

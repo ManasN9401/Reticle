@@ -34,6 +34,6 @@ tool really does: for example the terminal has Python and pip but no node, and a
 
 ## Not active automatically
 
-For v1 compatibility, an unknown skill ID is logged and skipped instead of stopping all startup; generated workers also skip an instruction file that disappears after registry loading (the startup line above shows it). Treat either as a degraded worker and fix the manifest or file before relying on its output. Standalone reference skills and third-party hook examples (`continuous-learning`, `strategic-compact`, `eval-harness`, `project-guidelines-example`, `graphify`) are not assignable and not automatically active in Reticle.
+For v1 compatibility, an unknown skill ID is logged and skipped instead of stopping all startup; generated workers using the runtime catalogue fail if a registered instruction file disappears or its SHA-256 changes. Plugin skill resources are resolved beside their manifests, not guessed under the checkout skills folder. Legacy standalone calls without a catalogue still report missing instruction files. Treat either as a degraded worker and fix the manifest or file before relying on its output. Standalone reference skills and third-party hook examples (`continuous-learning`, `strategic-compact`, `eval-harness`, `project-guidelines-example`, `graphify`) are not assignable and not automatically active in Reticle.
 
 Cloud/ML prerequisites are checked in the execution environment. Read the relevant skill and capability status before interpreting an agent's availability as deployment/training readiness.

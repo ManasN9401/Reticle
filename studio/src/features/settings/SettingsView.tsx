@@ -31,6 +31,7 @@ import { McpServersSection } from './McpServersSection'
 import { NodeAppearanceSection } from './NodeAppearanceSection'
 import { ProfileSection } from './ProfileSection'
 import { PluginsSection } from './PluginsSection'
+import { EffectsSection } from './EffectsSection'
 import { TabLayoutsSection } from './TabLayoutsSection'
 import { SETTINGS_SECTIONS, useSettingsUi } from './state'
 
@@ -58,7 +59,7 @@ export function SettingsView() {
   }
 
   const meta = SETTINGS_SECTIONS.find((s) => s.id === section)
-  const wide = ['models', 'keys', 'appearance', 'mcp', 'plugins'].includes(section)
+  const wide = ['models', 'keys', 'appearance', 'mcp', 'plugins', 'effects'].includes(section)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg-0">
@@ -78,6 +79,7 @@ export function SettingsView() {
           {section === 'keys' ? <KeysSection /> : null}
           {section === 'models' ? <ModelsSection /> : null}
           {section === 'mcp' ? <McpServersSection /> : null}
+          {section === 'effects' ? <EffectsSection /> : null}
           {section === 'plugins' ? <PluginsSection /> : null}
           {section === 'logs' ? <LogsSection patch={patch} /> : null}
           {section === 'about' ? <AboutSection /> : null}

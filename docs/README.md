@@ -13,6 +13,7 @@ RFCs marked `historical` preserve design context and do not override an accepted
 
 - [Logic and documentation review, 18 September 2026](audit/2026-09-18/01-logic-and-documentation-review.md): current code findings, verification evidence and documentation-quality assessment.
 - [Repair status for the 18 September review](audit/2026-09-18/02-repair-status.md): implemented fixes, retained compatibility behavior, and validation results.
+- [Production implementation and publication status, 22 October](audit/2026-10-21/05-readiness-and-publication-status.md): hardening, recovery, diagnostics, Studio controls, verification and remaining gates.
 - [Audit findings, 8 September 2026](audit/2026-09-08/01-findings.md): historical findings against the recorded commit.
 - [Architecture recommendations](audit/2026-09-08/02-recommendations.md).
 - [Repair status](audit/2026-09-08/03-repair-status.md): implementation and verification follow-up.
@@ -22,6 +23,8 @@ RFCs marked `historical` preserve design context and do not override an accepted
 - [Custom agent guide](custom_agent_guide.md).
 - [Core agents](core_agents.md).
 - [Environment configuration](environment.md).
+- [Structured diagnostics and scoped repository guidance](diagnostics-and-guidance.md).
+- [External effect recovery and reconciliation](external-effect-recovery.md).
 - [MCP servers and plugins](extensions.md).
 - [Studio workspace and activity views](studio-workspaces.md).
 - [Roadmap and complete RFC register](ROADMAP.md).

@@ -64,6 +64,8 @@ export const IPC = {
   apiPluginInstall: 'api:plugin-install',
   apiPluginDelete: 'api:plugin-delete',
   apiPluginAction: 'api:plugin-action',
+  apiEffects: 'api:effects',
+  apiEffectReconcile: 'api:effect-reconcile',
 
   // --- workspace / filesystem ----------------------------------------------
   workspaceAgents: 'workspace:agents',
@@ -757,6 +759,28 @@ export type CommandId =
   | 'graph.styleCompact'
   | 'graph.styleHex'
 
+export interface ExternalEffect {
+  id: string
+  attempt_id: string
+  execution?: string
+  task_id?: string
+  adapter: string
+  target: string
+  request_hash: string
+  state: 'prepared' | 'running' | 'interrupted' | 'succeeded' | 'failed' | 'cancelled'
+  updated_at: string
+  external_id?: string
+  detail?: string
+}
+
+export interface EffectSnapshot { effects: ExternalEffect[]; truncated: boolean }
+export interface EffectReconcile {
+  id: string
+  state: 'succeeded' | 'failed' | 'cancelled'
+  external_id?: string
+  observation: string
+}
+
 export interface ApiResult<T> {
   ok: boolean
   data?: T
@@ -868,6 +892,8 @@ export interface ReticleBridge {
     installPlugin(path: string): Promise<ApiResult<PluginView>>
     deletePlugin(id: string): Promise<ApiResult<void>>
     actOnPlugin(id: string, action: PluginAction): Promise<ApiResult<PluginView>>
+    effects(state?: ExternalEffect['state']): Promise<ApiResult<EffectSnapshot>>
+    reconcileEffect(request: EffectReconcile): Promise<ApiResult<void>>
   }
 
   workspace: {
