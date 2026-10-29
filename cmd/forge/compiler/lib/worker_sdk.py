@@ -999,19 +999,11 @@ def run(instructions, kind="coding", skills=None):
             implementations[tool] = getattr(quant_tools, tool)
             tool_capabilities[tool] = "network.public"
     import comfy_tools
-    import urllib.request, urllib.parse
     comfy_checkpoints = ""
     if "image.local" in capabilities:
-        try:
-            host = os.getenv("COMFYUI_HOST", "http://127.0.0.1:8188").rstrip("/")
-            req_chk = urllib.request.Request(host+"/object_info/CheckpointLoaderSimple")
-            with urllib.request.urlopen(req_chk, timeout=2) as res:
-                chk_data = json.loads(res.read(1024*1024))
-                ckpt_list = chk_data.get("CheckpointLoaderSimple", {}).get("input", {}).get("required", {}).get("ckpt_name", [[]])[0]
-                if ckpt_list:
-                    comfy_checkpoints = " Available checkpoints: " + ", ".join(ckpt_list)
-        except Exception:
-            pass
+        ckpt_list = comfy_tools.local_image_checkpoints()
+        if ckpt_list:
+            comfy_checkpoints = " Available checkpoints: " + ", ".join(ckpt_list)
 
     if "workspace.read" in capabilities:
         definitions["check_web_page"]=(

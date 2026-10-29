@@ -25,7 +25,7 @@ def release_comfy_models(log=emit_log):
     if os.getenv("RETICLE_COMFY_AUTO_UNLOAD", "true").lower() == "false":
         return
     try:
-        host = _local_endpoint("COMFYUI_HOST", "http://127.0.0.1:8188")
+        host = comfy_host()
         _post_json(host + "/free", {"unload_models": True, "free_memory": True})
         log("Requested ComfyUI model and cache unload")
     except Exception as exc:
@@ -117,6 +117,65 @@ def ollama_model_loaded(model):
     except Exception:
         return False
 
+# ComfyUI's own default, then ComfyUI Desktop's. Used only when COMFYUI_HOST is unset.
+COMFYUI_DEFAULT_HOSTS = ("http://127.0.0.1:8188", "http://127.0.0.1:8000")
+_discovered_comfy_host = None
+
+def _checkpoint_names(payload):
+    """Checkpoint names from /object_info/CheckpointLoaderSimple, in either ComfyUI format."""
+    spec = payload.get("CheckpointLoaderSimple", {}).get("input", {}).get("required", {}).get("ckpt_name", [])
+    names = spec[0] if spec else []
+    # Newer ComfyUI describes combo inputs as ["COMBO", {"options": [...]}].
+    if names == "COMBO" and len(spec) > 1 and isinstance(spec[1], dict):
+        names = spec[1].get("options", [])
+    return [name for name in names if isinstance(name, str)] if isinstance(names, list) else []
+
+def _probe_comfy(host, timeout):
+    with urllib.request.urlopen(host + "/object_info/CheckpointLoaderSimple", timeout=timeout) as response:
+        payload = json.loads(response.read(1024 * 1024))
+    # Another local service on a candidate port must not pass for ComfyUI.
+    if not isinstance(payload, dict) or "CheckpointLoaderSimple" not in payload:
+        raise ValueError(f"{host} is not a ComfyUI server")
+    return _checkpoint_names(payload)
+
+def _comfy_endpoint(timeout=2):
+    """(host, checkpoints) for the local ComfyUI; checkpoints is None when none answers.
+
+    A configured COMFYUI_HOST is the only candidate. Otherwise the usual local ports are
+    tried in turn, so ComfyUI Desktop works without configuration."""
+    global _discovered_comfy_host
+    if os.getenv("COMFYUI_HOST"):
+        candidates = [_local_endpoint("COMFYUI_HOST", COMFYUI_DEFAULT_HOSTS[0])]
+    else:
+        candidates = list(dict.fromkeys(filter(None, (_discovered_comfy_host, *COMFYUI_DEFAULT_HOSTS))))
+    for host in candidates:
+        try:
+            checkpoints = _probe_comfy(host, timeout)
+        except Exception:
+            continue
+        if not os.getenv("COMFYUI_HOST"):
+            _discovered_comfy_host = host
+        return host, checkpoints
+    return candidates[0], None
+
+def comfy_host():
+    """The local ComfyUI base URL to talk to; raises ValueError for a non-local COMFYUI_HOST."""
+    return _comfy_endpoint()[0]
+
+def local_image_checkpoints(timeout=2):
+    """Checkpoint names a reachable local ComfyUI offers, or None when it cannot be reached.
+
+    Planning has to know this at the time it runs: the runtime catalogue is built once at
+    startup, while ComfyUI is often started (or stopped) separately."""
+    try:
+        return _comfy_endpoint(timeout)[1]
+    except ValueError:
+        return None
+
+def local_image_generation_available():
+    checkpoints = local_image_checkpoints()
+    return checkpoints is not None and bool(checkpoints or os.environ.get("COMFYUI_CHECKPOINT"))
+
 def generate_local_asset(prompt: str, output_path: str, workspace_dir: str, checkpoint: str = None, width: int = 1024, height: int = 1024) -> str:
     with local_gpu_session("comfy"):
         try:
@@ -195,7 +254,7 @@ def _encode_image(png_bytes, format_name):
 
 def _generate_local_asset(prompt: str, output_path: str, workspace_dir: str, checkpoint: str = None, width: int = 1024, height: int = 1024) -> str:
     """
-    Sends a prompt to a local ComfyUI instance (http://localhost:8188) to generate an image.
+    Sends a prompt to the local ComfyUI instance (see _comfy_endpoint) to generate an image.
     The image is saved directly to output_path.
     """
     emit_log(f"Executing generate_local_asset for prompt: '{prompt[:30]}...' -> {output_path}")
@@ -204,25 +263,16 @@ def _generate_local_asset(prompt: str, output_path: str, workspace_dir: str, che
     output_format = _output_format(output_path)
     if width < 64 or height < 64 or width > 2048 or height > 2048 or width % 8 or height % 8:
         raise ValueError("Image dimensions must be multiples of 8 from 64 to 2048")
-    host = os.getenv("COMFYUI_HOST", "http://127.0.0.1:8188").rstrip("/")
-    if urllib.parse.urlsplit(host).hostname not in ("localhost", "127.0.0.1", "::1"):
-        raise ValueError("Only a configured local ComfyUI endpoint is supported")
-    
+    try:
+        host, available = _comfy_endpoint()
+    except ValueError:
+        raise ValueError("Only a configured local ComfyUI endpoint is supported") from None
+
     if not checkpoint:
         checkpoint = os.environ.get("COMFYUI_CHECKPOINT")
-        
-    if not checkpoint:
-        # Fallback to fetching the first available checkpoint dynamically
-        try:
-            req_chk = urllib.request.Request(host+"/object_info/CheckpointLoaderSimple")
-            with urllib.request.urlopen(req_chk, timeout=2) as res:
-                chk_data = json.loads(res.read(1024*1024))
-                ckpt_list = chk_data.get("CheckpointLoaderSimple", {}).get("input", {}).get("required", {}).get("ckpt_name", [[]])[0]
-                if ckpt_list:
-                    checkpoint = ckpt_list[0]
-        except Exception as e:
-            pass
-            
+    if not checkpoint and available:
+        checkpoint = available[0]
+
     if not checkpoint:
         raise ValueError("Configure COMFYUI_CHECKPOINT from the server's installed checkpoints, or pass a valid checkpoint argument.")
     ui_state("WAITING_COMFY")
@@ -281,7 +331,7 @@ def _generate_local_asset(prompt: str, output_path: str, workspace_dir: str, che
             if not isinstance(prompt_id,str) or not prompt_id: raise ValueError('Missing ComfyUI job ID')
     except Exception as e:
         ui_state("RESUMED")
-        return f"Error contacting ComfyUI on port 8188: {str(e)}. Is it running?"
+        return f"Error contacting ComfyUI at {host}: {str(e)}. Is it running? Set COMFYUI_HOST if it listens elsewhere."
     
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:

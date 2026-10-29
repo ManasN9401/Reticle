@@ -633,46 +633,33 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool, providerRegistries .
 	}
 
 	// 5. ComfyUI (Virtual Local Image Generator)
-	comfyHost := os.Getenv("COMFYUI_HOST")
-	if comfyHost == "" {
-		comfyHost = "http://127.0.0.1:8188"
+	comfyHosts := []string{"http://127.0.0.1:8188", "http://127.0.0.1:8000"} // ComfyUI, then ComfyUI Desktop
+	if configured := os.Getenv("COMFYUI_HOST"); configured != "" {
+		comfyHosts = []string{configured}
 	}
-	comfyHost = strings.TrimRight(comfyHost, "/")
-	reqComfy, _ := http.NewRequest("GET", comfyHost+"/object_info/CheckpointLoaderSimple", nil)
-	if resp, err := client.Do(reqComfy); err == nil && resp.StatusCode == 200 {
-		var comfyData map[string]any
-		if b, err := io.ReadAll(resp.Body); err == nil {
-			json.Unmarshal(b, &comfyData)
-			if loader, ok := comfyData["CheckpointLoaderSimple"].(map[string]any); ok {
-				if inputs, ok := loader["input"].(map[string]any); ok {
-					if required, ok := inputs["required"].(map[string]any); ok {
-						if ckptName, ok := required["ckpt_name"].([]any); ok && len(ckptName) > 0 {
-							if ckptList, ok := ckptName[0].([]any); ok {
-								for _, ckptRaw := range ckptList {
-									if ckptStr, ok := ckptRaw.(string); ok {
-										newAvailableModels = append(newAvailableModels, Model{
-											ID:          "comfyui/" + ckptStr,
-											Cost:        0.0,
-											Capability:  10.0,
-											EndpointEnv: "COMFYUI_HOST",
-											Enabled:     true,
-											Modality:    "image",
-										})
-									}
-								}
-								log.Info("Dynamically loaded ComfyUI models", "host", comfyHost, "count", len(ckptList))
-							}
-						}
-					}
-				}
-			}
+	comfyFound := false
+	for _, comfyHost := range comfyHosts {
+		comfyHost = strings.TrimRight(comfyHost, "/")
+		ckptList, ok := comfyCheckpoints(client, comfyHost)
+		if !ok {
+			continue
 		}
-		resp.Body.Close()
-	} else {
-		if resp != nil {
-			resp.Body.Close()
+		for _, ckptStr := range ckptList {
+			newAvailableModels = append(newAvailableModels, Model{
+				ID:          "comfyui/" + ckptStr,
+				Cost:        0.0,
+				Capability:  10.0,
+				EndpointEnv: "COMFYUI_HOST",
+				Enabled:     true,
+				Modality:    "image",
+			})
 		}
-		log.Info("ComfyUI not detected or unreachable; no image model advertised", "host", comfyHost)
+		log.Info("Dynamically loaded ComfyUI models", "host", comfyHost, "count", len(ckptList))
+		comfyFound = true
+		break
+	}
+	if !comfyFound {
+		log.Info("ComfyUI not detected or unreachable; no image model advertised", "hosts", strings.Join(comfyHosts, ", "))
 	}
 
 	// 6. Generic OpenAI-compatible local server (llama.cpp/llama-server)
@@ -922,4 +909,46 @@ func discoverConfiguredProvider(client *http.Client, config ProviderConfig, obse
 	}
 	health := KeyHealth{Key: config.APIKeyEnv, Status: KeyHealthy, ObservedAt: observedAt}
 	return models, &health, status
+}
+
+// comfyCheckpoints lists the checkpoints a ComfyUI server at host offers. ok is false
+// when nothing answering there is ComfyUI. Both ckpt_name formats are accepted: the
+// legacy [[names...]] and the newer ["COMBO", {"options": [names...]}].
+func comfyCheckpoints(client *http.Client, host string) (names []string, ok bool) {
+	resp, err := client.Get(host + "/object_info/CheckpointLoaderSimple")
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var payload struct {
+		Loader *struct {
+			Input struct {
+				Required struct {
+					CkptName []json.RawMessage `json:"ckpt_name"`
+				} `json:"required"`
+			} `json:"input"`
+		} `json:"CheckpointLoaderSimple"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil || payload.Loader == nil {
+		return nil, false
+	}
+	spec := payload.Loader.Input.Required.CkptName
+	if len(spec) == 0 {
+		return nil, true
+	}
+	var kind string
+	if json.Unmarshal(spec[0], &kind) == nil && kind == "COMBO" {
+		var combo struct {
+			Options []string `json:"options"`
+		}
+		if len(spec) > 1 {
+			_ = json.Unmarshal(spec[1], &combo)
+		}
+		return combo.Options, true
+	}
+	_ = json.Unmarshal(spec[0], &names)
+	return names, true
 }

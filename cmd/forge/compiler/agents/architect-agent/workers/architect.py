@@ -109,6 +109,53 @@ CAPABILITY_REALITY_PROMPT = (
     "nothing can produce and which a node will invent or run out of turns trying to obtain."
 )
 
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+
+def image_paths(paths):
+    return [p for p in paths if isinstance(p, str) and p.lower().endswith(IMAGE_EXTENSIONS)]
+
+# The image tools sit in the catalogue as one entry among dozens, and the only plain-language
+# guidance about images was "do not grant image capability unless required". A user who asked
+# for a site with images got a site without them and no word about why.
+IMAGE_GENERATION_AVAILABLE_PROMPT = (
+    "LOCAL IMAGE GENERATION: available. A worker granted image.local creates PNG, JPEG or WebP files "
+    "with generate_local_asset, or several in one call with generate_local_assets. When the user's goal "
+    "asks for any images (photos, illustrations, hero or background images, icons, logos, textures, "
+    "sprites, product shots), plan a dedicated asset node that creates them: its agent has image.local, "
+    "its output_files are the exact image paths (ending .png, .jpg, .jpeg or .webp), and it is upstream "
+    "of every node that uses them. Those nodes list the image paths in input_files and reference exactly "
+    "those paths. Do not replace requested images with CSS gradients, emoji, placeholder services or "
+    "remote URLs, and never ask a node to write an image with write_file."
+)
+IMAGE_GENERATION_UNAVAILABLE_PROMPT = (
+    "LOCAL IMAGE GENERATION: unavailable for this run (no reachable local ComfyUI with a checkpoint). "
+    "No node can create image files: declare no .png, .jpg, .jpeg or .webp output_files and grant no "
+    "image.local. If the user asked for images, design pages that work without them, and have the final "
+    "node's README state that the requested images were not generated because local image generation "
+    "was unavailable."
+)
+
+def image_generation_prompt(available):
+    return IMAGE_GENERATION_AVAILABLE_PROMPT if available else IMAGE_GENERATION_UNAVAILABLE_PROMPT
+
+def grant_image_capability(data):
+    """Give image.local to every generated agent that owns a node declaring image outputs.
+
+    Without it the image tools are never offered to that worker, so the node can only fail or
+    fake its images. Registered agents keep their maintained profile; validate_dag rejects a
+    registered agent that lacks the capability instead."""
+    agents = {a.get("id"): a for a in data.get("agents", []) if isinstance(a, dict)}
+    for node in data.get("nodes", []):
+        if not isinstance(node, dict) or not image_paths(node.get("output_files") or []):
+            continue
+        agent = agents.get(node.get("agent_id"))
+        if agent is None or agent.get("is_new") is not True:
+            continue
+        capabilities = agent.get("capabilities")
+        # An empty list is left for validate_dag's explicit-capabilities error.
+        if isinstance(capabilities, list) and capabilities and "image.local" not in capabilities:
+            capabilities.append("image.local")
+
 def owns_several_nodes(data, agent_id):
     return sum(1 for n in data.get("nodes", []) if n.get("agent_id") == agent_id) > 1
 
@@ -160,11 +207,26 @@ def build_agent_prompt(agent, data, user_prompt, only_node_id=None, generic=Fals
             "relevant upstream files listed above (or running a validation command) and "
             "summarize your findings — do not wait for a file to appear."
         )
+    # Kept on its own line: the worker parses the declared outputs out of the sentence above,
+    # which must end at its own newline.
+    image_instruction = ""
+    if image_paths(outputs):
+        image_instruction += (
+            f"Create the images {_list_text(image_paths(outputs))} with generate_local_asset, or "
+            "generate_local_assets for several at once; never write an image with write_file. Describe "
+            "each image's subject, composition and style in its prompt so it fits the user's goal.\n"
+        )
+    if image_paths(inputs):
+        image_instruction += (
+            f"The inputs {_list_text(image_paths(inputs))} are generated images: reference them by exactly "
+            "those paths in your files, and do not read them as text.\n"
+        )
     return (
         f"You are {agent_id}. Your responsibility is: {description}.\n"
         f"The user's goal is: {user_prompt}\n"
         f"Your workflow nodes are: {_list_text(node_ids)}. Read these workspace files: "
         f"{_list_text(inputs)}. {output_instruction}\n"
+        f"{image_instruction}"
         f"Upstream nodes are: {_list_text(predecessors)}. Downstream nodes are: "
         f"{_list_text(successors)}. Preserve upstream work and make every declared output usable "
         "by downstream nodes. Use the language and framework requested by the user or established "
@@ -218,7 +280,7 @@ def attach_node_prompts(data, user_prompt):
 
 def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexity=5,
                  available_capability_ids=None, available_mcp_server_ids=None,
-                 agent_capabilities=None):
+                 agent_capabilities=None, image_generation_available=True):
     if not isinstance(data, dict):
         raise ValueError("DAG must be a JSON object")
     agents = data.get("agents")
@@ -310,6 +372,18 @@ def validate_dag(data, available_agent_ids, available_skill_ids, agent_complexit
                 "output_files. List the concrete files it creates, or give review-only work to an agent "
                 "without workspace.write"
             )
+        node_images = image_paths(node.get("output_files", []))
+        if node_images and not image_generation_available:
+            raise ValueError(
+                f"Node {node_id} declares image outputs ({', '.join(node_images)}), but local image generation "
+                "is unavailable for this run. Remove image files from every output_files and input_files"
+            )
+        if node_images and node_capabilities is not None and "image.local" not in node_capabilities:
+            raise ValueError(
+                f"Node {node_id} declares image outputs ({', '.join(node_images)}), but agent "
+                f"{node.get('agent_id')} lacks image.local, so it cannot generate them. Give the image work to "
+                "a new agent that declares image.local, or to a catalogue agent that has it"
+            )
         for path in node.get("output_files", []):
             if path in producers:
                 raise ValueError(f"Workspace output {path} has multiple producers")
@@ -389,6 +463,12 @@ def main():
 
         catalog_prompt = json.dumps(catalog, indent=2, ensure_ascii=False)
         capability_reality = capability_reality_prompt(catalog)
+        image_generation_available = comfy_tools.local_image_generation_available()
+        if not image_generation_available:
+            print("[ARCHITECT] Local image generation unavailable (no reachable ComfyUI with a checkpoint); "
+                  "this plan will not generate images.", file=sys.stderr)
+            log_file.flush()
+        image_generation = image_generation_prompt(image_generation_available)
 
         agent_complexity = int(mem.get("agent_complexity", 5))
         complexity_prompt = depth_instruction(agent_complexity)
@@ -433,6 +513,7 @@ The catalogue comes from the live runtime registry. Its agents are every dispatc
 CRITICAL INSTRUCTION: When assigning `skills` to an agent, you MUST ONLY use skill IDs from the catalogue. NEVER invent or hallucinate new skills.
 SKILL SELECTION: A skill's whole instruction file is copied into the prompt of every agent that lists it, so each skill must earn its place. For each agent, read every catalogue skill's `use_when` and `instructions_bytes`, and assign a skill when its `use_when` matches that agent's actual task, files or technology. Assign the one to three most specific skills (never more than {MAX_SKILLS_PER_AGENT}). Do NOT assign a skill written for a different stack: React/Next.js patterns to a vanilla JavaScript, three.js or plain HTML/CSS page, or ML/DevOps skills to simple frontend or backend agents. An agent that writes a site's pages, styles, 3D scenes or animations should get the catalogue skill whose `use_when` covers visual web work. If no skill matches, assign an empty list: [].
 {capability_reality}
+{image_generation}
 CRITICAL INSTRUCTION: Every new agent MUST declare the smallest explicit `capabilities` set needed for its tools. Do not grant network, native execution, image, RAG, delegation, cloud, security-active, or GPU capability unless its exact task requires it. Reused maintained agents keep their registered capability profile, so emit an empty capabilities list for `is_new: false` agents.
 CRITICAL INSTRUCTION: A catalogue tool constrained by `mcp.server:<id>` requires both `mcp.call` and that exact id in a new agent's `mcp_servers`. A tool constrained by `plugin:<id>` is available only to a reused catalogue agent whose `tool_policies` includes that constraint; new agents cannot request plugin policy grants.
 
@@ -637,10 +718,11 @@ Output ONLY the raw JSON. Do not output markdown code blocks.
                 raw_content = raw_content.strip()
                 data = json.loads(raw_content)
 
+                grant_image_capability(data)
                 validate_dag(
                     data, available_agent_ids, available_skill_ids, agent_complexity,
                     available_capability_ids, available_mcp_server_ids,
-                    registered_capabilities,
+                    registered_capabilities, image_generation_available,
                 )
 
             except Exception as e:

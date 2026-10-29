@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -142,6 +143,128 @@ class CompilerContractsTest(unittest.TestCase):
         offered = self.architect.capability_reality_prompt({"tools": [{"id": "run_page"}]})
         self.assertIn("browser.run", offered)
         self.assertNotIn("No agent can open a browser", offered)
+
+    def image_fixture(self):
+        dag = self.fixture()
+        dag["agents"].append({"id": "artist", "description": "make the hero image", "is_new": True,
+                              "system_prompt": "TBD", "skills": [], "capabilities": ["workspace.read", "workspace.write"]})
+        dag["nodes"][1]["input_files"] = ["plan.md", "assets/hero.png"]
+        dag["nodes"].append({"id": "art", "agent_id": "artist", "input_files": ["plan.md"],
+                             "output_files": ["assets/hero.png", "assets/credits.md"]})
+        dag["edges"] += [{"from": "first", "to": "art"}, {"from": "art", "to": "second"}]
+        return dag
+
+    def test_the_architect_is_told_whether_it_can_plan_images(self):
+        # The image tools were one catalogue entry among dozens and the only prose about images was
+        # "do not grant image capability", so a request for a site with images produced none.
+        source = (COMPILER / "agents" / "architect-agent" / "workers" / "architect.py").read_text(encoding="utf-8")
+        self.assertIn("{image_generation}", source, "the rule is defined but never put in the system prompt")
+        available = self.architect.image_generation_prompt(True)
+        self.assertIn("plan a dedicated asset node", available)
+        self.assertIn("image.local", available)
+        unavailable = self.architect.image_generation_prompt(False)
+        self.assertIn("unavailable", unavailable)
+        self.assertIn("README", unavailable, "a dropped image request must be reported, not silent")
+
+    def test_image_nodes_are_told_to_generate_and_consumers_to_reference(self):
+        dag = self.image_fixture()
+        artist = self.architect.build_agent_prompt(dag["agents"][2], dag, "site with a hero image")
+        self.assertIn("generate_local_asset", artist)
+        self.assertIn("never write an image with write_file", artist)
+        # The worker still parses every declared output, image or not, out of the prompt.
+        self.assertEqual(self.worker_sdk._required_output_paths(artist), {"assets/hero.png", "assets/credits.md"})
+        page = self.architect.build_agent_prompt(dag["agents"][1], dag, "site with a hero image")
+        self.assertIn("reference them by exactly those paths", page)
+        self.assertEqual(self.worker_sdk._required_output_paths(page), {"result.txt"})
+        plain = self.architect.build_agent_prompt(self.fixture()["agents"][1], self.fixture(), "no images")
+        self.assertNotIn("generate_local_asset", plain)
+
+    def test_a_generated_agent_owning_image_outputs_is_granted_image_local(self):
+        dag = self.image_fixture()
+        dag["agents"].append({"id": "lazy", "is_new": True, "capabilities": []})
+        dag["nodes"].append({"id": "lazy-art", "agent_id": "lazy", "output_files": ["icon.webp"]})
+        self.architect.grant_image_capability(dag)
+        self.assertIn("image.local", dag["agents"][2]["capabilities"])
+        self.assertEqual(dag["agents"][0]["capabilities"], [], "a registered profile is never widened")
+        self.assertEqual(dag["agents"][3]["capabilities"], [], "an undeclared set still hits the explicit-capabilities rule")
+        self.assertNotIn("image.local", dag["agents"][1]["capabilities"], "only agents that make images get it")
+
+    def test_image_outputs_need_a_capable_agent_and_a_reachable_comfyui(self):
+        dag = self.image_fixture()
+        dag["nodes"] = [n for n in dag["nodes"] if n["id"] != "art"]
+        dag["nodes"][1]["input_files"] = ["plan.md"]
+        dag["edges"] = [{"from": "first", "to": "second"}]
+        dag["nodes"][0]["output_files"] = ["plan.md", "hero.png"]
+        with self.assertRaisesRegex(ValueError, "lacks image.local"):
+            self.architect.validate_dag(dag, {"existing"}, set(), 3, agent_capabilities={"existing": {"workspace.write"}})
+        self.architect.validate_dag(dag, {"existing"}, set(), 3, agent_capabilities={"existing": {"workspace.write", "image.local"}})
+        dag = self.image_fixture()
+        self.architect.grant_image_capability(dag)
+        self.architect.validate_dag(dag, {"existing"}, set(), 3)
+        with self.assertRaisesRegex(ValueError, "image generation is unavailable"):
+            self.architect.validate_dag(dag, {"existing"}, set(), 3, image_generation_available=False)
+
+    def test_image_availability_follows_the_live_comfyui(self):
+        class Response(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *args): self.close()
+        legacy = {"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["sdxl.safetensors"]]}}}}
+        combo = {"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": ["COMBO", {"options": ["flux.safetensors"]}]}}}}
+        empty = {"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [[]]}}}}
+        tools = self.comfy_tools
+        def serving(payload):
+            return lambda *args, **kwargs: Response(json.dumps(payload).encode())
+        with mock.patch.dict("os.environ", {"COMFYUI_HOST": "http://127.0.0.1:8188"}, clear=False):
+            for payload, checkpoints in ((legacy, ["sdxl.safetensors"]), (combo, ["flux.safetensors"])):
+                with mock.patch.object(tools.urllib.request, "urlopen", side_effect=serving(payload)):
+                    self.assertEqual(tools.local_image_checkpoints(), checkpoints)
+                    self.assertTrue(tools.local_image_generation_available())
+            with mock.patch.object(tools.urllib.request, "urlopen", side_effect=serving(empty)), \
+                    mock.patch.dict("os.environ", {"COMFYUI_CHECKPOINT": ""}, clear=False):
+                self.assertFalse(tools.local_image_generation_available(), "a server with no checkpoint cannot generate")
+            with mock.patch.object(tools.urllib.request, "urlopen", side_effect=OSError("refused")):
+                self.assertIsNone(tools.local_image_checkpoints())
+                self.assertFalse(tools.local_image_generation_available())
+        with mock.patch.dict("os.environ", {"COMFYUI_HOST": "http://203.0.113.5:8188"}, clear=False):
+            self.assertIsNone(tools.local_image_checkpoints(), "only a local ComfyUI is ever probed")
+
+    def test_an_unconfigured_comfyui_is_found_on_the_desktop_port(self):
+        class Response(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *args): self.close()
+        combo = {"CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": ["COMBO", {"options": ["flux.safetensors"]}]}}}}
+        tools = self.comfy_tools
+        def desktop_only(url, *args, **kwargs):
+            if url.startswith("http://127.0.0.1:8000/"):
+                return Response(json.dumps(combo).encode())
+            raise OSError("refused")
+        environ = {key: value for key, value in os.environ.items() if key not in ("COMFYUI_HOST", "COMFYUI_CHECKPOINT")}
+        with mock.patch.dict("os.environ", environ, clear=True), \
+                mock.patch.object(tools, "_discovered_comfy_host", None), \
+                mock.patch.object(tools.urllib.request, "urlopen", side_effect=desktop_only):
+            self.assertEqual(tools.comfy_host(), "http://127.0.0.1:8000")
+            self.assertEqual(tools.local_image_checkpoints(), ["flux.safetensors"])
+        # Some other service answering on the port is not mistaken for ComfyUI.
+        with mock.patch.dict("os.environ", environ, clear=True), \
+                mock.patch.object(tools, "_discovered_comfy_host", None), \
+                mock.patch.object(tools.urllib.request, "urlopen", side_effect=lambda *a, **k: Response(b'{"status": "ok"}')):
+            self.assertIsNone(tools.local_image_checkpoints())
+
+    def test_generation_picks_a_checkpoint_from_the_newer_comfyui_format(self):
+        combo = ["flux.safetensors"]
+        queued = []
+        def refuse_queue(request, *args, **kwargs):
+            queued.append(json.loads(request.data)["prompt"]["4"]["inputs"]["ckpt_name"])
+            raise OSError("stop before polling")
+        tools = self.comfy_tools
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict("os.environ", {"COMFYUI_HOST": "http://127.0.0.1:8188", "COMFYUI_CHECKPOINT": ""}, clear=False), \
+                mock.patch.object(tools, "_comfy_endpoint", return_value=("http://127.0.0.1:8188", combo)), \
+                mock.patch.object(tools, "ui_state"), \
+                mock.patch.object(tools.urllib.request, "urlopen", side_effect=refuse_queue):
+            message = tools._generate_local_asset("a roastery", "hero.png", tmp)
+        self.assertEqual(queued, ["flux.safetensors"], "not the first letter of \"COMBO\"")
+        self.assertIn("http://127.0.0.1:8188", message)
 
     def test_an_agent_cannot_list_more_skills_than_its_prompt_should_carry(self):
         dag = self.fixture()
