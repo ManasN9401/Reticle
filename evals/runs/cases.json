@@ -1,0 +1,61 @@
+[
+  {
+    "id": "landing-images",
+    "kind": "web",
+    "depth": 3,
+    "timeout_minutes": 45,
+    "prompt": "Build a one-page landing site for a fictional coffee roastery called Ember & Oak, in plain HTML, CSS and JavaScript. Generate a hero image of a moody, warm-lit roastery interior, and three product photos of coffee bags on a wooden table. Use only the generated images, with no external image URLs. Include a menu section, an about section and a contact form with client-side validation.",
+    "expect": {
+      "files": ["**/*.html", "**/*.css"],
+      "mentions": ["Ember & Oak", "menu", "about", "contact"],
+      "images": 4
+    }
+  },
+  {
+    "id": "todo-app",
+    "kind": "web",
+    "depth": 3,
+    "timeout_minutes": 30,
+    "prompt": "Build a to-do list web app in plain HTML, CSS and JavaScript. A user can add a task, mark it done, edit its text, delete it, and filter by all, active and completed. Tasks persist in localStorage across reloads. Show how many tasks are left, and make it usable with the keyboard alone.",
+    "expect": {
+      "files": ["**/*.html", "**/*.js"],
+      "mentions": ["localStorage", "active", "completed"]
+    }
+  },
+  {
+    "id": "canvas-game",
+    "kind": "web",
+    "depth": 3,
+    "timeout_minutes": 40,
+    "prompt": "Build a small original browser game on an HTML canvas in plain JavaScript. The player steers a paper boat down a river with the arrow keys, collecting floating lanterns for points and avoiding rocks. The river scrolls and speeds up over time. Show the score and three lives, end the game when the lives run out, and let the player restart with the space bar.",
+    "expect": {
+      "files": ["**/*.html", "**/*.js"],
+      "mentions": ["canvas", "score", "lives", "restart"],
+      "canvas": true
+    }
+  },
+  {
+    "id": "flask-api",
+    "kind": "python",
+    "depth": 3,
+    "timeout_minutes": 40,
+    "prompt": "Build a Flask REST API for personal notes stored in SQLite. Endpoints: create a note, list notes with optional text search, get one note, update it and delete it. Validate input and return JSON errors with proper status codes. Include pytest tests that cover every endpoint using Flask's test client, a requirements.txt and a README explaining how to run the server and the tests.",
+    "expect": {
+      "files": ["**/*.py", "**/test*.py", "**/requirements.txt", "**/README.md"],
+      "mentions": ["sqlite", "pytest", "404"],
+      "test_command": ["-m", "pytest", "-q"]
+    }
+  },
+  {
+    "id": "csv-cli",
+    "kind": "python",
+    "depth": 1,
+    "timeout_minutes": 25,
+    "prompt": "Build a Python command-line tool, using only the standard library, that summarises a CSV file: row count, and for each column its inferred type, number of missing values, and min, max and mean for numeric columns. Support --columns to choose columns and --json for JSON output. Include a small sample CSV, unittest tests, and a README with usage examples.",
+    "expect": {
+      "files": ["**/*.py", "**/test*.py", "**/*.csv", "**/README.md"],
+      "mentions": ["argparse", "--json", "--columns"],
+      "test_command": ["-m", "unittest", "discover", "-v"]
+    }
+  }
+]

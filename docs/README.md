@@ -24,6 +24,7 @@ RFCs marked `historical` preserve design context and do not override an accepted
 - [Core agents](core_agents.md).
 - [Environment configuration](environment.md).
 - [Structured diagnostics and scoped repository guidance](diagnostics-and-guidance.md).
+- [Run evaluation](run-evaluation.md): fixed requests, objective output checks and version comparison.
 - [External effect recovery and reconciliation](external-effect-recovery.md).
 - [MCP servers and plugins](extensions.md).
 - [Studio workspace and activity views](studio-workspaces.md).

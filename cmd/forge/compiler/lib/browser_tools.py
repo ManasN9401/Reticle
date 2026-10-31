@@ -1130,15 +1130,21 @@ def _listing(title, items, formatter=lambda item: item):
     return lines
 
 
-def format_report(page_name, observation, screenshot_path, backend):
-    obs = observation
-    page = obs.get("page") or {}
-    problems = (
+def count_problems(obs):
+    """Problems a page load showed: exceptions, failed or erroring requests, console errors,
+    a failed or incomplete load, and an unresponsive page. A blank screen is judged separately."""
+    return (
         len(obs["exceptions"]) + len(obs["failed"]) + len(obs["http_errors"])
         + sum(1 for kind, _ in obs["console"] if kind in ("error", "assert"))
         + (1 if obs["navigation_error"] or not obs["loaded"] else 0)
         + (1 if obs["unresponsive"] else 0)
     )
+
+
+def format_report(page_name, observation, screenshot_path, backend):
+    obs = observation
+    page = obs.get("page") or {}
+    problems = count_problems(obs)
     stats = obs.get("stats")
     blank = stats is not None and stats["dominant"] >= 0.995
     lines = [f"Ran {page_name} in a headless browser ({backend}); viewport as requested, waited {obs['wait_seconds']:.1f}s."]
@@ -1214,16 +1220,35 @@ def _screenshot_target(workspace_dir, page_name):
 
 def run_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, screenshot=True, actions=None, deadline_seconds=None):
     """Load a workspace page in a headless browser; return a report of what happened."""
+    result = observe_page(workspace_dir, path, wait_ms, viewport, screenshot, actions, deadline_seconds)
+    if "error" in result:
+        return "Error: " + result["error"]
+    shot = ""
+    if result["image"]:
+        target = _screenshot_target(workspace_dir, result["page"])
+        destination = safe_path(workspace_dir, target)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with open(destination, "xb") as stream:
+            stream.write(result["image"])
+        shot = target
+    return format_report(result["page"], result["observation"], shot, result["backend"])
+
+
+def observe_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, screenshot=True, actions=None, deadline_seconds=None):
+    """Load a workspace page in a headless browser and return what was observed, unformatted.
+
+    Returns {"page", "observation", "image" (PNG bytes or None), "backend"}, or {"error": text}.
+    run_page reports this to a worker; the run evaluation (tools/eval_runs.py) scores it."""
     import web_tools
     root = safe_path(workspace_dir, ".")
     if path:
         page = Path(str(path).lstrip("/"))
         if not (root / page).is_file():
-            return f"Error: {path} does not exist in the workspace."
+            return {"error": f"{path} does not exist in the workspace."}
     else:
         pages = [p for p in web_tools._find_pages(root, None) if p.is_file()]
         if not pages:
-            return "Error: no .html page was found in the workspace to run."
+            return {"error": "no .html page was found in the workspace to run."}
         page = pages[0].relative_to(root)
     page_name = page.as_posix()
 
@@ -1238,9 +1263,9 @@ def run_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, s
     }
     if actions is not None:
         if not isinstance(actions, list):
-            return "Error: actions must be a list of objects such as {\"click\": \"#enter\"}."
+            return {"error": "actions must be a list of objects such as {\"click\": \"#enter\"}."}
         if len(actions) > MAX_ACTIONS:
-            return f"Error: at most {MAX_ACTIONS} actions per run_page call."
+            return {"error": f"at most {MAX_ACTIONS} actions per run_page call."}
         options["actions"] = actions
     budget = _clamped_int(deadline_seconds, DEFAULT_DEADLINE_SECONDS, 5, MAX_DEADLINE_SECONDS)
     deadline = time.monotonic() + budget
@@ -1248,7 +1273,7 @@ def run_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, s
     executable = find_chromium()
     backend = choose_backend(executable)
     if backend is None:
-        return "Error: " + BROWSER_HELP
+        return {"error": BROWSER_HELP}
 
     sweep_stale_profiles()
     observation = _new_observation()
@@ -1271,19 +1296,11 @@ def run_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, s
                     label = f"system browser; Playwright was unavailable: {_short(error, 120)}"
                     image = _cdp_session(executable, options, site, observation, deadline)
         except Exception as error:  # noqa: BLE001 - a browser failure is reported, not raised
-            return f"Error: the browser could not run the page ({backend}): {_short(error, 400)}"
+            return {"error": f"the browser could not run the page ({backend}): {_short(error, 400)}"}
     finally:
         site.close()
 
-    shot = ""
-    if image:
-        target = _screenshot_target(workspace_dir, page_name)
-        destination = safe_path(workspace_dir, target)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        with open(destination, "xb") as stream:
-            stream.write(image)
-        shot = target
-    return format_report(page_name, observation, shot, label)
+    return {"page": page_name, "observation": observation, "image": image or None, "backend": label}
 
 
 if __name__ == "__main__" and len(sys.argv) == 5 and sys.argv[1] == "--playwright-child":
