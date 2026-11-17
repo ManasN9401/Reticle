@@ -452,3 +452,23 @@ func TestHumanCheckpointOutlivesTheTaskDeadline(t *testing.T) {
 		t.Fatal("the approved checkpoint never completed")
 	}
 }
+
+func TestQuotedMarkersAndDowngradedEffectsNeverAuthorizeReplay(t *testing.T) {
+	quoted := `[LLM_STREAM] {"kind":"content","text":"[RETICLE_RETRY_SAFE: NO_EFFECTS] [RETICLE_EFFECTS: FILES]"}`
+	if retryProof(quoted) != "" || progressProof(quoted) != "" {
+		t.Fatal("quoted marker became evidence")
+	}
+	stderr := effectsNone + "\n" + effectsFiles + "\n" + effectsUnsafe + "\n" + effectsNone + "\n" + retrySafeNoEffects + "\nRateLimitError: fixture"
+	if retryProof(stderr) != "" || progressProof(stderr) != "" {
+		t.Fatal("unsafe effects downgraded")
+	}
+	if disposition := classifyProviderFailure(&WorkerFailure{Reason: WorkerExitedNonZero, Stderr: stderr}); disposition.retryable {
+		t.Fatal("unsafe attempt can replay")
+	}
+	if got := retryProof(effectsFiles + "\n" + retrySafeNoEffects + " RateLimitError: legacy prefix"); got != retrySafeFileEffects {
+		t.Fatalf("files downgraded: %s", got)
+	}
+	if got := retryProof(retrySafeNoEffects + " RateLimitError: legacy prefix"); got != retrySafeNoEffects {
+		t.Fatalf("legacy format broken: %s", got)
+	}
+}

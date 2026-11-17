@@ -743,7 +743,7 @@ func classifyProviderFailure(f *WorkerFailure) providerFailureDisposition {
 	if !disposition.retryable || f == nil {
 		return disposition
 	}
-	if !strings.Contains(f.Stderr, retrySafeNoEffects) && strings.Contains(f.Stderr, retrySafeFileEffects) {
+	if retryProof(f.Stderr) == retrySafeFileEffects {
 		disposition.afterFileEffects = true
 	}
 	return disposition
@@ -765,7 +765,7 @@ func classifyFailureByText(f *WorkerFailure) providerFailureDisposition {
 	}
 
 	// A stalled conversation does not prove that replaying its tools is safe.
-	if !strings.Contains(f.Stderr, retrySafeNoEffects) && !strings.Contains(f.Stderr, retrySafeFileEffects) {
+	if retryProof(f.Stderr) == "" {
 		return result
 	}
 	// A model that cannot get its work accepted, with every file already on disk, is a good
@@ -856,21 +856,44 @@ const (
 	effectsUnsafe = "[RETICLE_EFFECTS: UNSAFE]"
 )
 
-// progressProof turns the last progress line of a worker that was killed before it could say how
-// it ended into the retry-safety marker a worker that did end would have printed. Empty means no
-// proof: the worker never reported, or something that cannot be replayed had run.
-func progressProof(stderr string) string {
-	last, at := "", -1
-	for _, marker := range []string{effectsNone, effectsFiles, effectsUnsafe} {
-		if i := strings.LastIndex(stderr, marker); i > at {
-			last, at = marker, i
+// Marker text in JSON model/tool logs is data, not protocol evidence. Legacy
+// workers may prefix an exception with a marker on the same line; keep that
+// format while requiring the marker to begin its stderr line.
+func hasWorkerMarker(stderr, marker string) bool {
+	for _, line := range strings.Split(stderr, "\n") {
+		line = strings.TrimSpace(line)
+		if line == marker || strings.HasPrefix(line, marker+" ") || strings.HasPrefix(line, marker+"\t") {
+			return true
 		}
 	}
-	switch last {
-	case effectsNone:
-		return retrySafeNoEffects
-	case effectsFiles:
+	return false
+}
+
+// Effect state is monotonic within an attempt. Unsafe progress can never be
+// downgraded, including by a later exit proof or a quoted marker.
+func progressProof(stderr string) string {
+	if hasWorkerMarker(stderr, effectsUnsafe) {
+		return ""
+	}
+	if hasWorkerMarker(stderr, effectsFiles) {
 		return retrySafeFileEffects
+	}
+	if hasWorkerMarker(stderr, effectsNone) {
+		return retrySafeNoEffects
+	}
+	return ""
+}
+
+func retryProof(stderr string) string {
+	if hasWorkerMarker(stderr, effectsUnsafe) {
+		return ""
+	}
+	none, files := hasWorkerMarker(stderr, retrySafeNoEffects), hasWorkerMarker(stderr, retrySafeFileEffects)
+	if files || (none && hasWorkerMarker(stderr, effectsFiles)) {
+		return retrySafeFileEffects
+	}
+	if none {
+		return retrySafeNoEffects
 	}
 	return ""
 }
