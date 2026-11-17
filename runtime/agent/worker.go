@@ -3,6 +3,8 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -269,6 +271,29 @@ func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEn
 	cmd.Stdin = bytes.NewReader(append(data, '\n'))
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Env = workerEnvironment(req, append(explicit, attemptEnv...))
+	// A runtime-generated owner cannot collide with a concurrent attempt, even
+	// when legacy tasks omit attempt_id. Only this invocation's containers are removed.
+	resourceBytes := make([]byte, 16)
+	if _, resourceErr := rand.Read(resourceBytes); resourceErr != nil {
+		return fail(WorkerStartFailed, resourceErr)
+	}
+	resourceOwner := hex.EncodeToString(resourceBytes)
+	marker, resourceErr := os.CreateTemp("", "reticle-resources-*")
+	if resourceErr != nil {
+		return fail(WorkerStartFailed, resourceErr)
+	}
+	marker.Close()
+	defer os.Remove(marker.Name())
+	cmd.Env = append(cmd.Env, "RETICLE_RESOURCE_OWNER="+resourceOwner, "RETICLE_RESOURCE_MARKER="+marker.Name())
+	defer func() {
+		if stat, statErr := os.Stat(marker.Name()); statErr == nil && stat.Size() > 0 {
+			if cleanupErr := cleanupAttemptContainers(resourceOwner, nil); cleanupErr != nil {
+				w.Bus.Publish("WorkerLog", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "log": "Attempt container cleanup failed: " + cleanupErr.Error()})
+				response = nil
+				failure = &WorkerFailure{Reason: WorkerProtocolError, ExitCode: 1, Stderr: "Attempt container cleanup failed: " + cleanupErr.Error() + "\n[RETICLE_EFFECTS: UNSAFE]"}
+			}
+		}
+	}()
 	out := &limitedOutput{limit: 10 * 1024 * 1024}
 	errout := &limitedOutput{
 		limit: 256 * 1024,
@@ -471,7 +496,7 @@ func (b *limitedOutput) flush() {
 }
 
 func workerEnvironment(req Task, explicit []string) []string {
-	allowed := map[string]bool{"PATH": true, "PATHEXT": true, "SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "TEMP": true, "TMP": true, "HOME": true, "USERPROFILE": true, "LANG": true, "LC_ALL": true, "PYTHONIOENCODING": true, "OLLAMA_HOST": true, "COMFYUI_HOST": true, "COMFYUI_CHECKPOINT": true, "RETICLE_ROOT": true, "RETICLE_LOCAL_GPU_COORDINATION": true, "RETICLE_LOCAL_GPU_LOCK_TIMEOUT": true, "RETICLE_OLLAMA_AUTO_UNLOAD": true, "RETICLE_COMFY_AUTO_UNLOAD": true, "RETICLE_WORKER_IMAGE": true, "RETICLE_COMMAND_TIMEOUT": true, "RETICLE_MEMORY_LIMIT": true, "RETICLE_CPU_LIMIT": true, "RETICLE_BROWSER": true, "RETICLE_BROWSER_BACKEND": true}
+	allowed := map[string]bool{"PATH": true, "PATHEXT": true, "SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "TEMP": true, "TMP": true, "HOME": true, "USERPROFILE": true, "LANG": true, "LC_ALL": true, "PYTHONIOENCODING": true, "OLLAMA_HOST": true, "COMFYUI_HOST": true, "COMFYUI_CHECKPOINT": true, "RETICLE_ROOT": true, "RETICLE_LOCAL_GPU_COORDINATION": true, "RETICLE_LOCAL_GPU_LOCK_TIMEOUT": true, "RETICLE_OLLAMA_AUTO_UNLOAD": true, "RETICLE_COMFY_AUTO_UNLOAD": true, "RETICLE_WORKER_IMAGE": true, "RETICLE_COMMAND_TIMEOUT": true, "RETICLE_MEMORY_LIMIT": true, "RETICLE_CPU_LIMIT": true, "RETICLE_BROWSER": true, "RETICLE_BROWSER_BACKEND": true, "RETICLE_NODE_IMAGE": true, "RETICLE_PYTHON_IMAGE": true, "RETICLE_GO_IMAGE": true}
 	if hasCapability(req.Capabilities, CapabilityGPUUse) {
 		allowed["RETICLE_ML_PROFILE"] = true
 		allowed["RETICLE_GPU_DEVICES"] = true

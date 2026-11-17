@@ -102,7 +102,7 @@ func (d *Dispatcher) beginProxiedInference(w *Worker, t Task, route *routing.Mod
 			if next == nil {
 				return routing.Model{}, false
 			}
-			if !inference.Eligible(*next) {
+			if policy.RequireVision && !next.Vision || !inference.Eligible(*next) {
 				policy.Excluded[next.Key()] = true
 				d.Router.Release(string(t.ID))
 				continue

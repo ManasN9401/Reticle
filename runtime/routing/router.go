@@ -371,6 +371,7 @@ func (r *ModelRouter) SelectModel(taskID string, agentID string, effortTier int,
 // RoutePolicy is owned by one dispatcher task. Hard exclusions survive the
 // confidence fallback; preferences never bypass availability or modality checks.
 type RoutePolicy struct {
+	RequireVision  bool
 	Excluded       map[string]bool
 	Tried          map[string]bool
 	AvoidProviders map[string]bool
@@ -395,7 +396,7 @@ func (r *ModelRouter) SelectModelWithPolicy(taskID string, agentID string, effor
 	var capable []Model
 	now := time.Now()
 	available := func(m Model) bool {
-		return !policy.Excluded[m.Key()] && servesChatTasks(m) && modelRouteAvailableLocked(m, now) && !r.routeBlockedLocked(m, policy, now)
+		return (!policy.RequireVision || m.Vision) && !policy.Excluded[m.Key()] && servesChatTasks(m) && modelRouteAvailableLocked(m, now) && !r.routeBlockedLocked(m, policy, now)
 	}
 	ModelsMutex.RLock()
 	for _, m := range AvailableModels {

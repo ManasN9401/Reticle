@@ -22,7 +22,7 @@ Results include exact argument vectors, exit codes, observed test counts, parsed
 
 Receipts are stored outside source files under the session's `diagnostics/` directory. They bind task/attempt identity to SHA-256 hashes of the SDK's currently pending modified artifacts, captured before and after checks. The SDK rechecks those hashes at completion and rejects a stale receipt. Each hash operation is bounded to 500 files, 16 MiB per file and 64 MiB total. Binary files can be hashed without decoding.
 
-This is SDK-managed evidence, not an independent Go acceptance oracle. Hash coverage currently includes tracked pending edits, not every repository dependency or files silently modified by arbitrary shell commands. Existing v1 reread and terminal verification paths remain compatible. Build-script semantics, malicious project scripts and unrelated environmental changes still require independent acceptance tests. Managed development servers, full-output streaming and semantic diagnostic adapters remain future work.
+This is SDK-managed evidence, not an independent Go acceptance oracle. Hash coverage currently includes tracked pending edits, not every repository dependency or files silently modified by arbitrary shell commands. Existing v1 reread and terminal verification paths remain compatible. Build-script semantics, malicious project scripts and unrelated environmental changes still require independent acceptance tests. [Managed container servers and prepared project images](project-execution.md) are available. Full-output streaming and semantic diagnostic adapters remain future work. Diagnostic receipts include prepared-image and environment metadata when selected.
 
 ## Scoped repository guidance
 

@@ -603,56 +603,84 @@ def _ensure_worker_image(image):
     except OSError as exc:
         return f"Docker could not be used: {exc}"
 
-def execute_terminal_command(command, workspace_dir, allow_native=False, allow_network=False, command_cwd=".", allow_workspace_write=True):
+def command_launch(command, workspace_dir, allow_native=False, allow_network=False,
+                   command_cwd=".", allow_workspace_write=True, execution_image=None,
+                   command_environment=None, container_args=()):
+    """Build a bounded execution launch. Overrides are runtime-owned, never model arguments."""
+    container = None
+    root = safe_path(workspace_dir, ".")
+    cwd = safe_path(workspace_dir, command_cwd)
+    if not cwd.is_dir():
+        raise ValueError("Command working directory does not exist")
+    gpu = os.getenv("RETICLE_GPU_DEVICES", "").strip()
+    profile = os.getenv("RETICLE_ML_PROFILE", "cpu").strip().lower()
+    host = detect_ml_host_environment()
+    warnings = assess_ml_profile(profile, gpu, host)
+    if allow_native:
+        argv = command
+        env = os.environ.copy()
+        env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
+        if command_environment:
+            env.update(command_environment)
+        if isinstance(command, list):
+            if not command or not all(isinstance(arg, str) and "\0" not in arg for arg in command):
+                raise ValueError("Command arguments must be nonempty strings")
+            executable = shutil.which(command[0], path=env["PATH"])
+            if executable is None:
+                raise ValueError(f"Executable is not available: {command[0]}")
+            argv = [executable, *command[1:]]
+        options = dict(shell=isinstance(command, str), cwd=cwd, env=env)
+    else:
+        if profile == "amd-rocm" and host == "windows":
+            raise ValueError("Native Windows AMD execution requires the explicit native-execution setting; Linux ROCm device mappings cannot be applied to this Windows container path")
+        # Each command owns its container; timeout/cancellation cleanup cannot
+        # accidentally remove another run's shared container.
+        import uuid
+        container = "reticle-" + uuid.uuid4().hex
+        image = execution_image or os.getenv("RETICLE_WORKER_IMAGE", "ghcr.io/astral-sh/uv:python3.12-bookworm-slim")
+        image_problem = _ensure_worker_image(image)
+        if image_problem:
+            raise RuntimeError(image_problem)
+        argv = ["docker", "run", "--rm", "--name", container,
+                "--label", "reticle.execution="+os.getenv("RETICLE_EXECUTION_ID", "standalone"),
+                "--memory", os.getenv("RETICLE_MEMORY_LIMIT", "2g"), "--cpus", os.getenv("RETICLE_CPU_LIMIT", "2"),
+                "--pids-limit", "256", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                "--mount", f"type=bind,source={root},target=/workspace/src"+("" if allow_workspace_write else ",readonly"), "-w", "/workspace/src" if cwd == root else "/workspace/src/"+cwd.relative_to(root).as_posix(),
+                image, "sh", "-c", command if isinstance(command, str) else shlex.join(command)]
+        if not allow_network:
+            argv[2:2] = ["--network", "none"]
+        if profile == "amd-rocm":
+            argv[2:2] = ["--device=/dev/kfd", "--device=/dev/dri", "--group-add=video"]
+        if gpu:
+            if profile == "nvidia-cuda":
+                argv[2:2] = ["--gpus", "device=" + gpu]
+        argv[2:2] = list(container_args)
+        owner = os.getenv("RETICLE_RESOURCE_OWNER", "")
+        if owner:
+            if not re.fullmatch(r"[a-f0-9]{32}", owner):
+                raise ValueError("Invalid runtime resource owner")
+            argv[2:2] = ["--label", "reticle.owner="+owner]
+        for key, value in (command_environment or {}).items():
+            argv[2:2] = ["--env", key+"="+value]
+        options = {}
+    if container:
+        marker = os.getenv("RETICLE_RESOURCE_MARKER")
+        if marker:
+            with open(marker, "ab") as stream:
+                stream.write(b"container\n")
+    return argv, options, container, warnings
+
+
+def execute_terminal_command(command, workspace_dir, allow_native=False, allow_network=False,
+                             command_cwd=".", allow_workspace_write=True, execution_image=None,
+                             command_environment=None):
     """Bounded validation command. Real training uses an explicit configured budget."""
     container = None
     try:
-        root = safe_path(workspace_dir, ".")
-        cwd = safe_path(workspace_dir, command_cwd)
-        if not cwd.is_dir():
-            raise ValueError("Command working directory does not exist")
+        argv, options, container, warnings = command_launch(command, workspace_dir,
+            allow_native, allow_network, command_cwd, allow_workspace_write,
+            execution_image, command_environment)
         timeout = min(max(int(os.getenv("RETICLE_COMMAND_TIMEOUT", "120")), 1), 3600)
-        gpu = os.getenv("RETICLE_GPU_DEVICES", "").strip()
-        profile = os.getenv("RETICLE_ML_PROFILE", "cpu").strip().lower()
-        host = detect_ml_host_environment()
-        warnings = assess_ml_profile(profile, gpu, host)
-        if allow_native:
-            argv = command
-            env = os.environ.copy()
-            env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
-            if isinstance(command, list):
-                if not command or not all(isinstance(arg, str) and "\0" not in arg for arg in command):
-                    raise ValueError("Command arguments must be nonempty strings")
-                executable = shutil.which(command[0], path=env["PATH"])
-                if executable is None:
-                    raise ValueError(f"Executable is not available: {command[0]}")
-                argv = [executable, *command[1:]]
-            options = dict(shell=isinstance(command, str), cwd=cwd, env=env)
-        else:
-            if profile == "amd-rocm" and host == "windows":
-                raise ValueError("Native Windows AMD execution requires the explicit native-execution setting; Linux ROCm device mappings cannot be applied to this Windows container path")
-            # Each command owns its container; timeout/cancellation cleanup cannot
-            # accidentally remove another run's shared container.
-            import uuid
-            container = "reticle-" + uuid.uuid4().hex
-            image = os.getenv("RETICLE_WORKER_IMAGE", "ghcr.io/astral-sh/uv:python3.12-bookworm-slim")
-            image_problem = _ensure_worker_image(image)
-            if image_problem:
-                return "Error executing command: " + image_problem
-            argv = ["docker", "run", "--rm", "--name", container,
-                    "--label", "reticle.execution="+os.getenv("RETICLE_EXECUTION_ID", "standalone"),
-                    "--memory", os.getenv("RETICLE_MEMORY_LIMIT", "2g"), "--cpus", os.getenv("RETICLE_CPU_LIMIT", "2"),
-                    "--pids-limit", "256", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-                    "--mount", f"type=bind,source={root},target=/workspace/src"+("" if allow_workspace_write else ",readonly"), "-w", "/workspace/src" if cwd == root else "/workspace/src/"+cwd.relative_to(root).as_posix(),
-                    image, "sh", "-c", command if isinstance(command, str) else shlex.join(command)]
-            if not allow_network:
-                argv[2:2] = ["--network", "none"]
-            if profile == "amd-rocm":
-                argv[2:2] = ["--device=/dev/kfd", "--device=/dev/dri", "--group-add=video"]
-            if gpu:
-                if profile == "nvidia-cuda":
-                    argv[2:2] = ["--gpus", "device=" + gpu]
-            options = {}
         # Temporary output files bound resident memory even for verbose children.
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
             result = subprocess.run(argv, stdout=stdout, stderr=stderr, timeout=timeout, **options)
@@ -683,7 +711,7 @@ _definitions = {
  "list_dir": ("List a workspace directory", {"path": "string"}),
  "search_codebase": ("Search workspace text literally", {"regex_pattern": "string"}),
  "read_url": ("Read public documentation", {"url": "string"}),
- "execute_terminal_command": ("Run a shell command in the workspace folder and read its exit code and output (the first 10,000 characters of each of stdout and stderr). Use it to run the project's tests or scripts, install packages, execute what you wrote and see whether it works, or inspect files. Each call is independent: no state, such as cd or exported variables, carries over.", {"command": "string"}),
+ "execute_terminal_command": ("Run a shell command in the workspace folder and read its exit code and output (the first 10,000 characters of each of stdout and stderr). Use it to run the project's tests or scripts, install packages, execute what you wrote and see whether it works, or inspect files. Each call is independent: no state, such as cd or exported variables, carries over.", {"command": "string", "path": {"type": "string", "optional": True}}),
  "mark_task_complete": ("Finish with a summary after verification", {"summary": "string"}),
 }
 tools = [{"type":"function","function":{"name":name,"description":description,"parameters":{"type":"object","properties":{key:{"type":kind} for key,kind in properties.items()},"required":list(properties),"additionalProperties":False}}} for name,(description,properties) in _definitions.items()]

@@ -23,6 +23,7 @@ var providerEnvPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 // compatible /models endpoint. Dynamic discovery and static entries may be
 // combined; duplicate upstream IDs are collapsed.
 type ProviderModelConfig struct {
+	Vision       bool    `json:"vision,omitempty"`
 	ID           string  `json:"id"`
 	Modality     string  `json:"modality,omitempty"`
 	Capability   float64 `json:"capability,omitempty"`

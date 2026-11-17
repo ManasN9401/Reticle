@@ -16,6 +16,7 @@ import (
 
 // Model Definition
 type Model struct {
+	Vision         bool      `json:"vision,omitempty"` // explicit image-input support; unknown is false
 	CooldownUntil  time.Time `json:"cooldown_until,omitempty"`
 	ObservedAt     time.Time `json:"observed_at,omitempty"`
 	ID             string    `json:"id"`
@@ -317,6 +318,9 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool, providerRegistries .
 
 	// 1. OpenRouter
 	type ORModel struct {
+		Architecture struct {
+			InputModalities []string `json:"input_modalities"`
+		} `json:"architecture"`
 		ID      string `json:"id"`
 		Pricing struct {
 			Prompt     any `json:"prompt"`
@@ -471,6 +475,7 @@ func FetchAvailableModels(log *logger.Logger, loadAll bool, providerRegistries .
 				InputCostPerM:  perMillion(input),
 				OutputCostPerM: perMillion(output),
 				MetadataSource: "openrouter-catalog",
+				Vision:         containsImageInput(m.Architecture.InputModalities),
 				ToolSupport:    "advertised",
 			})
 			added++
@@ -762,7 +767,7 @@ func discoverConfiguredProvider(client *http.Client, config ProviderConfig, obse
 
 	models := make([]Model, 0, len(config.Models))
 	seen := make(map[string]struct{}, len(config.Models))
-	appendModel := func(upstreamID, modality string, capability float64, contextLimit int) {
+	appendModel := func(upstreamID, modality string, capability float64, contextLimit int, vision bool) {
 		if _, exists := seen[upstreamID]; exists {
 			return
 		}
@@ -784,11 +789,12 @@ func discoverConfiguredProvider(client *http.Client, config ProviderConfig, obse
 			Modality:       modality,
 			ContextLimit:   contextLimit,
 			MetadataSource: "configured-provider",
+			Vision:         vision,
 			ToolSupport:    config.ToolSupport,
 		})
 	}
 	for _, configured := range config.Models {
-		appendModel(configured.ID, configured.Modality, configured.Capability, configured.ContextLimit)
+		appendModel(configured.ID, configured.Modality, configured.Capability, configured.ContextLimit, configured.Vision)
 	}
 	if config.DiscoveryMode == "static-only" {
 		status.State = "ready"
@@ -845,6 +851,7 @@ func discoverConfiguredProvider(client *http.Client, config ProviderConfig, obse
 		return models, &health, status
 	}
 	type catalogModel struct {
+		SupportsVision   bool     `json:"supports_vision"`
 		ID               string   `json:"id"`
 		Name             string   `json:"name"`
 		Endpoints        []string `json:"endpoints"`
@@ -888,7 +895,7 @@ func discoverConfiguredProvider(client *http.Client, config ProviderConfig, obse
 			}
 		}
 		if upstreamID != "" && len(upstreamID) <= 256 && !strings.ContainsAny(upstreamID, "\x00\r\n") {
-			appendModel(upstreamID, "", 0, 0)
+			appendModel(upstreamID, "", 0, 0, item.SupportsVision)
 		}
 	}
 	if status.State != "degraded" {
@@ -909,6 +916,16 @@ func discoverConfiguredProvider(client *http.Client, config ProviderConfig, obse
 	}
 	health := KeyHealth{Key: config.APIKeyEnv, Status: KeyHealthy, ObservedAt: observedAt}
 	return models, &health, status
+}
+
+// Unknown image support is never inferred from a marketing model name.
+func containsImageInput(modalities []string) bool {
+	for _, modality := range modalities {
+		if modality == "image" {
+			return true
+		}
+	}
+	return false
 }
 
 // comfyCheckpoints lists the checkpoints a ComfyUI server at host offers. ok is false

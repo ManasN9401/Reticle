@@ -13,6 +13,8 @@ RFCs marked `historical` preserve design context and do not override an accepted
 
 - [Logic and documentation review, 18 September 2026](audit/2026-09-18/01-logic-and-documentation-review.md): current code findings, verification evidence and documentation-quality assessment.
 - [Repair status for the 18 September review](audit/2026-09-18/02-repair-status.md): implemented fixes, retained compatibility behavior, and validation results.
+- [Recoverable patches and checkpoint implementation, 24 October](audit/2026-10-24/02-patches-and-history-status.md): patch journals, attempt history, guarded operator rewind and remaining limits.
+- [Application-loop implementation, 24 October](audit/2026-10-24/01-application-loop-status.md): prepared project images, managed servers, vision routing and remaining acceptance gates.
 - [Production implementation and publication status, 22 October](audit/2026-10-21/05-readiness-and-publication-status.md): hardening, recovery, diagnostics, Studio controls, verification and remaining gates.
 - [Audit findings, 8 September 2026](audit/2026-09-08/01-findings.md): historical findings against the recorded commit.
 - [Architecture recommendations](audit/2026-09-08/02-recommendations.md).
@@ -25,6 +27,7 @@ RFCs marked `historical` preserve design context and do not override an accepted
 - [Environment configuration](environment.md).
 - [Structured diagnostics and scoped repository guidance](diagnostics-and-guidance.md).
 - [Run evaluation](run-evaluation.md): fixed requests, objective output checks and version comparison.
+- [Project environments, managed servers and vision](project-execution.md).
 - [Recoverable patches and attempt checkpoints](workspace-history.md).
 - [External effect recovery and reconciliation](external-effect-recovery.md).
 - [MCP servers and plugins](extensions.md).

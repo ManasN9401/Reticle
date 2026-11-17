@@ -26,6 +26,7 @@ func TestSpecialistAgentsDeclareTheirRealToolsAndLeastPrivilege(t *testing.T) {
 		"quant-agent":        {"quant-finance", []Capability{CapabilityWorkspaceWrite, CapabilityNetworkPublic, CapabilityProcessContainer}, []Capability{CapabilityProcessNative}},
 		"hermes-coder-agent": {"hermes-repl", []Capability{CapabilityWorkspaceWrite, CapabilityProcessContainer}, []Capability{CapabilityBrowserRun}},
 	}
+
 	for id, want := range cases {
 		definition, ok := registry.Definitions[WorkerID(id)]
 		if !ok {

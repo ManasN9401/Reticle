@@ -18,14 +18,18 @@ import (
 
 func TestSelectedModelParametersDoNotLeakAcrossFallbacks(t *testing.T) {
 	parameters := map[string]any{
-		"llm_model":         "custom/vendor-model",
-		"llm_request_model": "vendor-model",
-		"llm_api_base":      "https://provider.example/v1",
-		"api_key":           "CUSTOM_API_KEY",
+		"llm_model":           "custom/vendor-model",
+		"llm_request_model":   "vendor-model",
+		"llm_api_base":        "https://provider.example/v1",
+		"api_key":             "CUSTOM_API_KEY",
+		"llm_supports_vision": true,
 	}
 	applySelectedModelParameters(parameters, &routing.Model{ID: "ollama/local-model"})
 	if parameters["llm_model"] != "ollama/local-model" {
 		t.Fatalf("selected model was not replaced: %#v", parameters)
+	}
+	if parameters["llm_supports_vision"] != false {
+		t.Fatal("image support leaked to text-only fallback")
 	}
 	for _, key := range []string{"llm_request_model", "llm_api_base", "api_key"} {
 		if _, exists := parameters[key]; exists {

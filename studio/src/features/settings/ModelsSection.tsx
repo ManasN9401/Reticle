@@ -600,6 +600,7 @@ function ProviderProfiles({
 }) {
   const [editing, setEditing] = useState<ProviderConfig | null>(null)
   const [staticModels, setStaticModels] = useState('')
+  const [visionModels, setVisionModels] = useState('')
   const discoveryIssues = profiles
     .map((profile) => ({ profile, problem: providerDiscoveryProblem(profile) }))
     .filter((item): item is { profile: ProviderStatus; problem: string } => Boolean(item.problem))
@@ -610,6 +611,7 @@ function ProviderProfiles({
       : { ...EMPTY_PROVIDER, models: [] }
     setEditing(next)
     setStaticModels((next.models ?? []).map((model) => model.id).join('\n'))
+    setVisionModels((next.models ?? []).filter((model) => model.vision).map((model) => model.id).join('\n'))
   }
 
   const save = async () => {
@@ -618,10 +620,15 @@ function ProviderProfiles({
       .split(/[\n,]/)
       .map((value) => value.trim())
       .filter(Boolean)
+    const visionIds = new Set(visionModels.split(/[\n,]/).map((value) => value.trim()).filter(Boolean))
+    if ([...visionIds].some((id) => !modelIds.includes(id))) {
+      onError('Image-input models must also appear in the static model list.')
+      return
+    }
     onBusy(true)
     const result = await bridge.api.saveProvider({
       ...editing,
-      models: modelIds.map((id) => ({ id })),
+      models: modelIds.map((id) => ({ ...(editing.models?.find((model) => model.id === id) ?? { id }), vision: visionIds.has(id) })),
     })
     onBusy(false)
     if (!result.ok) {
@@ -770,6 +777,10 @@ function ProviderProfiles({
           <label className="mt-3 flex flex-col gap-1 text-2xs text-fg-3">
             Static model IDs <span className="text-fg-4">({editing.discoveryMode === 'static-only' ? 'required' : 'optional'}; one per line or comma-separated)</span>
             <textarea className="mono min-h-20 resize-y rounded border border-line-2 bg-bg-0 px-2 py-1.5 text-xs text-fg-1 outline-none focus:border-accent" value={staticModels} onChange={(event) => setStaticModels(event.target.value)} placeholder="vendor/model-name" />
+          </label>
+          <label className="mt-3 flex flex-col gap-1 text-2xs text-fg-3">
+            Models with image input <span className="text-fg-4">(optional; IDs from the static list, one per line)</span>
+            <textarea className="mono min-h-12 resize-y rounded border border-line-2 bg-bg-0 px-2 py-1.5 text-xs text-fg-1 outline-none focus:border-accent" value={visionModels} onChange={(event) => setVisionModels(event.target.value)} placeholder="Only list models whose provider supports image input" />
           </label>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Toggle label="Enabled" checked={editing.enabled} onChange={(enabled) => setEditing({ ...editing, enabled })} />

@@ -51,7 +51,7 @@ def main():
             encoding="utf-8",
         )
         for name in ("forge_utils.py", "worker_sdk.py", "comfy_tools.py", "image_tools.py", "web_tools.py", "browser_tools.py",
-                     "browse_tools.py", "research_tools.py", "quant_tools.py", "diagnostics_tools.py", "repository_rules.py", "patch_tools.py", "history_tools.py"):
+                     "browse_tools.py", "research_tools.py", "quant_tools.py", "diagnostics_tools.py", "repository_rules.py", "project_tools.py", "vision_tools.py", "patch_tools.py", "history_tools.py"):
             (target / name).write_bytes((LIB / name).read_bytes())
     (workspace / "src").mkdir(exist_ok=True)
     print(json.dumps({"id":req["id"],"artifact":{"id":req["id"]+"_output","name":"Python Files","type":"application/json","data":"{}"}}))

@@ -181,6 +181,27 @@ Container commands without `network.public` run with Docker `--network none`. Wi
 
 SDK command containers without `workspace.write` mount source files read-only. Diagnostics use the same grant. Their selected project directory is checked against the workspace and becomes the command's working directory; this does not widen the mounted source root. Native mode is still trusted execution as the user and has no OS-enforced read-only filesystem boundary.
 
+## Project images, managed servers and vision
+
+For explicit locked project preparation, configure `RETICLE_NODE_IMAGE`,
+`RETICLE_PYTHON_IMAGE` and/or `RETICLE_GO_IMAGE` with reviewed toolchain images.
+These non-secret settings reach workers; models cannot choose arbitrary images.
+After `prepare_environment`, diagnostics, terminal commands and managed servers
+reuse the resolved image for the selected project path. The default worker image
+and trusted native-command behavior remain as described above for unprepared
+projects. Preparation and managed servers currently require container mode.
+
+See [project execution](project-execution.md) for lockfile requirements, cache
+locations, lifecycle ownership, readiness checks, network limits and the exact
+`start_server`/`server_logs`/`stop_server`/`run_page(server_id=...)` interfaces.
+
+Vision input is offered only for model metadata explicitly declaring image input.
+Configured static models can set `vision: true`; Studio exposes this under
+provider editing. For tasks that require it, use `parameters.requires_vision: true`
+to retain the requirement across routing fallbacks. `view_image` additionally
+requires `workspace.read` and Pillow through a registered skill; screenshot
+attachment uses `run_page(..., view=true)` on a vision-capable route.
+
 ## Recoverable edits and checkpoints
 
 Workers with `workspace.write` receive `apply_patch` for bounded unified text

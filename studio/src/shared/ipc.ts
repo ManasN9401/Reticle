@@ -790,6 +790,7 @@ export interface ApiResult<T> {
 export type ModelsResult = ApiResult<RoutingModel[]>
 
 export interface ProviderModelConfig {
+  vision?: boolean
   id: string
   modality?: 'text' | 'coding' | 'image'
   capability?: number

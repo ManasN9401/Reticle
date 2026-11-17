@@ -1,7 +1,7 @@
 ---
 status: active
 owner: Reticle Project
-updated: 2026-10-01
+updated: 2026-10-24
 ---
 
 # Reticle roadmap and RFC register
@@ -19,6 +19,29 @@ versions of this roadmap assigned RFC-like numbers to prospective topics. Those
 labels were placeholders and are not retained as a second numbering system.
 
 ## Current course of action
+
+The application-loop implementation now includes explicit locked npm/Python/Go
+preparation in operator-selected container images, attempt-owned development
+servers with HTTP readiness and bounded logs, managed-server browser observation,
+and bounded local image input on explicitly vision-capable routes. See the
+[current operational guide](project-execution.md) and
+[24 October implementation record](audit/2026-10-24/01-application-loop-status.md).
+Live Docker/browser acceptance remains an environment gate; managed native
+servers, controller-crash resource sweeping and OS-enforced public-only egress
+are not implemented. Structured diagnostics, repository guidance and effect
+reconciliation were delivered in the preceding hardening batch.
+
+Recoverable unified multi-file patches, opt-in runtime-owned Git before/after
+checkpoints, worker status/diff views and guarded operator rewind are also
+implemented. See the [workspace-history guide](workspace-history.md) and
+[patch/history status](audit/2026-10-24/02-patches-and-history-status.md). Multi-file
+visibility is not simultaneous; automatic retry rewind, branch/worktree isolation,
+Studio rewind controls and recovery after a Forge crash remain open.
+
+The next application/recovery work is durable task/conversation and
+pending-inference state, then steering and targeted reruns. Evaluation and cost instrumentation should proceed
+alongside that work. Installation/upgrade/rollback and independent comparative
+benchmarks remain release and differentiation gates.
 
 The immediate routing hardening work now includes task-local route exclusions,
 evidence-driven fallback preferences, bounded output-limit adjustment and explicit
@@ -56,8 +79,8 @@ it does not authorize implementation of autonomous self-modification.
 [RFC-055](rfc/RFC-055-Specialist-Agents.md) is accepted and implemented: `browser-agent`, `osint-agent`, `quant-agent` and
 `hermes-coder-agent` are real workers with their own tools instead of shells around the code generator.
 [RFC-054](rfc/RFC-054-Agent-Tool-Surface-Roadmap.md) is a draft that specifies the tools still missing
-(vision, diagnostics, dev server, git checkpoints, plan and ask, documents, connectors,
-memory, scheduling, steering, `apply_patch`) and a recommended order. Its edit-tools section is built:
+(git checkpoints, plan and ask, documents, connectors,
+memory, scheduling, steering, `apply_patch`) and a recommended order. Recoverable unified patches and opt-in checkpoint controls now have implementations; their operational limits are documented in the current guide. Diagnostics, container dev servers and explicit vision input now have implementations with documented limits. Its single-file edit tools are built:
 paged reads, overwrite after a read, informative and multi-edit replacement, find/move/delete, and a
 guard against nesting a page inside a page. Route and credential health now persists across restarts
 (`.reticle/route_health.json`).

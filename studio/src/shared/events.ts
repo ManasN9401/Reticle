@@ -257,6 +257,7 @@ export interface KeyHealth {
 
 /** runtime/routing/models.go:18-25 — served by `GET /api/models`. */
 export interface RoutingModel {
+  vision?: boolean
   id: string
   request_model?: string
   api_base?: string

@@ -339,6 +339,7 @@ func (d *Dispatcher) Start() {
 			lastDisposition := providerFailureDisposition{}
 			routes := newRetryRoutes()
 			routes.policy.MinRequestTokens = estimateRequestTokens(w, t)
+			routes.policy.RequireVision, _ = t.Parameters["requires_vision"].(bool)
 			// Once an attempt has left files behind, every later attempt resumes from them.
 			resumeAfterFiles := false
 			stopReason := "attempt_budget_exhausted"
@@ -428,12 +429,18 @@ func (d *Dispatcher) Start() {
 						attemptModel = selectedModel
 					} else if attempt == 1 {
 						forcedModel := fmt.Sprint(t.Parameters["llm_model"])
+						t.Parameters["llm_supports_vision"] = false
 						if configured := d.Router.Model(forcedModel); configured != nil {
 							applySelectedModelParameters(t.Parameters, configured)
 							attemptModel = configured
 						}
 						d.Router.TrackForcedModel(string(t.ID), forcedModel)
 					}
+				}
+				if routes.policy.RequireVision && !deterministicWorker(w.ID) && (attemptModel == nil || !attemptModel.Vision) {
+					stopReason = "vision_unavailable"
+					lastFailure = &WorkerFailure{Reason: "no_models_available", ExitCode: 1, Stderr: "Task requires image input but the selected route has no explicit vision support"}
+					break
 				}
 				if t.Memory == nil {
 					t.Memory = make(map[string]any)
@@ -648,6 +655,7 @@ func applySelectedModelParameters(parameters map[string]any, model *routing.Mode
 	delete(parameters, "llm_api_base")
 	delete(parameters, "api_key")
 	delete(parameters, "llm_context_tokens")
+	parameters["llm_supports_vision"] = model.Vision
 	// The worker sizes how much one tool reply may carry from the window, when it is known.
 	if model.ContextLimit > 0 {
 		parameters["llm_context_tokens"] = model.ContextLimit

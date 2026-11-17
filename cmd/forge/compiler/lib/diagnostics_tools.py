@@ -214,7 +214,7 @@ def model_report(report, budget=20000):
 
 
 def run_diagnostics(workspace_dir, kind="auto", path=".", *, tracked_paths=(),
-                    allow_native=False, allow_network=False, allow_workspace_write=True, attempt_id="", task_id=""):
+                    allow_native=False, allow_network=False, allow_workspace_write=True, attempt_id="", task_id="", execution_options=None):
     plans, reason = detect_diagnostics(workspace_dir, kind, path)
     if not plans:
         return {"ok": False, "summary": reason, "checks": [], "errors": [], "receipt": None}
@@ -223,7 +223,7 @@ def run_diagnostics(workspace_dir, kind="auto", path=".", *, tracked_paths=(),
     for plan in plans:
         output = forge_utils.execute_terminal_command(plan["argv"], workspace_dir,
                         allow_native=allow_native, allow_network=allow_network, command_cwd=plan.get("cwd", "."),
-                        allow_workspace_write=allow_workspace_write)
+                        allow_workspace_write=allow_workspace_write, **(execution_options or {}))
         exit_match = re.match(r"Exit code: (-?\d+)\n", output)
         exit_code = int(exit_match[1]) if exit_match else None
         parsed = parse_diagnostic_output(output, plan["kind"])
@@ -234,7 +234,8 @@ def run_diagnostics(workspace_dir, kind="auto", path=".", *, tracked_paths=(),
     unchanged = before == after
     ok = all(check["ok"] for check in checks) and unchanged
     receipt = {"version": 1, "attempt_id": attempt_id, "task_id": task_id, "created_at": time.time(),
-            "ok": ok, "checked_files": before, "artifacts_unchanged": unchanged, "checks": checks}
+            "ok": ok, "checked_files": before, "artifacts_unchanged": unchanged, "checks": checks,
+            "environment": execution_options or {}}
     directory = forge_utils.safe_path(workspace_dir, "diagnostics", base="")
     directory.mkdir(exist_ok=True)
     target = directory/(uuid.uuid4().hex+".json")
@@ -254,4 +255,4 @@ def run_diagnostics(workspace_dir, kind="auto", path=".", *, tracked_paths=(),
         summary += "; artifacts changed during validation: rerun after edits stop"
     return {"ok": ok, "summary": summary, "checks": [{**{k:v for k,v in check.items() if k != "output"}, "output_excerpt": check["output"][-4000:]} for check in checks],
             "errors": [error for check in checks for error in check["errors"]][:100],
-            "checked_files": before, "receipt": "diagnostics/"+target.name}
+            "checked_files": before, "environment": execution_options or {}, "receipt": "diagnostics/"+target.name}

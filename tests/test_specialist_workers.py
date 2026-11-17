@@ -155,7 +155,7 @@ class Hermes(Worker):
         outputs = list(outputs)
         commands = []
 
-        def run(command, workspace, allow_native=False, allow_network=False, allow_workspace_write=True):
+        def run(command, workspace, allow_native=False, allow_network=False, allow_workspace_write=True, **options):
             commands.append(command)
             return outputs.pop(0)
         run.commands = commands

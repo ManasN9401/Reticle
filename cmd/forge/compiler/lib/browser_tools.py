@@ -215,6 +215,18 @@ class _Site:
             pass
 
 
+class _ManagedSite:
+    """Only the SDK resolves an owned handle into this port; URLs are never accepted from a model."""
+    def __init__(self, port, path):
+        self.port, self.path = port, path
+
+    def url(self, relative):
+        return f"http://127.0.0.1:{self.port}/" + self.path.lstrip("/")
+
+    def close(self):
+        pass
+
+
 # ---------------------------------------------------------------------------------------------
 # Screenshot statistics (stdlib PNG decoding): is anything on screen?
 # ---------------------------------------------------------------------------------------------
@@ -1218,9 +1230,9 @@ def _screenshot_target(workspace_dir, page_name):
     raise ValueError("run_page/ holds too many screenshots; delete some")
 
 
-def run_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, screenshot=True, actions=None, deadline_seconds=None):
+def run_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, screenshot=True, actions=None, deadline_seconds=None, managed_port=None):
     """Load a workspace page in a headless browser; return a report of what happened."""
-    result = observe_page(workspace_dir, path, wait_ms, viewport, screenshot, actions, deadline_seconds)
+    result = observe_page(workspace_dir, path, wait_ms, viewport, screenshot, actions, deadline_seconds, managed_port)
     if "error" in result:
         return "Error: " + result["error"]
     shot = ""
@@ -1234,14 +1246,23 @@ def run_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, s
     return format_report(result["page"], result["observation"], shot, result["backend"])
 
 
-def observe_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, screenshot=True, actions=None, deadline_seconds=None):
+def observe_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=None, screenshot=True, actions=None, deadline_seconds=None, managed_port=None):
     """Load a workspace page in a headless browser and return what was observed, unformatted.
 
     Returns {"page", "observation", "image" (PNG bytes or None), "backend"}, or {"error": text}.
     run_page reports this to a worker; the run evaluation (tools/eval_runs.py) scores it."""
     import web_tools
     root = safe_path(workspace_dir, ".")
-    if path:
+    if managed_port is not None:
+        if not isinstance(managed_port, int) or not 1024 <= managed_port <= 65535:
+            return {"error": "invalid managed server port."}
+        from urllib.parse import urlsplit
+        requested = path or "/"
+        parts = urlsplit(requested)
+        if parts.scheme or parts.netloc or requested.startswith("//") or "\\" in requested or any(ord(c) < 32 for c in requested):
+            return {"error": "managed page path must be local to the server."}
+        page = Path("managed-server")
+    elif path:
         page = Path(str(path).lstrip("/"))
         if not (root / page).is_file():
             return {"error": f"{path} does not exist in the workspace."}
@@ -1278,7 +1299,7 @@ def observe_page(workspace_dir, path=None, wait_ms=DEFAULT_WAIT_MS, viewport=Non
     sweep_stale_profiles()
     observation = _new_observation()
     label = "playwright"
-    site = _Site(root)
+    site = _ManagedSite(managed_port, path or "/") if managed_port is not None else _Site(root)
     try:
         try:
             if backend == "cdp":

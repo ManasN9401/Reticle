@@ -23,7 +23,7 @@ BROKEN = "const a = 1\nexport { a, a }\n"
 
 
 class Harness(unittest.TestCase):
-    def run_worker(self, script, instructions, existing=None, resumed=False, terminal=None):
+    def run_worker(self, script, instructions, existing=None, resumed=False, terminal=None, parameters=None, capabilities=None):
         script = list(script)
         seen = {"messages": []}
 
@@ -41,6 +41,9 @@ class Harness(unittest.TestCase):
             if resumed:
                 memory["resumed_after_files"] = True
             request = {"id": "execution|node", "execution": "execution", "memory": memory, "parameters": {"llm_model": "ollama/fixture"}}
+            request["parameters"].update(parameters or {})
+            if capabilities is not None:
+                request["capabilities"] = capabilities
             output, errors = io.StringIO(), io.StringIO()
             failure = None
             patches = [
