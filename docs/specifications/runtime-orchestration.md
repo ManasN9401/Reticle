@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-10-01
+updated: 2026-11-16
 ---
 
 # Runtime Orchestration Architecture
@@ -84,9 +84,34 @@ schedule), lower `max_tokens` by the overshoot a provider reports for a request
 over its per-minute token limit, and shorten the conversation history in stages.
 It never repeats a tool call, never switches model, and abandons a provider that
 sends nothing within the first-event deadline. These repairs are visible as status
-lines and do not consume the dispatcher's attempt budget. This is an interim
-subset of RFC-052, which remains a draft for the full design (runtime-owned
-inference with failover).
+lines and do not consume the dispatcher's attempt budget. They apply on the
+direct path, and on a proxied attempt to the failures the proxy relays.
+
+Runtime-owned inference (RFC-052, OpenAI-compatible scope) recovers a failed
+request without restarting the worker. Forge owns one loopback inference proxy.
+The dispatcher proxies an attempt when its route has an OpenAI-compatible
+endpoint with its credential configured (a provider profile, Groq or
+OpenRouter), the worker's entrypoint runs `worker_sdk.run`, and the model was
+not forced. Local Ollama (whose OpenAI endpoint ignores `num_ctx`), Gemini and
+llama.cpp routes keep the direct path, as does every attempt when
+`RETICLE_INFERENCE_PROXY=false`. A proxied attempt's parameters carry no
+`api_key`; the proxy adds the route credential to each upstream request.
+
+When a provider rejects a proxied request before any of its response has been
+relayed, the proxy describes the failure with a no-effects marker and the
+provider's error as a final exception line. The dispatcher classifies it with
+the classifier above and records the same facts as for a failed attempt:
+task-local exclusions, learned request limits, cooled routes, credentials and
+dead routes. If the failure is retryable and attempts remain, the dispatcher
+selects another route under the task's policy, skipping for that request only
+the routes the proxy cannot serve, and the proxy sends the same request there.
+Later requests of the attempt start on the route that worked. Each move consumes
+one of the node's attempts. Otherwise the provider's error reaches the worker,
+whose exit is then classified as usual, without recording the same failure
+twice; the route it is attributed to is the one the attempt ended on. The
+repeat needs no effect proof because only the pending request is resent: tools
+run only after a complete response. A stream cut part-way is never repeated.
+The worker side of the channel is specified in Worker Protocol v1.
 
 Hosted model integrations may be built in or supplied as non-secret provider
 profiles under `.reticle/providers.json`. A profile binds an OpenAI-compatible
@@ -95,12 +120,12 @@ one catalog and health model for both paths; the dispatcher passes the selected
 upstream model and API base through trusted parameters, and worker credential
 filtering admits only variables attached to router models. Discovery is bounded,
 does not follow redirects and does not treat connection failure as credential
-exhaustion. Providers with another protocol or authentication scheme require a
+exhaustion. On a proxied attempt the credential stays with the proxy instead. Providers with another protocol or authentication scheme require a
 reviewed adapter. See RFC-051.
 
 Waitlist admission creates the isolated workspace and commits required run/compiler memory as one acknowledged batch before submitting a workflow. A workspace or memory failure terminalizes that item without starting compilation.
 
-Workers receive resolved capabilities from their manifest. The shared SDK filters its tool definitions from those grants. Native execution also requires the user's native setting.
+Workers receive resolved capabilities from their manifest. The shared SDK filters its tool definitions from those grants. It sends rarely needed tools by name only, in `list_tools`; a model loads them with `list_tools(names=[...])`, and a deferred tool it calls directly still runs, after the same argument checks, and stays loaded. Deferral changes what each request carries, never what a worker may call. `RETICLE_TOOL_LOADING=all` sends every tool. Native execution also requires the user's native setting. Native execution also requires the user's native setting.
 
 Forge owns one loopback attempt-scoped tool broker. Before spawning a concrete
 retry, the dispatcher creates a random credential bound to the attempt's

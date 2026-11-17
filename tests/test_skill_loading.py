@@ -38,6 +38,15 @@ class LoadSkillInstructions(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "disappeared"):
                 forge_utils.load_skill_instructions(temp, ["alpha"], catalog)
 
+    def test_a_catalogue_from_an_older_forge_says_to_rebuild_it(self):
+        # A forge.exe built before instruction paths sends sizes only: the error must name the fix.
+        stale = {"skills": [{"id": "academic-writing", "instructions_bytes": 5120}]}
+        with self.assertRaisesRegex(ValueError, r"academic-writing\. .*forge\.exe is older than this source: rebuild it"):
+            forge_utils.load_skill_instructions("unused", ["academic-writing"], stale)
+        current = {"skills": [{"id": "academic-writing", "instructions_bytes": 5120, "instructions_sha256": "ab"}]}
+        with self.assertRaisesRegex(ValueError, r"no instruction source: academic-writing$"):
+            forge_utils.load_skill_instructions("unused", ["academic-writing"], current)
+
     def test_applied_skills_are_appended_and_sized_and_missing_ones_are_named(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

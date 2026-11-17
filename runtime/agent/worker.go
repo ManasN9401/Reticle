@@ -199,7 +199,7 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 // without serializing them into the task payload. Callers must only pass
 // ephemeral values whose lifecycle is bounded by this invocation.
 func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEnv []string) (*TaskResponse, *WorkerFailure) {
-	secretValues := environmentValues(attemptEnv, "RETICLE_TOOL_BROKER_TOKEN")
+	secretValues := environmentValues(attemptEnv, "RETICLE_TOOL_BROKER_TOKEN", "RETICLE_INFERENCE_TOKEN")
 	redactAttemptSecrets := func(value string) string {
 		value = logger.Redact(value)
 		for _, secret := range secretValues {

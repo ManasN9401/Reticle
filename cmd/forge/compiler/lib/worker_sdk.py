@@ -133,6 +133,37 @@ REPLAY_SAFE_LOCAL_TOOLS = frozenset({
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
 })
 
+# Tools a node starts without. Every request used to carry every tool's full definition, about
+# 16 KB for an OSINT node: more than half of an 8,000-token-per-minute route before any
+# instructions, and read by a small model on every turn. These are rarely needed, so the node is
+# told their names and loads them with list_tools; calling one directly still runs and loads it.
+# RETICLE_TOOL_LOADING=all sends every tool from the start.
+DEFERRED_TOOLS = frozenset({
+    "move_path", "delete_path", "read_url", "apply_patch",
+    "read_diagnostics", "run_diagnostics", "prepare_environment", "start_server", "server_logs", "stop_server",
+    "remember", "remember_if_version", "delegate",
+    "resize_image", "make_thumbnails", "convert_image", "crop_image",
+})
+
+def offered_tool_names(tools):
+    """Every tool a request's tool list makes available: the ones sent, plus those list_tools can load."""
+    names = {tool["function"]["name"] for tool in tools}
+    for tool in tools:
+        if tool["function"]["name"] == "list_tools":
+            names.update(tool["function"]["parameters"]["properties"]["names"]["items"]["enum"])
+    return names
+
+def _first_sentence(text):
+    match = re.match(r"(.+?[.!?])(\s|$)", text, re.S)
+    return match.group(1) if match else text
+
+def _argument_summary(properties):
+    parts = []
+    for key, spec in properties.items():
+        schema, optional = _tool_property(spec)
+        parts.append(f"{key} ({schema['type']}{', optional' if optional else ''})")
+    return ", ".join(parts)
+
 def _print_retry_marker(effects_started, unsafe_effects):
     """Tell the dispatcher what a failed attempt did, so it knows whether it may start the
     node again on another route. Nothing is printed once an effect that cannot be replayed ran."""
@@ -1089,6 +1120,14 @@ def run(instructions, kind="coding", skills=None):
                  "only the workspace folder persists between calls")
         seconds = os.getenv("RETICLE_COMMAND_TIMEOUT", "120")
         definitions["execute_terminal_command"] = (f"{description} It runs {where}. Time limit {seconds} seconds.", properties)
+    deferred = [] if os.getenv("RETICLE_TOOL_LOADING", "deferred") == "all" else sorted(DEFERRED_TOOLS.intersection(definitions))
+    if deferred:
+        definitions["list_tools"] = (
+            "Load more tools. You start with the tools you are most likely to need; these are also available: "
+            + ", ".join(deferred) + ". Call list_tools with no arguments for a one-line summary of each, or with "
+            "names to read their full descriptions and arguments and be able to call them.",
+            {"names": {"type": "array", "optional": True, "items": {"type": "string", "enum": deferred}}},
+        )
     local_descriptors = {
         name: _local_tool_descriptor(name, desc, props, tool_capabilities.get(name))
         for name, (desc, props) in definitions.items()
@@ -1103,6 +1142,13 @@ def run(instructions, kind="coding", skills=None):
             "description": descriptor.get("description", ""),
             "parameters": descriptor["schema"],
         }})
+    # A deferred tool the node's instructions or skills name (frontend-uiux names make_thumbnails) is
+    # one it is expected to use, so it starts loaded.
+    named = instructions + "\n" + str(req.get("parameters", {}).get("system_prompt", ""))
+    loaded_tools = {tool for tool in deferred if re.search(rf"\b{tool}\b", named)}
+    def active_tools():
+        """The tool definitions sent with the next request: all but the deferred ones not yet loaded."""
+        return [tool for tool in tools if tool["function"]["name"] not in deferred or tool["function"]["name"] in loaded_tools]
     verified = False
     verification = []
     pending_modified_paths = set()
@@ -1209,7 +1255,14 @@ def run(instructions, kind="coding", skills=None):
     key_name = req.get("parameters", {}).get("api_key")
     configured_api_base = req.get("parameters", {}).get("llm_api_base")
     configured_request_model = req.get("parameters", {}).get("llm_request_model")
-    if configured_api_base:
+    if os.environ.get("RETICLE_INFERENCE_URL") and os.environ.get("RETICLE_INFERENCE_TOKEN"):
+        # RFC-052: Forge holds the route's credential and forwards each request; a request the
+        # provider rejects is repeated on another route without restarting this worker. The proxy
+        # sets the upstream model name, so this one only labels the request.
+        model = "openai/" + model
+        kwargs["api_base"] = os.environ["RETICLE_INFERENCE_URL"]
+        kwargs["api_key"] = os.environ["RETICLE_INFERENCE_TOKEN"]
+    elif configured_api_base:
         model = "openai/" + str(configured_request_model or model.split("/", 1)[-1])
         kwargs["api_base"] = str(configured_api_base).rstrip("/")
         if key_name and key_name in os.environ:
@@ -1273,7 +1326,7 @@ def run(instructions, kind="coding", skills=None):
                 if local_model else nullcontext()
             )
             with session:
-                response = _complete_with_retries(completion, started, first_event_timeout, lambda: not effects_started, _progress_note(written_paths), kwargs, model=model, messages=messages, tools=tools, timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
+                response = _complete_with_retries(completion, started, first_event_timeout, lambda: not effects_started, _progress_note(written_paths), kwargs, model=model, messages=messages, tools=active_tools(), timeout=1800, num_retries=0, extra_headers=extra_headers, stream=True, **kwargs)
                 content_buffer = []
                 tool_calls_buffer = {}
                 if hasattr(response, "choices") and hasattr(response.choices[0], "message"):
@@ -1339,7 +1392,6 @@ def run(instructions, kind="coding", skills=None):
                 if not tool_calls_buffer:
                     content_str = message_dict["content"].strip()
                     try:
-                        import re
                         parsed = None
                         json_match = re.search(r'```(?:json)?\s*(\{.*\}|\[.*\])\s*```', content_str, re.DOTALL)
                         if json_match:
@@ -1470,6 +1522,8 @@ def run(instructions, kind="coding", skills=None):
                     argument_error = _tool_argument_error(name, expected[1], args)
                     if argument_error:
                         raise ValueError(argument_error)
+                    if name in deferred:
+                        loaded_tools.add(name)  # called without list_tools: keep its definition from now on
                 if broker_descriptor is None and name in {
                     "read_file", "write_file", "replace_file_content", "apply_edits", "move_path", "delete_path",
                     "check_web_page", "run_page", "run_diagnostics", "resize_image", "crop_image", "convert_image",
@@ -1574,8 +1628,19 @@ def run(instructions, kind="coding", skills=None):
                         update["expected_version"]=expected
                     memory_updates.append(update)
                     result = "Memory will be committed with the final response"
+                elif name == "list_tools":
+                    wanted = [tool for tool in args.get("names") or [] if isinstance(tool, str)]
+                    unknown = [tool for tool in wanted if tool not in definitions]
+                    if unknown:
+                        raise ValueError(f"No such tool: {', '.join(unknown)}. Tools you can load: {', '.join(deferred)}.")
+                    if not wanted:
+                        result = ("Tools you can load (call list_tools with their names):\n"
+                                  + "\n".join(f"- {tool}: {_first_sentence(definitions[tool][0])}" for tool in deferred))
+                    else:
+                        loaded_tools.update(tool for tool in wanted if tool in deferred)
+                        result = "You can call these now:\n\n" + "\n\n".join(
+                            f"{tool}({_argument_summary(definitions[tool][1])})\n{definitions[tool][0]}" for tool in wanted)
                 elif name == "delegate":
-                    import re
                     if not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", args["target_agent"]):
                         raise ValueError("Invalid agent identifier")
                     graph_mutation = {"action":"delegate","target_agent":args["target_agent"],"return_to_supervisor":True}

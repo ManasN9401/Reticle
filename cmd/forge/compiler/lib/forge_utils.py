@@ -41,6 +41,13 @@ def load_skill_instructions(skills_root, skill_ids, catalog=None):
                 raise ValueError(f"Skill is not registered: {skill}")
             if not registered.get("instructions_path"):
                 if registered.get("instructions_bytes", 0):
+                    if "instructions_sha256" not in registered:
+                        # Forge builds this catalogue. One built before instruction paths existed
+                        # sends sizes without paths, and fails every node that carries a skill.
+                        raise ValueError(
+                            f"Registered skill has no instruction source: {skill}. Forge's skill catalogue has no "
+                            "instruction paths, so forge.exe is older than this source: rebuild it "
+                            "(cd cmd/forge && go build -o forge.exe) and restart Forge.")
                     raise ValueError(f"Registered skill has no instruction source: {skill}")
                 continue  # Legacy dependency-only entry, explicitly present in the registry.
         source = Path(registered["instructions_path"]) if registered else Path(skills_root) / skill / "SKILL.md"

@@ -100,6 +100,17 @@ output-token limit can lower `llm_max_tokens` once for that route using another
 attempt; other routes keep the original budget. This is not automatic context
 truncation or recovery of a live conversation.
 
+Request failover ([RFC-052](rfc/RFC-052-Request-Level-Inference-Recovery.md)) does recover a live
+conversation, for OpenAI-compatible routes: configured provider profiles, Groq and OpenRouter. Forge
+runs a loopback inference proxy. A `worker_sdk` worker on such a route sends its model requests to the
+proxy, which adds the route's credential, so the worker never holds a provider key. When the provider
+rejects a request, for example one larger than a small per-minute cap, the dispatcher records what the
+failure proves about the route and the proxy sends the same request to another route. The worker keeps
+its conversation and repeats no tool, so this works after it has searched, fetched or written. Each
+move uses one of the node's attempts and is logged as "the inference proxy repeats only that request on
+another route". Local Ollama, Gemini, llama.cpp and forced models keep the direct path.
+`RETICLE_INFERENCE_PROXY=false` turns the proxy off.
+
 The terminal error includes `Recovery stopped`, the stop reason, attempts and
 providers tried, task exclusions, and eligible routes/providers still untried.
 Use those diagnostics before increasing the attempt budget. Native protocols
@@ -135,6 +146,15 @@ File tools: `read_file` (pages long files by line and says where the next part s
 explicit capability list. In container mode it runs Python 3.12 with pip and network access and no node,
 npm or git, in an image (`RETICLE_WORKER_IMAGE`) that is pulled before the command; the time limit is
 `RETICLE_COMMAND_TIMEOUT` (default 120 s).
+
+Rarely needed tools are offered by name rather than in full, because every tool's full definition went
+with every request: about 16 KB, more than half of an 8,000-token-per-minute route before any
+instructions, and read by a small model on every turn. `move_path`, `delete_path`, `read_url`,
+`apply_patch`, the diagnostics and server tools, `remember`, `delegate` and the image-editing tools are
+listed in `list_tools`. A worker loads them with `list_tools(names=[...])`, and a deferred tool it calls
+directly still runs and is loaded. A deferred tool named in the node's instructions or skills starts
+loaded. Deferred tools keep their capability gates. `RETICLE_TOOL_LOADING=all` sends every tool from
+the start.
 
 How much one tool reply may carry follows the model's context window when it is known (the catalogue's
 `contextLimit`, or `llm_num_ctx` for Ollama): 20% of the window, between 6,000 and 60,000 characters,

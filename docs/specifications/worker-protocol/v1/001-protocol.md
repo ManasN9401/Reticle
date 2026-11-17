@@ -1,7 +1,7 @@
 ---
 status: accepted
 owner: Reticle Project
-updated: 2026-10-06
+updated: 2026-11-16
 ---
 # Worker protocol v1
 
@@ -32,8 +32,33 @@ with `POST /v1/calls`. Broker calls cannot expand the task's capability grant.
 Cancellation, bounded output and effect certainty belong to the broker; the
 worker still emits exactly one final TaskResponse on stdout.
 
+Model requests may use a second loopback side channel, the inference proxy of
+RFC-052. When the runtime proxies an attempt it injects `RETICLE_INFERENCE_URL`
+(an OpenAI-compatible base URL ending in `/v1`) and `RETICLE_INFERENCE_TOKEN`,
+and removes the route credential from the task, so the child environment holds
+no provider secret. A worker that sees both variables sends every chat request
+to `POST {RETICLE_INFERENCE_URL}/chat/completions` with
+`Authorization: Bearer {RETICLE_INFERENCE_TOKEN}`, in the OpenAI chat-completions
+format, streamed or not. The proxy replaces the request's `model` with the
+current route's upstream name, so the worker's value only labels the request; the
+worker cannot choose the endpoint, the model or the credential. The token is bound
+to the attempt, is redacted from worker output, is never serialized into the task
+or model context, and is revoked when the attempt ends; a request with an unknown
+or revoked token is refused with 401.
+
+A proxied request either streams the provider's response unchanged or returns the
+provider's error status and body once the dispatcher has no other route for it.
+A provider that cannot be reached is reported as `502` with the error code
+`provider_unreachable`. A worker must execute tool calls only from a complete,
+validated response, so the proxy's repeating a pending request on another route
+never repeats a tool. Workers that call their provider themselves keep the
+direct path: the runtime proxies only workers whose entrypoint runs
+`worker_sdk.run`, and only on routes with an OpenAI-compatible endpoint.
+
 Contract tests: runtime/agent/worker_test.go,
-runtime/toolbroker/broker_test.go, runtime/memory/runtime_state_test.go,
-tests/test_workers.py and tests/test_memory_quality.py. A schema contract test
+runtime/toolbroker/broker_test.go, runtime/inference/proxy_test.go,
+runtime/agent/inference_routing_test.go, runtime/memory/runtime_state_test.go,
+tests/test_workers.py, tests/test_inference_proxy_worker.py and
+tests/test_memory_quality.py. A schema contract test
 checks that every serialized Go task field is declared in
 `schemas/task.schema.json`.

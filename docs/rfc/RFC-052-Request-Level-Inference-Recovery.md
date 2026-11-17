@@ -1,7 +1,7 @@
 ---
-status: draft
+status: accepted
 owner: Reticle Project
-updated: 2026-10-08
+updated: 2026-11-01
 ---
 
 # RFC-052: Request-Level Inference Recovery
@@ -17,8 +17,9 @@ safely recover a provider outage after the worker has already executed tools.
 This draft proposes recovery of the pending inference request while the same
 worker retains its conversation. It does not authorize replaying a tool call,
 restarting an unknown failed process, changing graph failure policy, generating
-repair nodes, or expanding capabilities. It is not implemented by the routing
-repair described below.
+repair nodes, or expanding capabilities. It was accepted on 1 November 2026 for an
+OpenAI-compatible first scope, which is implemented; see "Implemented scope" below.
+The routing repair described next is separate and predates it.
 
 ## Existing routing repair
 
@@ -80,6 +81,53 @@ channel, or draws on the dispatcher's attempt budget. The last point departs fro
 the budget rule below, and the missing failover is the main reason the full
 proposal remains open: a provider that stays down after files were written still
 fails the node.
+
+## Implemented scope: OpenAI-compatible proxy
+
+Accepted and implemented on 1 November 2026, limited to OpenAI-compatible routes. Code:
+`runtime/inference/proxy.go` (the proxy), `runtime/agent/inference_routing.go` (dispatcher
+policy), and the `RETICLE_INFERENCE_URL` branch of `worker_sdk.py`.
+
+- **Transport.** Forge starts one loopback listener (`127.0.0.1`, random port) at startup. Each
+  attempt that qualifies gets a session: a random 32-byte token, revoked when the attempt ends.
+  The worker receives `RETICLE_INFERENCE_URL` and `RETICLE_INFERENCE_TOKEN` and sends
+  `POST {URL}/chat/completions` with the token as its bearer credential. The token is redacted from
+  worker output like the tool broker's.
+- **Credentials.** The proxy adds the route's own credential to the upstream request. A proxied
+  attempt's task parameters carry no `api_key`, so the provider secret never enters the worker's
+  environment. The worker cannot choose the endpoint, the model or the credential: the proxy
+  replaces the request's `model` with the current route's upstream name.
+- **Which attempts qualify.** The route has an OpenAI-compatible endpoint with its credential
+  configured: a configured provider profile (`api_base`), Groq or OpenRouter. The worker's
+  entrypoint runs `worker_sdk.run`. The model was not forced. Local Ollama stays on the direct path,
+  because its OpenAI-compatible endpoint ignores `num_ctx`. So do Gemini and llama.cpp routes, and
+  workers such as the architect that call LiteLLM themselves. `RETICLE_INFERENCE_PROXY=false` turns
+  the proxy off; every attempt is then direct, as before.
+- **Failover.** When a provider rejects a request before any of its response has been relayed, the
+  proxy describes the failure as a final exception line with a no-effects marker. The dispatcher
+  classifies it with the same classifier it uses for worker stderr, and records the same facts as
+  for a failed attempt: task-local exclusions, learned request limits, cooled routes and
+  credentials, dead routes. If the failure is retryable and budget remains, the dispatcher selects
+  another route under the task's policy (skipping, for this request only, routes the proxy cannot
+  serve) and the proxy sends the same request there. Later requests of the attempt start on the
+  route that worked. A stream cut part-way is never repeated.
+- **Budget.** Each failover consumes one of the node's attempts (`max_retries`), as "Budget and
+  selection" below requires. A failure the proxy relays because no route or budget remains is not
+  recorded a second time when the worker exits.
+- **No tool replay.** The worker executes tools only after a complete response, so a repeated
+  request never repeats a tool call. This is what lets a node that has already searched, fetched or
+  written move to another route without a restart.
+
+Not implemented: request identities and revisions, adapters for non-OpenAI protocols, request
+events in the Event Taxonomy, and Studio views of request recovery. Failovers appear in Forge's log
+("the inference proxy repeats only that request on another route"). Worker-local repairs (above)
+still apply to errors the proxy relays.
+
+Verification: `runtime/inference/proxy_test.go`, `runtime/agent/inference_routing_test.go` (including
+a full dispatch with a real worker process that completes after a failover in one start, holding no
+provider key) and `tests/test_inference_proxy_worker.py`. Opt-in live smoke test, reported
+separately: on 1 November 2026, a streamed tool-calling request and a plain request to Groq
+`openai/gpt-oss-20b` through the proxy with LiteLLM's OpenAI client both succeeded.
 
 ## Proposed authority and transport
 

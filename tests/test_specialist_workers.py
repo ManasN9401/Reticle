@@ -73,7 +73,7 @@ class Worker(unittest.TestCase):
     def offered(self, kind, capabilities):
         # Stop at the first model request: only the tool list is wanted.
         _, calls, _ = self.run_worker(kind, [], capabilities)
-        return {tool["function"]["name"] for tool in calls[0]["tools"]}
+        return worker_sdk.offered_tool_names(calls[0]["tools"])
 
 
 BASE = ["workspace.read", "workspace.write"]

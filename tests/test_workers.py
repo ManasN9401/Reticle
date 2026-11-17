@@ -290,7 +290,10 @@ class WorkerContracts(unittest.TestCase):
         import comfy_tools
         with tempfile.TemporaryDirectory() as temp,patch.dict("os.environ",{},clear=True):
             with self.assertRaises(ValueError): comfy_tools.generate_local_asset("fixture","../escape",temp)
-            with self.assertRaisesRegex(ValueError,"COMFYUI_CHECKPOINT"):
+            # No reachable ComfyUI, whatever runs on this machine: a real one would supply a
+            # checkpoint and receive a generation job from the test.
+            with patch.object(comfy_tools,"_comfy_endpoint",return_value=("http://127.0.0.1:8188",None)), \
+                    self.assertRaisesRegex(ValueError,"COMFYUI_CHECKPOINT"):
                 comfy_tools.generate_local_asset("fixture","image.png",temp)
             with patch.dict("os.environ",{"COMFYUI_HOST":"https://example.com"}):
                 with self.assertRaisesRegex(ValueError,"local ComfyUI"):

@@ -36,7 +36,8 @@ RFCs marked `historical` preserve design context and do not override an accepted
 - [Plugin manifest v1](specifications/plugin-manifest-v1.md).
 - [Attempt-scoped tool broker RFC](rfc/RFC-050-Attempt-Scoped-Tool-Broker.md).
 - [Configurable model providers RFC](rfc/RFC-051-Configurable-Model-Providers.md).
-- [Request-level inference recovery proposal](rfc/RFC-052-Request-Level-Inference-Recovery.md).
+- [Request-level inference recovery RFC](rfc/RFC-052-Request-Level-Inference-Recovery.md): the inference proxy that repeats a failed model request on another route.
+- [Worker protocol v1](specifications/worker-protocol/v1/001-protocol.md): the stdin/stdout contract and the tool-broker and inference side channels.
 - [Current project state and extensibility sequence](planning/PROJECT_STATE_27-09-26.md).
 - [Planning document index](planning/README.md).
 - [Historical material boundary](archive/README.md).

@@ -36,7 +36,7 @@ def offered_tool_names(kind):
         pass
 
     def completion(**kwargs):
-        captured.append([tool["function"]["name"] for tool in kwargs["tools"]])
+        captured.append(sorted(worker_sdk.offered_tool_names(kwargs["tools"])))
         raise Done()
 
     captured = []

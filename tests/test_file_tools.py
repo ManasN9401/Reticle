@@ -291,7 +291,9 @@ class ThroughTheWorker(Workspace):
         return json.loads(output.getvalue()), calls
 
     def offered(self, calls):
-        return {tool["function"]["name"]: tool["function"] for tool in calls[0]["tools"]}
+        """Sent tools by name; a deferred tool that list_tools can load maps to None."""
+        sent = {tool["function"]["name"]: tool["function"] for tool in calls[0]["tools"]}
+        return {name: sent.get(name) for name in worker_sdk.offered_tool_names(calls[0]["tools"])}
 
     def test_every_file_tool_is_offered_by_default_and_the_terminal_says_what_it_is(self):
         _, calls = self.run_worker([])

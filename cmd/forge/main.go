@@ -257,6 +257,12 @@ func main() {
 		return
 	}
 	defer dispatcher.CloseToolBroker(context.Background())
+	// RFC-052 inference proxy. Without it every attempt calls its provider directly, as before.
+	if err := dispatcher.StartInferenceProxy(); err != nil {
+		orch.Logger.Error("Inference proxy failed to start; workers will call providers directly", "error", err)
+	} else {
+		defer dispatcher.CloseInferenceProxy(context.Background())
+	}
 	if err := dispatcher.ToolBroker.SetEffectJournal(effectManager); err != nil {
 		orch.Logger.Error("Tool broker effect journal failed", "error", err)
 		return

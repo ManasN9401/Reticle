@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/reticle/runtime/events"
+	"github.com/reticle/runtime/inference"
 	"github.com/reticle/runtime/logger"
 	"github.com/reticle/runtime/memory"
 	"github.com/reticle/runtime/routing"
@@ -29,6 +30,8 @@ type Dispatcher struct {
 	RuntimeState *memory.RuntimeState
 	Devices      *DeviceLeaseManager
 	ToolBroker   *toolbroker.Broker
+	// Inference is the RFC-052 proxy; nil keeps every attempt on the direct provider path.
+	Inference *inference.Proxy
 
 	workersMu     sync.RWMutex
 	cancelled     map[string]bool
@@ -482,12 +485,24 @@ func (d *Dispatcher) Start() {
 					}
 					attemptEnvironment = credentials.Environment()
 				}
+				var inferenceSession *inference.Session
+				if !forced {
+					var inferenceEnvironment []string
+					inferenceSession, inferenceEnvironment = d.beginProxiedInference(w, t, attemptModel, routes, finalTier, maxRetries-attempt)
+					if inferenceSession != nil {
+						attemptEnvironment = append(attemptEnvironment, inferenceEnvironment...)
+						delete(t.Parameters, "api_key") // the proxy holds the provider credential, never the worker
+					}
+				}
 
 				select {
 				case d.slots <- struct{}{}:
 				case <-ctx.Done():
 					if d.ToolBroker != nil {
 						d.ToolBroker.RevokeAttempt(t.AttemptID)
+					}
+					if inferenceSession != nil {
+						d.Inference.End(inferenceSession)
 					}
 					d.Bus.Publish("AttemptFinished", "dispatcher", map[string]any{"task_id": string(t.ID), "attempt_id": t.AttemptID, "outcome": "failed", "reason": "timeout"})
 					d.Bus.Publish("WorkerFailed", "dispatcher", map[string]any{"task_id": string(t.ID), "worker_id": string(w.ID), "attempt_id": t.AttemptID, "reason": "timeout", "stderr": ctx.Err().Error()})
@@ -510,6 +525,16 @@ func (d *Dispatcher) Start() {
 				<-d.slots
 				if d.ToolBroker != nil {
 					d.ToolBroker.RevokeAttempt(t.AttemptID)
+				}
+				// A proxied attempt may have moved route: its failure, and its learned facts, concern the
+				// route it ended on, and each move used one of the node's attempts.
+				proxyLearned := false
+				if inferenceSession != nil {
+					d.Inference.End(inferenceSession)
+					final := inferenceSession.Route()
+					attemptModel = &final
+					attempt += inferenceSession.Failovers()
+					proxyLearned = inferenceSession.Exhausted()
 				}
 
 				if ctx.Err() != nil {
@@ -573,72 +598,14 @@ func (d *Dispatcher) Start() {
 				// Failed attempt
 				d.Logger.Error("Worker execution failed (attempt)", "worker_id", w.ID, "attempt", attempt, "reason", failure.Reason, "stderr", failure.Stderr)
 				lastFailure = failure
-				if !forced && routes.failed(attemptModel, disposition, failure, t.Memory["llm_max_tokens"]) {
+				if !forced && !proxyLearned && routes.failed(attemptModel, disposition, failure, t.Memory["llm_max_tokens"]) {
 					d.Router.Release(string(t.ID))
 					d.Logger.Info("Provider supplied an output-token bound; next attempt will use the adjusted request on this route.", "task_id", t.ID, "model", attemptModel.ID, "max_tokens", routes.limits[attemptModel.Key()])
 					continue
 				}
 
-				if d.Router != nil {
-					if disposition.penalizeProvider {
-						if apiKeyEnv, ok := t.Parameters["api_key"].(string); ok && apiKeyEnv != "" {
-							// A provider that says when its quota resets is believed, so an exhausted
-							// daily limit is not probed again every 15 minutes.
-							resetAt := routing.QuotaResetAt(failure.Stderr, time.Now())
-							if resetAt.IsZero() && isBillingFailure(failure.Stderr) {
-								resetAt = time.Now().Add(routing.BillingRetryAfter)
-							}
-							d.Router.PenalizeProviderForUntil(string(w.ID), apiKeyEnv, disposition.category, disposition.category, resetAt)
-						}
-						if disposition.penalizeFamily {
-							if modelID, ok := t.Parameters["llm_model"].(string); ok {
-								if separator := strings.IndexByte(modelID, '/'); separator > 0 {
-									d.Router.PenalizeProviderFamilyUntil(modelID[:separator], routing.QuotaResetAt(failure.Stderr, time.Now()))
-								}
-							}
-						}
-					} else if disposition.disableModel {
-						if modelID, ok := t.Parameters["llm_model"].(string); ok && modelID != "" {
-							d.Logger.Info("Model is incompatible with the required chat/tool API; disabling only this model and trying another.", "model", modelID)
-							d.Router.PenalizeModel(modelID)
-						}
-					} else if disposition.category == "model_unavailable" && attemptModel != nil {
-						d.Logger.Info("Provider does not serve this model to this credential; skipping the route for every task.", "worker_id", w.ID, "model", attemptModel.ID)
-						d.Router.MarkRouteDead(*attemptModel, time.Now().Add(modelUnavailableFor), "model not found for this credential")
-					} else if disposition.category == "provider_rate_window" && attemptModel != nil {
-						// Only this route waits, for as long as the provider said; a request that alone takes
-						// most of the window is kept off the route for tasks of that size.
-						text := finalExceptionLine(failure.Stderr)
-						if window, ok := routing.ParseRateWindow(text); ok {
-							wait := window.Cooldown()
-							d.Logger.Info("Rate window used up on one route; cooling only that route.", "worker_id", w.ID, "model", attemptModel.ID, "wait", wait.String())
-							d.Router.MarkRouteUnavailable(attemptModel.Key(), time.Now().Add(wait), fmt.Sprintf("rate window: limit %d, used %d, requested %d", window.Limit, window.Used, window.Requested))
-							if cap := window.EffectiveRequestCap(); cap > 0 && routing.IsPerMinute(text) {
-								d.Router.LearnRequestLimit(attemptModel.Key(), cap)
-							}
-						}
-					} else if disposition.category == "model_request" {
-						d.Logger.Info("Model rejected this request; lowering its score and trying another.", "worker_id", w.ID)
-						// "Limit 8000, Requested 11399": a size cap is a fact about the route. Learn it so
-						// later tasks that cannot fit skip it, and spare this task the same model on
-						// its other credentials.
-						if attemptModel != nil {
-							if limit := routing.ParseRequestLimit(finalExceptionLine(failure.Stderr)); limit > 0 {
-								d.Router.LearnRequestLimit(attemptModel.Key(), limit)
-								if routes.policy.MinRequestTokens > limit {
-									for _, sibling := range d.Router.RoutesOfModel(attemptModel.ID, attemptModel.Provider) {
-										routes.policy.Excluded[sibling] = true
-									}
-								}
-							}
-						}
-					}
-					if disposition.category == "provider_transient" || disposition.category == "timeout" {
-						if attemptModel != nil {
-							d.Router.CoolProviderSlot(routing.ProviderSlot(*attemptModel), time.Minute)
-						}
-					}
-					d.Router.UpdateProbability(string(w.ID), string(t.ID), false)
+				if !proxyLearned {
+					d.learnProviderFailure(w, t, attemptModel, disposition, failure, routes)
 				}
 
 				// Don't retry if we forced the model
@@ -716,9 +683,14 @@ func copyParameters(p map[string]any) map[string]any {
 	}
 	return out
 }
+
+// deterministicWorker reports a worker that never calls a model, so no route is selected for it.
+// A worker that runs worker_sdk.run must not be listed: it would start without llm_model and fail
+// "No model was routed for this task" (hermes-coder, quant, osint and browser did, once they
+// became real workers).
 func deterministicWorker(id WorkerID) bool {
 	switch id {
-	case "scaffolder-agent", "writer-agent", "coder-agent", "hermes-coder-agent", "quant-agent", "osint-agent", "browser-agent", "hitl-agent", "graphify-agent":
+	case "scaffolder-agent", "writer-agent", "coder-agent", "hitl-agent", "graphify-agent":
 		return true
 	}
 	return false
