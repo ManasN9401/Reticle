@@ -125,7 +125,7 @@ reviewed adapter. See RFC-051.
 
 Waitlist admission creates the isolated workspace and commits required run/compiler memory as one acknowledged batch before submitting a workflow. A workspace or memory failure terminalizes that item without starting compilation.
 
-Workers receive resolved capabilities from their manifest. The shared SDK filters its tool definitions from those grants. It sends rarely needed tools by name only, in `list_tools`; a model loads them with `list_tools(names=[...])`, and a deferred tool it calls directly still runs, after the same argument checks, and stays loaded. Deferral changes what each request carries, never what a worker may call. `RETICLE_TOOL_LOADING=all` sends every tool. Native execution also requires the user's native setting. Native execution also requires the user's native setting.
+Workers receive resolved capabilities from their manifest. The shared SDK filters its tool definitions from those grants. It sends rarely needed tools by name only, in `list_tools`; a model loads them with `list_tools(names=[...])`, and a deferred tool it calls directly still runs, after the same argument checks, and stays loaded. Deferral changes what each request carries, never what a worker may call. `RETICLE_TOOL_LOADING=all` sends every tool. Native execution also requires the user's native setting.
 
 Forge owns one loopback attempt-scoped tool broker. Before spawning a concrete
 retry, the dispatcher creates a random credential bound to the attempt's
