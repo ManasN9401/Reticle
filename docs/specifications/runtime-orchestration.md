@@ -152,3 +152,11 @@ and cancellation, not an OS sandbox.
 ## 3. Dynamic Execution & Hot-Swapping
 
 When a supervisor requests delegation, the `WorkflowEngine` validates and commits new execution-scoped nodes and edges. Graph changes do not hot-reload global agent definitions. The separately managed plugin registry can publish or remove definitions for future dispatches; active attempts retain their immutable grants. See [RFC-045](../rfc/RFC-045-Durable-Execution-Capabilities-Effects.md) for restart and external-effect semantics.
+
+
+Retry/effect proof tokens must begin their stderr line; marker-looking text inside
+structured model/tool logs is not protocol evidence. Legacy workers may append a
+diagnostic on the same marker line. Effect state is monotonic within an attempt:
+`UNSAFE` cannot be downgraded by a later progress or exit token, and `FILES` cannot
+become `NONE`. Checkpoint rewind eligibility uses this same conservative progress
+proof; it does not turn a worker assertion into an OS sandbox boundary.

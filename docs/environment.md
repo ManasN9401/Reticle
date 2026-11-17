@@ -180,3 +180,17 @@ A worker granted the `browser.run` capability can load its site in a headless br
 Container commands without `network.public` run with Docker `--network none`. With that grant, Docker networking remains unrestricted: public-only egress enforcement is still pending. Native execution remains trusted host execution. Image acquisition is a runtime provisioning operation and may require networking before the isolated command starts.
 
 SDK command containers without `workspace.write` mount source files read-only. Diagnostics use the same grant. Their selected project directory is checked against the workspace and becomes the command's working directory; this does not widen the mounted source root. Native mode is still trusted execution as the user and has no OS-enforced read-only filesystem boundary.
+
+## Recoverable edits and checkpoints
+
+Workers with `workspace.write` receive `apply_patch` for bounded unified text
+patches. The SDK recovers interrupted patch journals before later editing, and
+refuses conflicting recovery instead of overwriting a later edit.
+
+Set `RETICLE_WORKSPACE_CHECKPOINTS=true` in Forge's host environment for opt-in
+runtime-owned Git before/after snapshots. Git must be installed. Source and file
+budgets, exclusions, concurrency limits and the authenticated inspection/rewind
+API are documented in [workspace history](workspace-history.md). The private
+session repository never modifies the user's repository index or refs. Checkpoint
+capture does not supply durable conversations, automatic task rewind or rollback
+of external effects.

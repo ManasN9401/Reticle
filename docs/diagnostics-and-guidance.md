@@ -35,3 +35,11 @@ Guidance is refreshed at inference boundaries. Before a guided file tool enters 
 Each instruction file is limited to 12,000 UTF-8 bytes; selected guidance totals at most 32,000 bytes and the SDK lowers that ceiling using its route context budget. Exceeding the budget produces an explicit error instead of silently dropping constraints. Source metadata, without instruction bodies, is saved under the session's `guidance/` directory. Guidance does not expand capabilities, authorize deployments, override approvals or make untrusted host code contained.
 
 Contract checks: `tests/test_diagnostics_tools.py`, `tests/test_worker_diagnostics.py`, `tests/test_repository_rules.py`, and the compiler contract suite.
+
+## Patches and history
+
+`apply_patch` validates scoped guidance for every target before applying a unified
+diff. Successful updates invalidate previous diagnostic receipts and require
+fresh checks. [Workspace history](workspace-history.md) describes the rollback
+journal, pending-recovery gate and optional Git baseline inspection. Git status
+and diff are observations, not acceptance-test evidence.

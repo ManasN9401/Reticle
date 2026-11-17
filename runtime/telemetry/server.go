@@ -348,6 +348,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/mcp/servers/", s.handleMCPServer)
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
 	mux.HandleFunc("/api/plugins/", s.handlePlugin)
+	mux.HandleFunc("/api/checkpoints", s.handleCheckpoints)
+	mux.HandleFunc("/api/checkpoints/diff", s.handleCheckpointDiff)
+	mux.HandleFunc("/api/checkpoints/rewind", s.handleCheckpointRewind)
 	mux.HandleFunc("/api/effects", s.handleEffects)
 	mux.HandleFunc("/api/effects/reconcile", s.handleEffectReconcile)
 

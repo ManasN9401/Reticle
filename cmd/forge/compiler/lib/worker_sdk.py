@@ -81,7 +81,7 @@ def _broker_call(descriptor, call_id, arguments):
 
 # Tools that change the workspace; replaying a worker after one has run is unsafe.
 EFFECTFUL_LOCAL_TOOLS = frozenset({
-    "write_file", "replace_file_content", "apply_edits", "move_path", "delete_path", "execute_terminal_command",
+    "write_file", "replace_file_content", "apply_edits", "apply_patch", "move_path", "delete_path", "execute_terminal_command",
     "generate_local_asset", "generate_local_assets", "index_directory", "remove_path_from_index",
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
     "run_page",
@@ -129,7 +129,7 @@ def _tool_argument_error(name, properties, args):
 REPLAY_SAFE_LOCAL_TOOLS = frozenset({
     # apply_edits is all-or-nothing and fails once its targets are gone; move and delete only touch
     # workspace paths and fail harmlessly when run again.
-    "write_file", "replace_file_content", "apply_edits", "move_path", "delete_path", "generate_local_asset", "generate_local_assets",
+    "write_file", "replace_file_content", "apply_edits", "apply_patch", "move_path", "delete_path", "generate_local_asset", "generate_local_assets",
     "resize_image", "make_thumbnails", "convert_image", "crop_image",
 })
 
@@ -951,6 +951,17 @@ def run(instructions, kind="coding", skills=None):
             {"kind": {"type": "string", "optional": True, "enum": ["auto", "test", "typecheck", "lint", "build"]},
              "path": {"type": "string", "optional": True}})
         tool_capabilities["run_diagnostics"] = process_capability
+    if "workspace.write" in capabilities:
+        definitions["apply_patch"] = (
+            "Apply a UTF-8 unified diff with ---/+++ headers and @@ hunks across up to 32 workspace text files. Supports add/update/delete, exact or unique whitespace-only context matching, 1 MiB per file, 2 MiB patch and 8 MiB combined before/after data. Validates the complete patch first, locks targets and journals rollback before changing files. No rename/binary/mode-only patches. Source files stay unchanged on validation failure. Multi-file visibility is not simultaneous; interruption is recovered before later edits.",
+            {"patch": "string"})
+        tool_capabilities["apply_patch"] = "workspace.write"
+    if "workspace.read" in capabilities and os.environ.get("RETICLE_WORKSPACE_CHECKPOINT_ID"):
+        definitions["git_status"] = ("Compare the workspace with this attempt's runtime checkpoint. Includes additions, changes and deletions; dependencies, runtime locks and conventional secret files are excluded. These are observed workspace changes, not actor attribution. offset defaults to 1, limit to 100.",
+            {"offset":{"type":"integer","optional":True},"limit":{"type":"integer","optional":True}})
+        definitions["git_diff"] = ("Read a paged text diff against this attempt's runtime checkpoint; binary/large files are summarized. path optionally narrows to one file, offset is a one-based line. No repository metadata or workspace files are modified.",
+            {"path":{"type":"string","optional":True},"offset":{"type":"integer","optional":True},"limit":{"type":"integer","optional":True}})
+        tool_capabilities["git_status"] = tool_capabilities["git_diff"] = "workspace.read"
     if "memory.execution" in capabilities:
         definitions["remember"] = ("Save a JSON value in this execution's memory", {"key":"string", "value_json":"string"})
         definitions["remember_if_version"] = ("Update an execution-memory key only if its execution-scoped revision in memory_metadata still matches; use 0 to create an absent execution key", {"key":"string", "value_json":"string", "expected_version":"string"})
@@ -1180,7 +1191,15 @@ def run(instructions, kind="coding", skills=None):
     # That prompt, when present, is the more specific source of declared outputs.
     required_outputs = _required_output_paths(str(req.get("parameters", {}).get("system_prompt", ""))) or _required_output_paths(instructions)
     declared_inputs = _declared_input_paths(str(req.get("parameters", {}).get("system_prompt", ""))) or _declared_input_paths(instructions)
-    effects_started = False
+    import patch_tools
+    pending_patches = patch_tools.pending(workspace)
+    if pending_patches:
+        if "workspace.write" not in capabilities:
+            raise PermissionError("Workspace has an interrupted patch; a writer/operator must recover it before reading a mixed state")
+        _announce_effects(None, True, False)
+        mem = dict(mem)
+        mem["recovered_patch_transactions"] = patch_tools.recover(workspace)
+    effects_started = bool(pending_patches)
     # Set once something that cannot be replayed ran: a terminal command, a RAG index change
     # or a brokered tool. File writes alone leave it False.
     unsafe_effects = False
@@ -1524,6 +1543,17 @@ def run(instructions, kind="coding", skills=None):
                         raise ValueError(argument_error)
                     if name in deferred:
                         loaded_tools.add(name)  # called without list_tools: keep its definition from now on
+                if name == "apply_patch" and broker_descriptor is None:
+                    import patch_tools
+                    paths = [change["path"] for change in patch_tools.parse_patch(args["patch"])]
+                    if refresh_repository_guidance(paths):
+                        raise ValueError("Scoped repository guidance changed and has been loaded. Review it before retrying the patch.")
+                if name in {"write_file", "replace_file_content", "apply_edits", "move_path", "delete_path", "mark_task_complete"} and patch_tools.pending(workspace):
+                    if "workspace.write" not in capabilities:
+                        raise PermissionError("Interrupted patch requires a writer/operator to recover")
+                    effects_started = True
+                    announced_effects = _announce_effects(announced_effects, effects_started, unsafe_effects)
+                    patch_tools.recover(workspace)
                 if broker_descriptor is None and name in {
                     "read_file", "write_file", "replace_file_content", "apply_edits", "move_path", "delete_path",
                     "check_web_page", "run_page", "run_diagnostics", "resize_image", "crop_image", "convert_image",
@@ -1628,6 +1658,10 @@ def run(instructions, kind="coding", skills=None):
                         update["expected_version"]=expected
                     memory_updates.append(update)
                     result = "Memory will be committed with the final response"
+                elif name in {"git_status","git_diff"}:
+                    import history_tools
+                    result = getattr(history_tools,name)(workspace,**args,
+                        checkpoint_id=os.environ.get("RETICLE_WORKSPACE_CHECKPOINT_ID",""),task_id=req["id"])
                 elif name == "list_tools":
                     wanted = [tool for tool in args.get("names") or [] if isinstance(tool, str)]
                     unknown = [tool for tool in wanted if tool not in definitions]
@@ -1709,6 +1743,28 @@ def run(instructions, kind="coding", skills=None):
                             script_path = _direct_script_verification_path(parts)
                             if script_path and script_path in pending_modified_paths:
                                 record_verification(name, args["command"], checked_path=script_path)
+                elif name == "apply_patch":
+                    report = patch_tools.apply_patch(args["patch"], workspace,
+                        task_id=req["id"], attempt_id=req.get("attempt_id", ""))
+                    verified = False
+                    latest_diagnostic = None
+                    hermes["changes"] += 1
+                    for entry in report["files"]:
+                        changed_path = entry["path"]
+                        read_digests.pop(changed_path, None)
+                        if entry["deleted"]:
+                            written_paths.discard(changed_path)
+                            pending_modified_paths.discard(changed_path)
+                            files.pop(changed_path, None)
+                        else:
+                            written_paths.add(changed_path)
+                            pending_modified_paths.add(changed_path)
+                            files[changed_path] = toolset.safe_path(workspace, changed_path,literal=True).read_text(encoding="utf-8")
+                        if _is_web_file(changed_path):
+                            web_written, web_checked = True, False
+                    if not pending_modified_paths and all(entry["deleted"] for entry in report["files"]):
+                        record_verification("apply_patch",report["receipt"])
+                    result = json.dumps(report)
                 elif name == "write_file":
                     result = toolset.write_file(
                         workspace_dir=workspace, files_modified=files,

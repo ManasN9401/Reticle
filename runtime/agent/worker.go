@@ -198,7 +198,7 @@ func (w *Worker) Execute(ctx context.Context, req Task) (*TaskResponse, *WorkerF
 // ExecuteWithEnvironment adds runtime-owned, attempt-scoped environment values
 // without serializing them into the task payload. Callers must only pass
 // ephemeral values whose lifecycle is bounded by this invocation.
-func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEnv []string) (*TaskResponse, *WorkerFailure) {
+func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEnv []string) (response *TaskResponse, failure *WorkerFailure) {
 	secretValues := environmentValues(attemptEnv, "RETICLE_TOOL_BROKER_TOKEN", "RETICLE_INFERENCE_TOKEN")
 	redactAttemptSecrets := func(value string) string {
 		value = logger.Redact(value)
@@ -235,6 +235,35 @@ func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEn
 		executable = path
 		explicit = append(explicit, injected...)
 	}
+	var history *WorkspaceHistory
+	var checkpoint *WorkspaceCheckpoint
+	var historyStderr string
+	if os.Getenv("RETICLE_WORKSPACE_CHECKPOINTS") == "true" && req.AttemptID != "" {
+		if workspace, ok := req.Memory["workspace_dir"].(string); ok && workspace != "" {
+			var historyErr error
+			history, historyErr = OpenWorkspaceHistory(workspace)
+			if historyErr != nil {
+				return fail(WorkerStartFailed, historyErr)
+			}
+			checkpoint, historyErr = history.Begin(string(req.ID), req.AttemptID)
+			if historyErr != nil {
+				return fail(WorkerStartFailed, historyErr)
+			}
+			explicit = append(explicit, "RETICLE_WORKSPACE_CHECKPOINT_ID="+checkpoint.ID)
+			w.Bus.Publish("WorkerLog", "worker", map[string]any{"task_id": string(req.ID), "worker_id": string(w.ID), "log": "Workspace checkpoint " + checkpoint.ID + " recorded before this attempt"})
+			defer func() {
+				outcome := "succeeded"
+				if failure != nil {
+					outcome = "failed"
+					historyStderr += "\n" + failure.Stderr
+				}
+				if historyErr := history.Finish(checkpoint, outcome, historyStderr); historyErr != nil {
+					response = nil
+					failure = &WorkerFailure{Reason: WorkerProtocolError, ExitCode: 1, Stderr: "Workspace checkpoint failed: " + historyErr.Error() + "\n[RETICLE_EFFECTS: UNSAFE]"}
+				}
+			}()
+		}
+	}
 	cmd := exec.CommandContext(ctx, executable, w.Args...)
 	configureProcess(cmd)
 	cmd.Stdin = bytes.NewReader(append(data, '\n'))
@@ -257,6 +286,7 @@ func (w *Worker) ExecuteWithEnvironment(ctx context.Context, req Task, attemptEn
 	err = cmd.Run()
 	out.flush()
 	errout.flush()
+	historyStderr = errout.String()
 	if ctx.Err() != nil {
 		reason := WorkerTimeout
 		if errors.Is(ctx.Err(), context.Canceled) {
